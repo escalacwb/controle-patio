@@ -30,7 +30,7 @@ load_css("style.css")
 # --- ADICIONE SUA LOGO AQUI ---
 # Esta linha exibe a imagem que está na pasta 'assets'.
 # Se o nome do seu arquivo for diferente de 'logo.png', apenas troque o nome aqui.
-st.sidebar.image("assets/logo.png", use_column_width=True)
+st.sidebar.image("assets/logo.png", use_container_width=True)
 
 
 st.sidebar.title("Menu de Navegação")
