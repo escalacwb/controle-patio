@@ -1,0 +1,43 @@
+/* Força o desaparecimento do menu de navegação de arquivos do Streamlit */
+[data-testid="stSidebarNav"] {
+    display: none;
+}
+
+/* Define a largura máxima do bloco principal do app em telas grandes */
+.main .block-container {
+    max-width: 1000px;
+    padding-top: 3rem;
+    padding-right: 2rem;
+    padding-left: 2rem;
+    padding-bottom: 3rem;
+}
+
+/* Melhora a aparência dos containers que usamos para os blocos */
+[data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    padding: 1rem;
+}
+
+/* Estilo para o botão de remover vermelho */
+button[title^="Remover"] {
+    background-color: #a11d1f !important;
+    border-color: #a11d1f !important;
+    color: white !important;
+}
+
+button[title^="Remover"]:hover {
+    background-color: #821719 !important;
+    border-color: #821719 !important;
+    color: white !important;
+}
+
+/* Garante que o botão de "Adicionar" não fique vermelho */
+button[title^="Adicionar"] {
+    background-color: #22a7f0 !important;
+    border-color: #22a7f0 !important;
+}
+button[title^="Adicionar"]:hover {
+    background-color: #1a8ccd !important;
+    border-color: #1a8ccd !important;
+}
