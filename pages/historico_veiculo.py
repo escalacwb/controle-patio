@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
+from utils import get_service_details_for_execution
 
 def app():
     st.title("📋 Histórico por Veículo")
@@ -16,45 +17,45 @@ def app():
         return
 
     try:
-        query = """
-            SELECT
-                es.quilometragem, es.inicio_execucao, es.fim_execucao, es.status as status_execucao, es.observacao_execucao,
-                serv.area, serv.tipo, serv.quantidade, serv.status as status_servico, f.nome as funcionario_nome
-            FROM execucao_servico es
-            LEFT JOIN (
-                SELECT execucao_id, 'Borracharia' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_borracharia
-                UNION ALL
-                SELECT execucao_id, 'Alinhamento' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_alinhamento
-                UNION ALL
-                SELECT execucao_id, 'Manutenção Mecânica' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_manutencao
-            ) serv ON es.id = serv.execucao_id
-            LEFT JOIN funcionarios f ON serv.funcionario_id = f.id
-            JOIN veiculos v ON es.veiculo_id = v.id
-            WHERE v.placa = %s
-            ORDER BY es.inicio_execucao DESC, serv.area;
-        """
-        df_completo = pd.read_sql(query, conn, params=(search_placa,))
+        query_veiculo = "SELECT id FROM veiculos WHERE placa = %s"
+        df_veiculo = pd.read_sql(query_veiculo, conn, params=(search_placa,))
+        if df_veiculo.empty:
+            st.warning(f"Nenhum veículo encontrado com a placa '{search_placa}'.")
+            return
+        veiculo_id = int(df_veiculo.iloc[0]['id'])
 
-        if df_completo.empty:
+        execucoes_query = """
+            SELECT id as execucao_id, quilometragem, inicio_execucao, fim_execucao, status as status_execucao, observacao_execucao
+            FROM execucao_servico
+            WHERE veiculo_id = %s
+            ORDER BY inicio_execucao DESC;
+        """
+        df_execucoes = pd.read_sql(execucoes_query, conn, params=(veiculo_id,))
+
+        if df_execucoes.empty:
             st.info("Nenhum histórico encontrado para esta placa.")
             return
             
-        # --- CORREÇÃO APLICADA AQUI: Adicionado sort=False ---
-        visitas_agrupadas = df_completo.groupby('quilometragem', sort=False)
-        st.write(f"**Total de visitas encontradas:** {len(visitas_agrupadas)}")
+        st.write(f"**Total de visitas encontradas:** {len(df_execucoes)}")
 
-        for quilometragem, grupo_visita in visitas_agrupadas:
-            info_visita = grupo_visita.iloc[0]
-            with st.expander(f"**Visita (KM: {quilometragem:,})** | Status: {info_visita['status_execucao'].upper()}".replace(',', '.')):
-                observacao = info_visita['observacao_execucao']
-                if pd.notna(observacao) and observacao:
+        for _, execucao in df_execucoes.iterrows():
+            inicio_execucao = pd.to_datetime(execucao['inicio_execucao'])
+            
+            # --- ALTERAÇÃO APLICADA AQUI ---
+            # Formatamos a data e a adicionamos ao título do expander.
+            titulo_expander = f"Visita de {inicio_execucao.strftime('%d/%m/%Y')} (KM: {execucao['quilometragem']:,}) | Status: {execucao['status_execucao'].upper()}".replace(',', '.')
+            
+            with st.expander(titulo_expander):
+                if pd.notna(execucao['observacao_execucao']) and execucao['observacao_execucao']:
                     st.markdown("**Observações da Visita:**")
-                    st.info(observacao)
+                    st.info(execucao['observacao_execucao'])
 
                 st.markdown("##### Serviços realizados nesta visita:")
-                servicos_da_visita = grupo_visita[['area', 'tipo', 'quantidade', 'status_servico', 'funcionario_nome']].rename(columns={'area': 'Área', 'tipo': 'Tipo de Serviço', 'quantidade': 'Qtd.', 'status_servico': 'Status', 'funcionario_nome': 'Executado por'})
-                servicos_da_visita.dropna(subset=['Tipo de Serviço'], inplace=True)
-                st.table(servicos_da_visita)
+                df_detalhes = get_service_details_for_execution(conn, execucao['execucao_id'])
+                if not df_detalhes.empty:
+                    st.table(df_detalhes.rename(columns={'area': 'Área', 'tipo': 'Tipo de Serviço', 'quantidade': 'Qtd.', 'status': 'Status', 'funcionario_nome': 'Executado por'}))
+                else:
+                    st.warning("Nenhum detalhe de serviço encontrado para esta execução.")
 
     except Exception as e:
         st.error(f"❌ Ocorreu um erro: {e}")
