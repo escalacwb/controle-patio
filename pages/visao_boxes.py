@@ -7,11 +7,8 @@ from utils import get_catalogo_servicos
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
-# A inicialização foi REMOVIDA DAQUI.
-
 def visao_boxes():
-    # --- CORREÇÃO: A inicialização foi MOVIDA PARA CÁ ---
-    # Este é o local mais seguro para garantir que o estado sempre exista.
+    # A inicialização do state foi movida para cá, que é o local mais seguro.
     if 'box_states' not in st.session_state:
         st.session_state.box_states = {}
 
@@ -30,7 +27,6 @@ def visao_boxes():
             st.warning("Nenhum box cadastrado no sistema.")
             return
 
-        # Para evitar erro quando só há 1 box, garantimos que 'cols' seja sempre uma lista
         if len(df_boxes) == 1:
             cols = [st]
         else:
@@ -42,10 +38,14 @@ def visao_boxes():
 
     except Exception as e:
         st.error(f"❌ Erro Crítico ao carregar a visão dos boxes: {e}")
+        # Manter st.exception(e) é bom pois se algo der errado no futuro,
+        # ele mostrará o erro detalhado para nós.
         st.exception(e)
     finally:
         release_connection(conn)
 
+# (O resto do arquivo continua exatamente igual, então omiti para brevidade,
+# mas você pode substituir o arquivo inteiro com este código sem problemas)
 
 def get_estado_atual_boxes(conn):
     query = """
