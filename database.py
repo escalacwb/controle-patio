@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 def get_db_url():
     """
     Busca a URL do banco de dados de forma inteligente.
-    Primeiro, tenta os Secrets do Streamlit (para a nuvem).
-    Se não encontrar, tenta o arquivo .env (para o computador local).
     """
     if hasattr(st, 'secrets') and st.secrets.get("DB_URL"):
         return st.secrets["DB_URL"]
@@ -21,6 +19,11 @@ def init_connection_pool():
     db_url = None
     try:
         db_url = get_db_url()
+        
+        # --- LINHA DE DIAGNÓSTICO ---
+        # Vamos mostrar na tela a URL que estamos tentando usar.
+        st.info(f"DEBUG: Tentando conectar com a URL: {db_url}")
+        
         if not db_url:
             raise ValueError("URL do banco de dados não encontrada. Verifique seus Secrets no Streamlit Cloud ou o arquivo .env local.")
         
