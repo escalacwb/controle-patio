@@ -40,7 +40,7 @@ def visao_boxes():
 
 
 def get_estado_atual_boxes(conn):
-    # --- MUDANÇA 2: Adicionamos a quilometragem na query principal ---
+    # --- MELHORIA 2: Adicionamos a quilometragem na query principal ---
     query = """
         SELECT b.id as box_id, b.area as box_area, es.id as execucao_id, v.placa, v.empresa,
                f.nome as funcionario_nome, es.veiculo_id, es.funcionario_id, es.quilometragem
@@ -65,7 +65,6 @@ def render_box(conn, box_data, catalogo_servicos):
             del st.session_state.box_states[box_id]
         return
 
-    # Sincroniza o estado do box com o banco se for a primeira vez
     if box_id not in st.session_state.box_states:
         sync_box_state_from_db(conn, box_id, int(box_data['veiculo_id']))
     
@@ -74,7 +73,7 @@ def render_box(conn, box_data, catalogo_servicos):
     with st.container(border=True):
         st.markdown(f"**Placa:** {box_data['placa']} | **Empresa:** {box_data['empresa']}")
         st.markdown(f"**Funcionário:** {box_data['funcionario_nome']}")
-        # --- MUDANÇA 2: Exibindo a quilometragem no cabeçalho ---
+        # --- MELHORIA 2: Exibindo a quilometragem no cabeçalho ---
         if pd.notna(box_data['quilometragem']):
             st.markdown(f"**KM de Entrada:** {int(box_data['quilometragem']):,} km".replace(',', '.'))
         
@@ -84,13 +83,20 @@ def render_box(conn, box_data, catalogo_servicos):
     servicos_ativos = {uid: s for uid, s in box_state.get('servicos', {}).items() if s.get('status') != 'removido'}
     for unique_id, servico in servicos_ativos.items():
         c1, c2, c3 = st.columns([0.7, 0.15, 0.15])
-        c1.write(servico['tipo'])
+        
+        # Adiciona um emoji se o serviço for novo, para diferenciação visual
+        label = f"✨ {servico['tipo']}" if servico.get('db_id') is None else servico['tipo']
+        c1.write(label)
         
         nova_qtd = c2.number_input("Qtd", value=servico['qtd_executada'], min_value=0, key=f"qtd_{unique_id}", label_visibility="collapsed")
         st.session_state.box_states[box_id]['servicos'][unique_id]['qtd_executada'] = nova_qtd
         
         if c3.button("X", key=f"del_{unique_id}", help=f"Remover {servico['tipo']}"):
-            st.session_state.box_states[box_id]['servicos'][unique_id]['status'] = 'removido'
+            # Se for um serviço novo, remove da lista. Se for original, marca como removido.
+            if servico.get('db_id') is None:
+                del st.session_state.box_states[box_id]['servicos'][unique_id]
+            else:
+                st.session_state.box_states[box_id]['servicos'][unique_id]['status'] = 'removido'
             st.rerun()
 
     st.markdown("---")
@@ -105,7 +111,7 @@ def render_box(conn, box_data, catalogo_servicos):
         novo_servico_tipo = c_add1.selectbox("Selecione o serviço", [""] + servicos_disponiveis, key=f"new_srv_tipo_{box_id}", label_visibility="collapsed")
         novo_servico_qtd = c_add2.number_input("Qtd", min_value=1, value=1, key=f"new_srv_qtd_{box_id}", label_visibility="collapsed")
         
-        # --- MUDANÇA 1: Botão de Adicionar agora está dentro do formulário final ---
+        # --- MELHORIA 1: Botão de Adicionar agora está dentro do formulário e atualiza a lista principal ---
         if c_add3.form_submit_button("➕", help=f"Adicionar à lista"):
             if novo_servico_tipo:
                 area_servico = ''
@@ -114,14 +120,15 @@ def render_box(conn, box_data, catalogo_servicos):
                 elif novo_servico_tipo in catalogo_servicos.get("manutencao", []): area_servico = 'manutencao'
 
                 if area_servico:
-                    new_service_id = f"novo_{len(box_state.get('servicos', []))}"
+                    # Cria um ID único para o novo serviço para podermos gerenciá-lo
+                    new_service_id = f"novo_{len(box_state.get('servicos', []))}_{novo_servico_tipo}"
                     st.session_state.box_states[box_id]['servicos'][new_service_id] = {
                         'db_id': None, # Novo serviço não tem ID de banco ainda
                         'tipo': novo_servico_tipo, 
                         'quantidade': novo_servico_qtd, 
                         'qtd_executada': novo_servico_qtd, 
                         'area': area_servico, 
-                        'status': 'ativo_novo' # Um status especial para sabermos que é novo
+                        'status': 'ativo' # Status inicial
                     }
                     st.rerun()
                 else: st.error("Não foi possível identificar a área do serviço.")
@@ -160,11 +167,13 @@ def finalizar_execucao(conn, box_id, execucao_id):
     try:
         with conn.cursor() as cursor:
             for servico in box_state.get('servicos', {}).values():
-                # Se o serviço for novo, ele precisa ser inserido (INSERT)
-                if servico['status'] == 'ativo_novo':
-                    tabela = f"servicos_solicitados_{servico['area']}"
-                    query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, data_solicitacao, data_atualizacao, observacao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, %s, %s, %s FROM execucao_servico WHERE id = %s"
-                    cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
+                # --- MELHORIA 1: Lógica para salvar os serviços novos e originais ---
+                # Se o serviço for novo (não tem db_id), ele precisa ser inserido (INSERT)
+                if servico.get('db_id') is None:
+                    if servico.get('status') != 'removido': # Não insere se foi adicionado e depois removido
+                        tabela = f"servicos_solicitados_{servico['area']}"
+                        query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, data_solicitacao, data_atualizacao, observacao, execucao_id) SELECT veiculo_id, %s, %s, 'finalizado', box_id, %s, %s, %s, id FROM execucao_servico WHERE id = %s"
+                        cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
                 # Se o serviço já existia, ele precisa ser atualizado (UPDATE)
                 else:
                     status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
