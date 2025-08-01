@@ -24,7 +24,7 @@ def visao_boxes():
     try:
         df_boxes = get_estado_atual_boxes(conn)
         if df_boxes.empty:
-            st.warning("Nenhum box cadastrado no sistema.")
+   
             return
 
         if len(df_boxes) == 1:
