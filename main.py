@@ -10,54 +10,48 @@ from pages import (
     historico_veiculo
 )
 
-# Configuração da página (layout wide é importante para o menu no topo)
+# Configuração da página
 st.set_page_config(
     page_title="Controle de Pátio PRO", 
     page_icon="🚚",
     layout="wide"
 )
 
-# --- O ANTIGO MENU LATERAL FOI REMOVIDO DAQUI ---
+# --- MENU HORIZONTAL MODIFICADO ---
 
-# --- NOVO MENU HORIZONTAL ---
-# Usamos o componente 'option_menu' que importamos
-# Ele retorna o nome do item selecionado, como o 'radio' fazia
+# 1. Removida a "Página Principal" das opções e dos ícones.
+# 2. Adicionado um estilo para esconder o texto do link e ajustar o espaçamento.
 selected_page = option_menu(
-    menu_title=None,  # Não queremos um título para o menu
-    options=["Página Principal", "Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"],
-    # Ícones da biblioteca Bootstrap Icons: https://icons.getbootstrap.com/
-    icons=["house", "truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"],
+    menu_title=None,
+    options=["Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"],
+    icons=["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"],
     menu_icon="cast",
-    default_index=0,
+    default_index=0, # O padrão agora será "Alocar Serviços"
     orientation="horizontal",
     styles={
         "container": {"padding": "0!important", "background-color": "#292929"},
-        "icon": {"color": "#22a7f0", "font-size": "20px"}, 
-        "nav-link": {"font-size": "16px", "text-align": "center", "margin":"0px", "--hover-color": "#444"},
+        "icon": {"color": "#22a7f0", "font-size": "25px"}, # Ícones um pouco maiores
+        "nav-link": {
+            "font-size": "16px",
+            "text-align": "center",
+            "margin": "0px",
+            "--hover-color": "#444",
+            "padding": "10px 0px" # Ajusta o padding vertical
+        },
         "nav-link-selected": {"background-color": "#1a1a1a"},
+        # Este trecho esconde o texto dos botões, deixando só os ícones
+        ".nav-link-text": {"display": "none"}
     }
 )
 
-# --- LÓGICA PARA EXIBIR A PÁGINA SELECIONADA ---
+# --- LÓGICA DE EXIBIÇÃO DE PÁGINA ATUALIZADA ---
+# O bloco da "Página Principal" foi removido.
 
-if selected_page == "Página Principal":
-    st.title("Bem-vindo ao Sistema de Controle de Pátio PRO")
-    st.markdown("---")
-    st.header("Funcionalidades Principais:")
-    st.write("""
-    - **Cadastro de Veículos e Serviços:** Registre novos veículos e os serviços necessários.
-    - **Alocação de Serviços:** Direcione os veículos para os boxes e funcionários disponíveis.
-    - **Visão dos Boxes:** Monitore em tempo real o status de cada box de serviço.
-    - **Filas de Serviço:** Acompanhe a ordem de chegada e o andamento dos serviços.
-    - **Serviços Concluídos:** Veja um histórico cronológico de todas as visitas finalizadas.
-    - **Histórico por Veículo:** Consulte o histórico detalhado de um veículo específico.
-    """)
-    st.info("Utilize o menu no topo para navegar entre as funcionalidades do sistema.")
-
-elif selected_page == "Alocar Serviços":
+if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 
 elif selected_page == "Cadastro de Serviço":
+    # Supondo que o nome da função em cadastro_servico.py é 'app'
     cadastro_servico.app()
 
 elif selected_page == "Cadastro de Veículo":
