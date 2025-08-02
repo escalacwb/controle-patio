@@ -4,3 +4,4 @@ pandas
 pytz
 SQLAlchemy
 python-dotenv
+streamlit-option-menu

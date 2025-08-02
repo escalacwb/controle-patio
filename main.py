@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_option_menu import option_menu
 from pages import (
     alocar_servicos,
     cadastro_servico,
@@ -9,53 +10,68 @@ from pages import (
     historico_veiculo
 )
 
-st.cache_data.clear()
-
+# Configuração da página (layout wide é importante para o menu no topo)
 st.set_page_config(
     page_title="Controle de Pátio PRO", 
     page_icon="🚚",
     layout="wide"
 )
 
-def load_css(file_name):
-    try:
-        with open(file_name, encoding="utf-8") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except FileNotFoundError:
-        st.error(f"Arquivo de estilo '{file_name}' não encontrado.")
+# --- O ANTIGO MENU LATERAL FOI REMOVIDO DAQUI ---
 
-load_css("style.css")
+# --- NOVO MENU HORIZONTAL ---
+# Usamos o componente 'option_menu' que importamos
+# Ele retorna o nome do item selecionado, como o 'radio' fazia
+selected_page = option_menu(
+    menu_title=None,  # Não queremos um título para o menu
+    options=["Página Principal", "Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"],
+    # Ícones da biblioteca Bootstrap Icons: https://icons.getbootstrap.com/
+    icons=["house", "truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"],
+    menu_icon="cast",
+    default_index=0,
+    orientation="horizontal",
+    styles={
+        "container": {"padding": "0!important", "background-color": "#292929"},
+        "icon": {"color": "#22a7f0", "font-size": "20px"}, 
+        "nav-link": {"font-size": "16px", "text-align": "center", "margin":"0px", "--hover-color": "#444"},
+        "nav-link-selected": {"background-color": "#1a1a1a"},
+    }
+)
 
+# --- LÓGICA PARA EXIBIR A PÁGINA SELECIONADA ---
 
-# --- ADICIONE SUA LOGO AQUI ---
-# Esta linha exibe a imagem que está na pasta 'assets'.
-# Se o nome do seu arquivo for diferente de 'logo.png', apenas troque o nome aqui.
-st.sidebar.image("assets/logo.png", use_container_width=True)
-
-
-st.sidebar.title("Menu de Navegação")
-
-PAGES = {
-    "Página Principal": None,
-    "Alocar Serviços": alocar_servicos,
-    "Cadastro de Serviço": cadastro_servico,
-    "Cadastro de Veículo": cadastro_veiculo,
-    "Filas de Serviço": filas_servico,
-    "Visão dos Boxes": visao_boxes,
-    "Serviços Concluídos": servicos_concluidos,
-    "Histórico por Veículo": historico_veiculo
-}
-
-selection = st.sidebar.radio("Ir para:", list(PAGES.keys()), key="menu_principal")
-
-# (O resto do arquivo continua o mesmo...)
-page = PAGES[selection]
-if page:
-    if hasattr(page, 'app'): page.app()
-    elif hasattr(page, 'alocar_servicos'): page.alocar_servicos()
-    elif hasattr(page, 'visao_boxes'): page.visao_boxes()
-    else: st.error(f"A página '{selection}' não tem uma função de inicialização conhecida.")
-else:
+if selected_page == "Página Principal":
     st.title("Bem-vindo ao Sistema de Controle de Pátio PRO")
     st.markdown("---")
-    st.info("Utilize o menu na barra lateral para navegar entre as funcionalidades do sistema.")
+    st.header("Funcionalidades Principais:")
+    st.write("""
+    - **Cadastro de Veículos e Serviços:** Registre novos veículos e os serviços necessários.
+    - **Alocação de Serviços:** Direcione os veículos para os boxes e funcionários disponíveis.
+    - **Visão dos Boxes:** Monitore em tempo real o status de cada box de serviço.
+    - **Filas de Serviço:** Acompanhe a ordem de chegada e o andamento dos serviços.
+    - **Serviços Concluídos:** Veja um histórico cronológico de todas as visitas finalizadas.
+    - **Histórico por Veículo:** Consulte o histórico detalhado de um veículo específico.
+    """)
+    st.info("Utilize o menu no topo para navegar entre as funcionalidades do sistema.")
+
+elif selected_page == "Alocar Serviços":
+    alocar_servicos.alocar_servicos()
+
+elif selected_page == "Cadastro de Serviço":
+    cadastro_servico.app()
+
+elif selected_page == "Cadastro de Veículo":
+    # Supondo que o nome da função em cadastro_veiculo.py seja 'app'
+    cadastro_veiculo.app()
+
+elif selected_page == "Filas de Serviço":
+    filas_servico.app()
+
+elif selected_page == "Visão dos Boxes":
+    visao_boxes.visao_boxes()
+
+elif selected_page == "Serviços Concluídos":
+    servicos_concluidos.app()
+
+elif selected_page == "Histórico por Veículo":
+    historico_veiculo.app()
