@@ -42,8 +42,8 @@ def app():
             inicio_execucao = pd.to_datetime(execucao['inicio_execucao'])
             
             # --- ALTERAÇÃO APLICADA AQUI ---
-            # Formatamos a data e a adicionamos ao título do expander.
-            titulo_expander = f"Visita de {inicio_execucao.strftime('%d/%m/%Y')} (KM: {execucao['quilometragem']:,}) | Status: {execucao['status_execucao'].upper()}".replace(',', '.')
+            # Adicionamos o ID da execução ao final do título para garantir que seja único.
+            titulo_expander = f"Visita de {inicio_execucao.strftime('%d/%m/%Y')} (KM: {execucao['quilometragem']:,}) | Status: {execucao['status_execucao'].upper()} (ID: {execucao['execucao_id']})".replace(',', '.')
             
             with st.expander(titulo_expander):
                 if pd.notna(execucao['observacao_execucao']) and execucao['observacao_execucao']:
