@@ -7,32 +7,34 @@ from utils import get_catalogo_servicos
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
-# ... (o início do arquivo continua o mesmo) ...
-# Para garantir, substitua o arquivo inteiro com o código abaixo.
-
-if 'box_states' not in st.session_state:
-    st.session_state.box_states = {}
-
 def visao_boxes():
-    st.title("🔧 Visão Geral dos Boxes")
-    # ... (código idêntico até a função finalizar_execucao) ...
-    # O código completo e correto está abaixo:
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Garantimos que a 'memória' dos boxes exista antes de qualquer outra coisa.
+    if 'box_states' not in st.session_state:
+        st.session_state.box_states = {}
 
+    st.title("🔧 Visão Geral dos Boxes")
     st.markdown("Monitore, atualize e finalize os serviços em cada box.")
+
     catalogo_servicos = get_catalogo_servicos()
     conn = get_connection()
     if not conn:
         st.error("Falha ao conectar ao banco de dados.")
         return
+
     try:
         df_boxes = get_estado_atual_boxes(conn)
         if df_boxes.empty:
             st.warning("Nenhum box cadastrado no sistema.")
             return
-        cols = st.columns(len(df_boxes))
-        for index, box_data in df_boxes.iterrows():
-            with cols[index]:
-                render_box(conn, box_data, catalogo_servicos)
+
+        # Previne erro se não houver boxes cadastrados
+        if 'id' in df_boxes.columns and not df_boxes.empty:
+            cols = st.columns(len(df_boxes))
+            for index, box_data in df_boxes.iterrows():
+                with cols[index]:
+                    render_box(conn, box_data, catalogo_servicos)
+
     except Exception as e:
         st.error(f"❌ Erro Crítico ao carregar a visão dos boxes: {e}")
         st.exception(e)
@@ -41,7 +43,7 @@ def visao_boxes():
 
 def get_estado_atual_boxes(conn):
     query = """
-        SELECT b.id as box_id, b.area as box_area, es.id as execucao_id, v.placa, v.empresa,
+        SELECT b.id, b.area as box_area, es.id as execucao_id, v.placa, v.empresa,
                f.nome as funcionario_nome, es.veiculo_id, es.funcionario_id, es.quilometragem
         FROM boxes b
         LEFT JOIN execucao_servico es ON b.id = es.box_id AND es.status = 'em_andamento'
@@ -49,24 +51,34 @@ def get_estado_atual_boxes(conn):
         LEFT JOIN funcionarios f ON es.funcionario_id = f.id
         ORDER BY b.id;
     """
-    return pd.read_sql(query, conn)
+    return pd.read_sql(query, conn, columns=['id'])
+
 
 def render_box(conn, box_data, catalogo_servicos):
-    box_id, execucao_id = box_data['box_id'], box_data['execucao_id']
+    box_id = box_data['id']
+    execucao_id = box_data['execucao_id']
+    
     st.header(f"🧰 BOX {box_id}")
+
     if pd.isna(execucao_id):
         st.success("✅ Livre")
-        if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
+        if box_id in st.session_state.box_states:
+            del st.session_state.box_states[box_id]
         return
+
     if box_id not in st.session_state.box_states:
         sync_box_state_from_db(conn, box_id, int(box_data['veiculo_id']))
+    
     box_state = st.session_state.box_states.get(box_id, {})
+
     with st.container(border=True):
         st.markdown(f"**Placa:** {box_data['placa']} | **Empresa:** {box_data['empresa']}")
         st.markdown(f"**Funcionário:** {box_data['funcionario_nome']}")
         if pd.notna(box_data['quilometragem']):
             st.markdown(f"**KM de Entrada:** {int(box_data['quilometragem']):,} km".replace(',', '.'))
+        
     st.subheader("Serviços em Execução")
+    
     servicos_ativos = {uid: s for uid, s in box_state.get('servicos', {}).items() if s.get('status') != 'removido'}
     for unique_id, servico in servicos_ativos.items():
         c1, c2, c3 = st.columns([0.7, 0.15, 0.15])
@@ -76,13 +88,20 @@ def render_box(conn, box_data, catalogo_servicos):
         if c3.button("X", key=f"del_{unique_id}", help=f"Remover {servico['tipo']}"):
             st.session_state.box_states[box_id]['servicos'][unique_id]['status'] = 'removido'
             st.rerun()
+
+    for unique_id_novo, servico_novo in box_state.get('servicos_novos', {}).items():
+        st.success(f"Adicionado: {servico_novo['tipo']} (Qtd: {servico_novo['quantidade']})")
+
     with st.form(f"form_add_and_finish_{box_id}"):
         st.subheader("Adicionar Serviço Extra")
+        
         todos_servicos = catalogo_servicos.get("borracharia", []) + catalogo_servicos.get("alinhamento", []) + catalogo_servicos.get("manutencao", [])
         servicos_disponiveis = sorted(list(set(todos_servicos)))
+
         c_add1, c_add2, c_add3 = st.columns([0.7, 0.15, 0.15])
         novo_servico_tipo = c_add1.selectbox("Selecione o serviço", [""] + servicos_disponiveis, key=f"new_srv_tipo_{box_id}", label_visibility="collapsed")
         novo_servico_qtd = c_add2.number_input("Qtd", min_value=1, value=1, key=f"new_srv_qtd_{box_id}", label_visibility="collapsed")
+        
         if c_add3.form_submit_button("➕", help=f"Adicionar à lista"):
             if novo_servico_tipo:
                 area_servico = ''
@@ -91,27 +110,39 @@ def render_box(conn, box_data, catalogo_servicos):
                 elif novo_servico_tipo in catalogo_servicos.get("manutencao", []): area_servico = 'manutencao'
                 if area_servico:
                     new_service_id = f"novo_{len(box_state.get('servicos', []))}"
-                    st.session_state.box_states[box_id]['servicos'][new_service_id] = {'db_id': None, 'tipo': novo_servico_tipo, 'quantidade': novo_servico_qtd, 'qtd_executada': novo_servico_qtd, 'area': area_servico, 'status': 'ativo_novo'}
+                    st.session_state.box_states[box_id]['servicos'][new_service_id] = {
+                        'db_id': None, 'tipo': novo_servico_tipo, 'quantidade': novo_servico_qtd, 
+                        'qtd_executada': novo_servico_qtd, 'area': area_servico, 'status': 'ativo_novo'
+                    }
                     st.rerun()
                 else: st.error("Não foi possível identificar a área do serviço.")
+
         st.markdown("---")
         obs_final = st.text_area("Observações Finais da Execução", key=f"obs_final_{box_id}", value=box_state.get('obs_final', ''))
         st.session_state.box_states[box_id]['obs_final'] = obs_final
+        
         if st.form_submit_button("✅ Salvar e Finalizar Box", type="primary", use_container_width=True):
             finalizar_execucao(conn, box_id, int(execucao_id))
             st.rerun()
 
 def sync_box_state_from_db(conn, box_id, veiculo_id):
-    # (sem alterações aqui)
-    # ...
     query = """
         (SELECT 'borracharia' as area, id, tipo, quantidade, observacao FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento') UNION ALL
         (SELECT 'alinhamento' as area, id, tipo, quantidade, observacao FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento') UNION ALL
         (SELECT 'manutencao' as area, id, tipo, quantidade, observacao FROM servicos_solicitados_manutencao WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento')
     """
     df_servicos = pd.read_sql(query, conn, params=[veiculo_id, box_id] * 3)
-    servicos_dict = {f"{row['area']}_{row['id']}": {'db_id': row['id'], 'tipo': row['tipo'], 'quantidade': row['quantidade'], 'qtd_executada': row['quantidade'], 'area': row['area'], 'status': 'ativo'} for _, row in df_servicos.iterrows()}
-    st.session_state.box_states[box_id] = {'servicos': servicos_dict, 'obs_final': '', 'observacao_geral': df_servicos['observacao'].iloc[0] if not df_servicos.empty and pd.notna(df_servicos['observacao'].iloc[0]) else ""}
+    servicos_dict = {}
+    for _, row in df_servicos.iterrows():
+        unique_id = f"{row['area']}_{row['id']}"
+        servicos_dict[unique_id] = { 
+            'db_id': row['id'], 'tipo': row['tipo'], 'quantidade': row['quantidade'], 
+            'qtd_executada': row['quantidade'], 'area': row['area'], 'status': 'ativo' 
+        }
+    st.session_state.box_states[box_id] = {
+        'servicos': servicos_dict, 'obs_final': '',
+        'observacao_geral': df_servicos['observacao'].iloc[0] if not df_servicos.empty and pd.notna(df_servicos['observacao'].iloc[0]) else ""
+    }
 
 def finalizar_execucao(conn, box_id, execucao_id):
     box_state = st.session_state.box_states.get(box_id, {})
@@ -120,23 +151,21 @@ def finalizar_execucao(conn, box_id, execucao_id):
     try:
         with conn.cursor() as cursor:
             for servico in box_state.get('servicos', {}).values():
-                tabela = f"servicos_solicitados_{servico['area']}"
                 if servico['status'] == 'ativo_novo':
-                    # --- ALTERAÇÃO AQUI: Salva a observação para novos serviços ---
-                    query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, %s, %s, %s FROM execucao_servico WHERE id = %s"
+                    tabela = f"servicos_solicitados_{servico['area']}"
+                    query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, id, %s, %s, %s FROM execucao_servico WHERE id = %s"
                     cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
                 else:
                     status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
-                    # --- ALTERAÇÃO AQUI: Salva a observação para serviços existentes ---
+                    tabela = f"servicos_solicitados_{servico['area']}"
                     query = f"UPDATE {tabela} SET status = %s, quantidade = %s, data_atualizacao = %s, observacao_execucao = %s WHERE id = %s"
                     cursor.execute(query, (status_final, servico['qtd_executada'], datetime.now(MS_TZ), obs_final, servico['db_id']))
-
-            # A observação não é mais salva na tabela de execução
             cursor.execute("UPDATE execucao_servico SET status = 'finalizado', fim_execucao = %s WHERE id = %s", (datetime.now(MS_TZ), execucao_id))
             cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
-            if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
+            if box_id in st.session_state.box_states:
+                del st.session_state.box_states[box_id]
     except Exception as e:
         conn.rollback()
         st.error(f"Erro ao finalizar Box {box_id}: {e}")
