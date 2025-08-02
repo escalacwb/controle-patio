@@ -8,9 +8,8 @@ MS_TZ = pytz.timezone('America/Campo_Grande')
 
 def alocar_servicos():
     st.title("🚚 Alocação de Serviços por Área")
-    # ... (código idêntico ao anterior até o botão de alocar)
-    # Para garantir, substitua o arquivo inteiro com o código abaixo.
-
+    st.markdown("Selecione um veículo com serviços pendentes e aloque-o a um box e funcionário.")
+    
     rerun_flag = False
     conn = get_connection()
     if not conn:
@@ -18,17 +17,31 @@ def alocar_servicos():
         return
 
     try:
-        # (Todo o código de busca de veículos, funcionários, etc. permanece o mesmo)
-        query_veiculos_pendentes = "..." # omitido para brevidade
-        # ...
-        
-        # O código completo e correto está abaixo para você substituir:
+        # --- ALTERAÇÃO PRINCIPAL APLICADA AQUI ---
+        # A query agora tem uma condição extra (NOT EXISTS) para garantir
+        # que o veículo não tenha nenhum serviço 'em_andamento'.
         query_veiculos_pendentes = """
-            SELECT v.id, v.placa, v.empresa FROM veiculos v WHERE EXISTS (
-                (SELECT 1 FROM servicos_solicitados_borracharia ssb WHERE ssb.veiculo_id = v.id AND ssb.status = 'pendente') UNION ALL
-                (SELECT 1 FROM servicos_solicitados_alinhamento ssa WHERE ssa.veiculo_id = v.id AND ssa.status = 'pendente') UNION ALL
-                (SELECT 1 FROM servicos_solicitados_manutencao ssm WHERE ssm.veiculo_id = v.id AND ssm.status = 'pendente')
-            ) ORDER BY v.placa;
+            SELECT v.id, v.placa, v.empresa
+            FROM veiculos v
+            WHERE
+                -- Condição 1: O veículo PRECISA ter serviços pendentes
+                EXISTS (
+                    SELECT 1 FROM servicos_solicitados_borracharia ssb WHERE ssb.veiculo_id = v.id AND ssb.status = 'pendente'
+                    UNION ALL
+                    SELECT 1 FROM servicos_solicitados_alinhamento ssa WHERE ssa.veiculo_id = v.id AND ssa.status = 'pendente'
+                    UNION ALL
+                    SELECT 1 FROM servicos_solicitados_manutencao ssm WHERE ssm.veiculo_id = v.id AND ssm.status = 'pendente'
+                )
+                AND -- E TAMBÉM...
+                -- Condição 2: O veículo NÃO PODE ter nenhum serviço em andamento
+                NOT EXISTS (
+                    SELECT 1 FROM servicos_solicitados_borracharia ssb_a WHERE ssb_a.veiculo_id = v.id AND ssb_a.status = 'em_andamento'
+                    UNION ALL
+                    SELECT 1 FROM servicos_solicitados_alinhamento ssa_a WHERE ssa_a.veiculo_id = v.id AND ssa_a.status = 'em_andamento'
+                    UNION ALL
+                    SELECT 1 FROM servicos_solicitados_manutencao ssm_a WHERE ssm_a.veiculo_id = v.id AND ssm_a.status = 'em_andamento'
+                )
+            ORDER BY v.placa;
         """
         veiculos_df = pd.read_sql(query_veiculos_pendentes, conn)
         funcionarios_df = pd.read_sql("SELECT id, nome FROM funcionarios ORDER BY nome", conn)
@@ -39,13 +52,14 @@ def alocar_servicos():
         box_options = [str(row['id']) for _, row in boxes_df.iterrows()]
 
         if not veiculo_options:
-            st.info("🎉 Nenhum veículo com serviços pendentes no momento.")
+            st.info("🎉 Nenhum veículo aguardando alocação no momento.")
             return
 
-        selected_veiculo_display = st.selectbox("Selecione o Veículo", veiculo_options, key="veiculo_select")
+        selected_veiculo_display = st.selectbox("Selecione o Veículo para Alocar", veiculo_options, key="veiculo_select")
         
         if selected_veiculo_display:
             veiculo_id_int = int(selected_veiculo_display.split(" - ")[0])
+
             query_areas_pendentes = """
                 SELECT 'borracharia' AS area FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION
                 SELECT 'alinhamento' AS area FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND status = 'pendente' UNION
@@ -76,10 +90,13 @@ def alocar_servicos():
 
             with st.form("form_alocacao"):
                 st.subheader(f"Alocar para: {selected_veiculo_display.split(' (')[0]}")
-                area_selecionada = st.selectbox("Área do Serviço a ser executado", areas_com_servico_pendente, key="area_select")
+                area_selecionada_display = st.selectbox("Área do Serviço a ser executado", [a.replace('manutencao', 'Manutenção Mecânica').title() for a in areas_com_servico_pendente], key="area_select")
+                area_selecionada = area_selecionada_display.replace('Manutenção Mecânica', 'manutencao').lower()
+
                 col1, col2 = st.columns(2)
                 with col1: box_selecionado = st.selectbox("Box Disponível", box_options, key="box_select")
                 with col2: funcionario_selecionado = st.selectbox("Funcionário Responsável", funcionario_options, key="funcionario_select")
+                
                 if quilometragem_cadastrada > 0:
                     st.info(f"Quilometragem do cadastro: **{quilometragem_cadastrada} km**")
                 else:
@@ -92,14 +109,11 @@ def alocar_servicos():
                         funcionario_id_int, box_id_int = int(funcionario_selecionado.split(" - ")[0]), int(box_selecionado)
                         try:
                             with conn.cursor() as cursor:
-                                # Primeiro, cria a execução e OBTÉM o ID dela
                                 insert_exec_query = "INSERT INTO execucao_servico (veiculo_id, box_id, funcionario_id, quilometragem, status, inicio_execucao) VALUES (%s, %s, %s, %s, 'em_andamento', %s) RETURNING id"
                                 cursor.execute(insert_exec_query, (veiculo_id_int, box_id_int, funcionario_id_int, quilometragem_cadastrada, datetime.now(MS_TZ)))
                                 execucao_id = cursor.fetchone()[0]
 
-                                # --- ALTERAÇÃO PRINCIPAL AQUI ---
-                                # Agora, atualiza os serviços para incluir o execucao_id
-                                tabela_servico = f"servicos_solicitados_{area_selecionada.replace('Mecânica', 'mecanica').lower()}"
+                                tabela_servico = f"servicos_solicitados_{area_selecionada}"
                                 update_solicitado_query = f"UPDATE {tabela_servico} SET box_id = %s, funcionario_id = %s, status = 'em_andamento', data_atualizacao = %s, execucao_id = %s WHERE veiculo_id = %s AND status = 'pendente';"
                                 cursor.execute(update_solicitado_query, (box_id_int, funcionario_id_int, datetime.now(MS_TZ), execucao_id, veiculo_id_int))
                                 
