@@ -7,8 +7,7 @@ from utils import get_catalogo_servicos
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
-if 'box_states' not in st.session_state:
-    st.session_state.box_states = {}
+# A linha "if 'box_states' not in st.session_state:" foi REMOVIDA daqui.
 
 def visao_boxes():
     st.title("🔧 Visão Geral dos Boxes")
@@ -147,9 +146,7 @@ def finalizar_execucao(conn, box_id, execucao_id):
     if not box_state: return
     try:
         with conn.cursor() as cursor:
-            # --- ALTERAÇÃO: Captura o ID do usuário logado da sessão ---
             usuario_finalizacao_id = st.session_state.get('user_id')
-
             for servico in box_state.get('servicos', {}).values():
                 if servico['status'] == 'ativo_novo':
                     tabela = f"servicos_solicitados_{servico['area']}"
@@ -160,10 +157,7 @@ def finalizar_execucao(conn, box_id, execucao_id):
                     tabela = f"servicos_solicitados_{servico['area']}"
                     query = f"UPDATE {tabela} SET status = %s, quantidade = %s, data_atualizacao = %s, observacao_execucao = %s WHERE id = %s"
                     cursor.execute(query, (status_final, servico['qtd_executada'], datetime.now(MS_TZ), obs_final, servico['db_id']))
-            
-            # --- ALTERAÇÃO: Adiciona o ID do usuário ao finalizar a execução ---
             cursor.execute("UPDATE execucao_servico SET status = 'finalizado', fim_execucao = %s, usuario_finalizacao_id = %s WHERE id = %s", (datetime.now(MS_TZ), usuario_finalizacao_id, execucao_id))
-            
             cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")

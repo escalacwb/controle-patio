@@ -19,6 +19,15 @@ if not st.session_state.get('logged_in'):
     login.render_login_page()
     st.stop()
 
+# --- INICIALIZAÇÃO CENTRALIZADA DO ESTADO DA SESSÃO ---
+# Este bloco garante que todas as variáveis de memória necessárias existam
+# logo após o login, antes de qualquer página ser carregada.
+if 'box_states' not in st.session_state:
+    st.session_state.box_states = {}
+# (No futuro, se outras páginas precisarem de memória, adicionamos aqui)
+
+
+# --- APLICATIVO PRINCIPAL ---
 with st.sidebar:
     st.success(f"Logado como: **{st.session_state.get('user_name')}**")
     if st.button("Logout", use_container_width=True, type="secondary"):
@@ -26,7 +35,6 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
-# --- LÓGICA DE MENU DINÂMICO ---
 options = ["Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"]
 icons = ["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"]
 
@@ -51,7 +59,7 @@ selected_page = option_menu(
     }
 )
 
-# --- LÓGICA DE EXIBIÇÃO DE PÁGINA (VERSÃO CORRIGIDA, SEM DUPLICAÇÃO) ---
+# Lógica de Roteamento
 if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
