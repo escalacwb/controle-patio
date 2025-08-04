@@ -29,11 +29,12 @@ if not st.session_state.get('logged_in'):
 # Adiciona um menu lateral apenas para o nome do usuário e o botão de logout
 with st.sidebar:
     st.success(f"Logado como: **{st.session_state.get('user_name')}**")
-    if st.button("Logout", use_container_width=True):
+    if st.button("Logout", use_container_width=True, type="secondary"):
         # Limpa toda a memória da sessão para deslogar o usuário
         for key in st.session_state.keys():
             del st.session_state[key]
         st.rerun() # Recarrega a página (que vai voltar para a tela de login)
+
 
 # Menu de navegação horizontal
 selected_page = option_menu(
@@ -41,13 +42,20 @@ selected_page = option_menu(
     options=["Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"],
     icons=["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"],
     menu_icon="cast",
-    default_index=0,
+    default_index=0, # O padrão agora será "Alocar Serviços"
     orientation="horizontal",
     styles={
         "container": {"padding": "0!important", "background-color": "#292929"},
         "icon": {"color": "#22a7f0", "font-size": "25px"},
-        "nav-link": {"font-size": "0px", "text-align": "center", "margin":"0px", "--hover-color": "#444", "padding": "10px 0px"},
+        "nav-link": {
+            "font-size": "16px",
+            "text-align": "center",
+            "margin": "0px",
+            "--hover-color": "#444",
+            "padding": "10px 0px"
+        },
         "nav-link-selected": {"background-color": "#1a1a1a"},
+        ".nav-link-text": {"display": "none"}
     }
 )
 
