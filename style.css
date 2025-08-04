@@ -1,3 +1,46 @@
+/* --- ESTILOS GERAIS E PARA CELULAR (MOBILE-FIRST) --- */
+/* Estes são os tamanhos padrão, pensados para telas pequenas */
+
+body {
+    font-size: 16px;
+}
+
+h1 {
+    font-size: 28px;
+}
+
+h2 {
+    font-size: 24px;
+}
+
+h3 {
+    font-size: 20px;
+}
+
+/* --- REGRAS PARA TELAS MAIORES (COMPUTADORES E TABLETS) --- */
+/* @media (min-width: 768px) significa "se a tela tiver 768px de largura ou mais" */
+
+@media (min-width: 768px) {
+    body {
+        font-size: 18px; /* Aumenta o texto base */
+    }
+
+    h1 {
+        font-size: 38px; /* Aumenta o título principal */
+    }
+
+    h2 {
+        font-size: 30px; /* Aumenta os subtítulos */
+    }
+
+    h3 {
+        font-size: 24px;
+    }
+}
+
+
+/* --- SUAS REGRAS ANTERIORES (MANTIDAS) --- */
+
 /* Força o desaparecimento do menu de navegação de arquivos do Streamlit */
 [data-testid="stSidebarNav"] {
     display: none;
@@ -5,7 +48,7 @@
 
 /* Define a largura máxima do bloco principal do app em telas grandes */
 .main .block-container {
-    max-width: 1000px;
+    max-width: 1200px; /* Aumentei um pouco para aproveitar melhor a tela */
     padding-top: 3rem;
     padding-right: 2rem;
     padding-left: 2rem;
