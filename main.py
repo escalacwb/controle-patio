@@ -8,7 +8,8 @@ from pages import (
     filas_servico,
     visao_boxes,
     servicos_concluidos,
-    historico_veiculo
+    historico_veiculo,
+    gerenciar_usuarios # Importa a nova página
 )
 
 # Configuração da página
@@ -30,19 +31,26 @@ if not st.session_state.get('logged_in'):
 with st.sidebar:
     st.success(f"Logado como: **{st.session_state.get('user_name')}**")
     if st.button("Logout", use_container_width=True, type="secondary"):
-        # Limpa toda a memória da sessão para deslogar o usuário
         for key in st.session_state.keys():
             del st.session_state[key]
-        st.rerun() # Recarrega a página (que vai voltar para a tela de login)
+        st.rerun()
 
+# --- LÓGICA DE MENU DINÂMICO ---
+# Define as opções e ícones padrão para todos os usuários
+options = ["Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"]
+icons = ["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"]
 
-# Menu de navegação horizontal
+# Se o usuário for um admin, adiciona a opção de gerenciar usuários ao menu
+if st.session_state.get('user_role') == 'admin':
+    options.append("Gerenciar Usuários")
+    icons.append("people-fill") # Ícone para gerenciamento de usuários
+
 selected_page = option_menu(
     menu_title=None,
-    options=["Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"],
-    icons=["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"],
+    options=options, # Usa a lista de opções dinâmica
+    icons=icons,     # Usa a lista de ícones dinâmica
     menu_icon="cast",
-    default_index=0, # O padrão agora será "Alocar Serviços"
+    default_index=0,
     orientation="horizontal",
     styles={
         "container": {"padding": "0!important", "background-color": "#292929"},
@@ -50,11 +58,13 @@ selected_page = option_menu(
         "nav-link": {
             "font-size": "16px",
             "text-align": "center",
-            "margin": "0px",
+            "margin":"0px",
             "--hover-color": "#444",
             "padding": "10px 0px"
         },
         "nav-link-selected": {"background-color": "#1a1a1a"},
+        # --- AJUSTE FINAL APLICADO AQUI ---
+        # Esconde o texto dos botões, deixando só os ícones, como no design anterior
         ".nav-link-text": {"display": "none"}
     }
 )
@@ -74,3 +84,5 @@ elif selected_page == "Serviços Concluídos":
     servicos_concluidos.app()
 elif selected_page == "Histórico por Veículo":
     historico_veiculo.app()
+elif selected_page == "Gerenciar Usuários":
+    gerenciar_usuarios.app()
