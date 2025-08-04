@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
 import locale
+import hashlib # Importa a biblioteca de criptografia
+
+# --- FUNÇÃO DE HASH ADICIONADA AQUI ---
+def hash_password(password):
+    """Gera o hash de uma senha para armazenamento seguro."""
+    return hashlib.sha256(password.encode()).hexdigest()
 
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
