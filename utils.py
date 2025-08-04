@@ -2,12 +2,41 @@ import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
 import locale
-import hashlib # Importa a biblioteca de criptografia
+import hashlib
+import requests # Nova importação
 
-# --- FUNÇÃO DE HASH ADICIONADA AQUI ---
+# --- FUNÇÃO DE HASH (JÁ EXISTENTE) ---
 def hash_password(password):
     """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
+
+# --- NOVA FUNÇÃO DE NOTIFICAÇÃO ADICIONADA AQUI ---
+def enviar_notificacao_telegram(mensagem):
+    """Envia uma mensagem para o chat do Telegram configurado nos Secrets."""
+    try:
+        # Busca as credenciais salvas nos Secrets do Streamlit
+        token = st.secrets.get("TELEGRAM_TOKEN")
+        chat_id = st.secrets.get("TELEGRAM_CHAT_ID")
+
+        if not token or not chat_id:
+            print("Credenciais do Telegram não encontradas nos Secrets.")
+            return
+
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        
+        params = {
+            "chat_id": chat_id,
+            "text": mensagem,
+            "parse_mode": "Markdown" # Permite usar negrito (*texto*), etc.
+        }
+        
+        response = requests.post(url, json=params)
+        if response.status_code != 200:
+            # Apenas imprime o erro no log do Streamlit, não quebra o app
+            print(f"Erro ao enviar notificação para o Telegram: {response.text}")
+    except Exception as e:
+        print(f"Exceção ao enviar notificação para o Telegram: {e}")
+
 
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
