@@ -3,28 +3,20 @@ import pandas as pd
 from database import get_connection, release_connection
 from datetime import date, timedelta
 
-# --- FUNÇÃO DE BUSCA CORRIGIDA ---
-# Removido o 'conn' dos argumentos para que o cache funcione corretamente.
+# Função para buscar e cachear os dados
 @st.cache_data(ttl=600)
 def buscar_dados_relatorio(start_date, end_date):
-    """
-    Busca e une todos os dados necessários para os relatórios.
-    A função agora gerencia sua própria conexão com o banco.
-    """
+    """Busca e une todos os dados necessários para os relatórios."""
     conn = get_connection()
     if not conn:
         st.error("Falha ao obter conexão para o relatório.")
-        return pd.DataFrame() # Retorna um DataFrame vazio em caso de falha
+        return pd.DataFrame()
 
     try:
         query = """
             SELECT
-                es.id as execucao_id,
-                es.quilometragem,
-                es.inicio_execucao,
-                es.fim_execucao,
-                v.placa,
-                v.empresa,
+                es.id as execucao_id, es.quilometragem, es.inicio_execucao, es.fim_execucao,
+                v.placa, v.empresa,
                 serv.tipo as tipo_servico,
                 func.nome as funcionario_nome,
                 usr_aloc.nome as alocado_por,
@@ -43,12 +35,10 @@ def buscar_dados_relatorio(start_date, end_date):
                 es.status = 'finalizado'
                 AND es.fim_execucao BETWEEN %s AND %s;
         """
-        # Adicionamos 1 dia ao end_date para incluir o dia inteiro na busca
         end_date_inclusive = end_date + timedelta(days=1)
         df = pd.read_sql(query, conn, params=(start_date, end_date_inclusive))
         return df
     finally:
-        # Garante que a conexão seja sempre liberada
         release_connection(conn)
 
 def app():
@@ -64,15 +54,15 @@ def app():
     st.subheader("Filtrar por Período de Conclusão")
     today = date.today()
     col1, col2 = st.columns(2)
-    start_date = col1.date_input("Data de Início", today - timedelta(days=30))
-    end_date = col2.date_input("Data de Fim", today)
+    
+    # --- CORREÇÃO APLICADA AQUI: Adicionamos 'key' únicas ---
+    start_date = col1.date_input("Data de Início", today - timedelta(days=30), key="bi_start_date")
+    end_date = col2.date_input("Data de Fim", today, key="bi_end_date")
 
     if start_date > end_date:
         st.error("A data de início não pode ser posterior à data de fim.")
         st.stop()
 
-    # --- CHAMADA DA FUNÇÃO CORRIGIDA ---
-    # Agora chamamos a função sem passar a conexão
     df_relatorio = buscar_dados_relatorio(start_date, end_date)
     
     st.markdown("---")
@@ -104,6 +94,5 @@ def app():
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("Dados Detalhados do Período")
-        # Preenche valores nulos para melhor exibição
         df_display = df_relatorio.fillna("N/A")
         st.dataframe(df_display, use_container_width=True)
