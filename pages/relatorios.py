@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
 from datetime import date, timedelta
+import plotly.express as px
 
-# Função para buscar e cachear os dados
+# Função para buscar e cachear os dados (com adição do box_id)
 @st.cache_data(ttl=600)
 def buscar_dados_relatorio(start_date, end_date):
     """Busca e une todos os dados necessários para os relatórios."""
@@ -15,12 +16,8 @@ def buscar_dados_relatorio(start_date, end_date):
     try:
         query = """
             SELECT
-                es.id as execucao_id,
-                es.quilometragem,
-                es.inicio_execucao,
-                es.fim_execucao,
-                v.placa,
-                v.empresa,
+                es.id as execucao_id, es.quilometragem, es.inicio_execucao, es.fim_execucao,
+                es.box_id, v.placa, v.empresa,
                 serv.tipo as tipo_servico,
                 func.nome as funcionario_nome,
                 usr_aloc.nome as alocado_por,
@@ -37,8 +34,7 @@ def buscar_dados_relatorio(start_date, end_date):
             LEFT JOIN usuarios usr_final ON es.usuario_finalizacao_id = usr_final.id
             WHERE
                 es.status = 'finalizado'
-                AND es.fim_execucao >= %s
-                AND es.fim_execucao < %s;
+                AND es.fim_execucao BETWEEN %s AND %s;
         """
         end_date_inclusive = end_date + timedelta(days=1)
         df = pd.read_sql(query, conn, params=(start_date, end_date_inclusive))
@@ -47,85 +43,83 @@ def buscar_dados_relatorio(start_date, end_date):
         release_connection(conn)
 
 def app():
-    st.title("📊 Relatórios e BI")
-    st.markdown("Analise a performance e os dados operacionais do pátio.")
+    st.title("📊 Construtor de Relatórios (BI)")
+    st.markdown("Use os filtros e seletores para explorar os dados da operação.")
 
     if st.session_state.get('user_role') != 'admin':
         st.error("Acesso negado. Apenas administradores podem acessar esta página.")
         st.stop()
     
-    conn = get_connection()
-    if not conn:
-        st.error("Falha ao conectar ao banco de dados.")
-        st.stop()
-    
     st.markdown("---")
     
-    # --- FILTROS DA PÁGINA ---
-    st.subheader("Filtros")
-    
-    # Filtro de Data
-    col_data1, col_data2 = st.columns(2)
+    # --- Filtro de Data ---
+    st.subheader("1. Selecione o Período")
     today = date.today()
-    start_date = col_data1.date_input("Data de Início", today - timedelta(days=30), key="bi_start_date")
-    end_date = col_data2.date_input("Data de Fim", today, key="bi_end_date")
+    col1, col2 = st.columns(2)
+    start_date = col1.date_input("Data de Início", today - timedelta(days=30), key="bi_start_date")
+    end_date = col2.date_input("Data de Fim", today, key="bi_end_date")
 
     if start_date > end_date:
         st.error("A data de início não pode ser posterior à data de fim.")
         st.stop()
 
-    # Busca os dados brutos com base apenas nas datas
-    df_bruto = buscar_dados_relatorio(start_date, end_date)
-
-    # --- NOVOS FILTROS INTERATIVOS ---
-    col_empresa, col_func = st.columns(2)
-    
-    # Filtro de Empresa
-    lista_empresas = sorted(df_bruto['empresa'].dropna().unique())
-    empresas_selecionadas = col_empresa.multiselect("Filtrar por Empresa", options=lista_empresas)
-
-    # Filtro de Funcionário
-    lista_funcionarios = sorted(df_bruto['funcionario_nome'].dropna().unique())
-    funcionarios_selecionados = col_func.multiselect("Filtrar por Funcionário", options=lista_funcionarios)
-
-    # --- APLICANDO OS FILTROS NOS DADOS ---
-    df_filtrado = df_bruto.copy()
-    if empresas_selecionadas:
-        df_filtrado = df_filtrado[df_filtrado['empresa'].isin(empresas_selecionadas)]
-    if funcionarios_selecionados:
-        df_filtrado = df_filtrado[df_filtrado['funcionario_nome'].isin(funcionarios_selecionados)]
-
-    release_connection(conn)
+    df_relatorio = buscar_dados_relatorio(start_date, end_date)
     st.markdown("---")
 
-    if df_filtrado.empty:
-        st.info(f"Nenhum serviço encontrado para os filtros selecionados.")
+    if df_relatorio.empty:
+        st.info(f"Nenhum serviço finalizado no período de {start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}.")
     else:
-        st.header("Dashboard Geral")
+        # --- Controles do Construtor de Gráficos ---
+        st.subheader("2. Monte sua Análise")
         
-        # --- KPIs Principais ---
-        col1, col2 = st.columns(2)
-        total_servicos = len(df_filtrado.dropna(subset=['tipo_servico']))
-        total_veiculos = df_filtrado['placa'].nunique()
+        # Mapeamento de colunas para nomes amigáveis
+        opcoes_analise = {
+            'Funcionário': 'funcionario_nome',
+            'Tipo de Serviço': 'tipo_servico',
+            'Empresa (Cliente)': 'empresa',
+            'Box': 'box_id'
+        }
+
+        col_analise, col_grafico = st.columns(2)
+
+        # Seletor do Eixo X
+        opcao_selecionada = col_analise.selectbox(
+            "Analisar por:",
+            options=list(opcoes_analise.keys())
+        )
         
-        col1.metric("Total de Serviços Realizados", f"{total_servicos}")
-        col2.metric("Veículos Únicos Atendidos", f"{total_veiculos}")
+        # Seletor do Tipo de Gráfico
+        tipo_grafico = col_grafico.selectbox(
+            "Visualizar como:",
+            options=["Gráfico de Barras", "Gráfico de Pizza"]
+        )
 
-        # --- Gráficos ---
-        st.markdown("<br>", unsafe_allow_html=True)
-        col_graf1, col_graf2 = st.columns(2)
+        # --- Processamento e Exibição dos Dados ---
+        st.markdown("---")
+        st.header(f"Análise por: {opcao_selecionada}")
 
-        with col_graf1:
-            st.subheader("Top 5 Serviços Mais Realizados")
-            top_servicos = df_filtrado['tipo_servico'].value_counts().head(5)
-            st.bar_chart(top_servicos)
+        # Pega o nome da coluna no DataFrame com base na seleção do usuário
+        coluna_para_analise = opcoes_analise[opcao_selecionada]
+        
+        # Realiza a contagem dos dados
+        dados_agrupados = df_relatorio[coluna_para_analise].value_counts()
+        
+        # Converte para um DataFrame para o Plotly
+        df_grafico = dados_agrupados.reset_index()
+        df_grafico.columns = [opcao_selecionada, 'Contagem de Serviços']
 
-        with col_graf2:
-            st.subheader("Top 5 Funcionários Mais Ativos")
-            top_funcionarios = df_filtrado['funcionario_nome'].value_counts().head(5)
-            st.bar_chart(top_funcionarios)
+        # Exibe o gráfico escolhido
+        if tipo_grafico == "Gráfico de Barras":
+            fig = px.bar(df_grafico, x=opcao_selecionada, y='Contagem de Serviços',
+                         title=f"Total de Serviços por {opcao_selecionada}",
+                         text_auto=True)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif tipo_grafico == "Gráfico de Pizza":
+            fig = px.pie(df_grafico, names=opcao_selecionada, values='Contagem de Serviços',
+                         title=f"Distribuição de Serviços por {opcao_selecionada}")
+            st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("Dados Detalhados do Período")
-        df_display = df_filtrado.fillna("N/A")
-        st.dataframe(df_display, use_container_width=True)
+        # Exibe a tabela com os dados agrupados
+        with st.expander("Ver dados da tabela"):
+            st.dataframe(df_grafico, use_container_width=True)
