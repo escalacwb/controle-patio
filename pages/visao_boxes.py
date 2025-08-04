@@ -95,8 +95,6 @@ def render_box(conn, box_data, catalogo_servicos):
         st.markdown("---")
         obs_final = st.text_area("Observações Finais da Execução", key=f"obs_final_{box_id}", value=box_state.get('obs_final', ''))
         st.session_state.box_states[box_id]['obs_final'] = obs_final
-        
-        # --- LINHA CORRIGIDA ---
         if st.form_submit_button("✅ Salvar e Finalizar Box", type="primary", use_container_width=True):
             finalizar_execucao(conn, box_id, int(execucao_id))
             st.rerun()
@@ -133,17 +131,30 @@ def finalizar_execucao(conn, box_id, execucao_id):
             cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
-            
+
             query_placa = "SELECT v.placa FROM veiculos v JOIN execucao_servico es ON v.id = es.veiculo_id WHERE es.id = %s"
             df_placa = pd.read_sql(query_placa, conn, params=(execucao_id,))
             placa_veiculo = df_placa.iloc[0]['placa'] if not df_placa.empty else "N/A"
-            mensagem = (f"✅ *Serviço Finalizado!*\n\n*Veículo:* {placa_veiculo}\n*Box:* {box_id}\n*Finalizado por:* {usuario_finalizacao_nome}\n")
+            
+            mensagem = (
+                f"✅ *Serviço Finalizado!*\n\n"
+                f"*Veículo:* `{placa_veiculo}`\n"
+                f"*Box:* {box_id}\n"
+                f"*Finalizado por:* {usuario_finalizacao_nome}\n"
+            )
             if obs_final:
                 mensagem += f"*Observação:* {obs_final}"
-            enviar_notificacao_telegram(mensagem)
+            
+            sucesso_notificacao, mensagem_status = enviar_notificacao_telegram(mensagem)
+
+            if sucesso_notificacao:
+                st.toast("🚀 Notificação enviada para o Telegram!")
+            else:
+                st.warning(f"O serviço foi finalizado, mas a notificação falhou. Detalhe: {mensagem_status}")
             
             if box_id in st.session_state.box_states:
                 del st.session_state.box_states[box_id]
     except Exception as e:
         conn.rollback()
         st.error(f"Erro ao finalizar Box {box_id}: {e}")
+        st.exception(e)
