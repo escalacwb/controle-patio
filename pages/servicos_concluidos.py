@@ -8,25 +8,21 @@ def app():
     st.markdown("Uma lista de todas as visitas finalizadas, agrupadas por veículo e quilometragem.")
     st.markdown("---")
 
-    # --- NOVO FILTRO DE DATA ---
+    # --- FILTRO DE DATA ADICIONADO AQUI ---
     st.subheader("Filtrar por Período de Conclusão")
     today = date.today()
     
-    # Criamos um seletor de intervalo de datas, que por padrão pega o dia de hoje.
     selected_dates = st.date_input(
         "Selecione um dia ou um intervalo de datas",
-        value=(today, today), # O padrão é um intervalo que começa e termina hoje
-        max_value=today,      # Opcional: impede a seleção de datas futuras
+        value=(today, today),
+        max_value=today,
         key="date_filter_concluidos"
     )
 
-    # Verificamos se o usuário selecionou um intervalo válido
     if len(selected_dates) == 2:
         start_date, end_date = selected_dates
-        # Adicionamos 1 dia ao final para incluir todos os horários do último dia na busca
         end_date_inclusive = end_date + timedelta(days=1)
     else:
-        # Se o intervalo for inválido, usa apenas o dia de hoje como padrão
         start_date = today
         end_date_inclusive = today + timedelta(days=1)
         st.warning("Por favor, selecione um intervalo de datas válido (início e fim).")
@@ -39,20 +35,19 @@ def app():
         return
 
     try:
-        # --- QUERY ATUALIZADA PARA USAR O FILTRO DE DATA ---
+        # --- QUERY CORRIGIDA E COM FILTRO DE DATA ---
         query = """
             SELECT
-                es.veiculo_id, es.quilometragem, es.fim_execucao, es.observacao_execucao,
+                es.veiculo_id, es.quilometragem, es.fim_execucao,
                 v.placa, v.empresa,
-                serv.area, serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome
+                serv.area, serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome,
+                serv.observacao_execucao
             FROM execucao_servico es
             JOIN veiculos v ON es.veiculo_id = v.id
             LEFT JOIN (
-                SELECT execucao_id, 'Borracharia' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_borracharia
-                UNION ALL
-                SELECT execucao_id, 'Alinhamento' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_alinhamento
-                UNION ALL
-                SELECT execucao_id, 'Manutenção Mecânica' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_manutencao
+                SELECT execucao_id, 'Borracharia' as area, tipo, quantidade, status, funcionario_id, observacao_execucao FROM servicos_solicitados_borracharia UNION ALL
+                SELECT execucao_id, 'Alinhamento' as area, tipo, quantidade, status, funcionario_id, observacao_execucao FROM servicos_solicitados_alinhamento UNION ALL
+                SELECT execucao_id, 'Manutenção Mecânica' as area, tipo, quantidade, status, funcionario_id, observacao_execucao FROM servicos_solicitados_manutencao
             ) serv ON es.id = serv.execucao_id
             LEFT JOIN funcionarios f ON serv.funcionario_id = f.id
             WHERE 
@@ -61,7 +56,6 @@ def app():
                 AND es.fim_execucao < %s
             ORDER BY es.fim_execucao DESC, serv.area;
         """
-        # Passamos as datas selecionadas como parâmetros para a query
         df_completo = pd.read_sql(query, conn, params=(start_date, end_date_inclusive))
 
         if df_completo.empty:
@@ -81,17 +75,18 @@ def app():
                 with col2:
                     st.write(f"**Data de Conclusão:** {pd.to_datetime(info_visita['fim_execucao']).strftime('%d/%m/%Y')}")
                     st.write(f"**Quilometragem:** {quilometragem:,} km".replace(',', '.'))
-
-                observacao = grupo_visita['observacao_execucao'].dropna().unique()
-                if len(observacao) > 0 and observacao[0]:
+                
+                observacoes = grupo_visita['observacao_execucao'].dropna().unique()
+                if len(observacoes) > 0 and observacoes[0]:
                     st.markdown("**Observações da Visita:**")
-                    st.info(observacao[0])
+                    for obs in observacoes:
+                        if obs: st.info(obs)
 
                 st.markdown("##### Serviços realizados nesta visita:")
                 servicos_da_visita = grupo_visita[['area', 'tipo', 'quantidade', 'status', 'funcionario_nome']].rename(columns={'area': 'Área', 'tipo': 'Tipo de Serviço', 'quantidade': 'Qtd.', 'status': 'Status', 'funcionario_nome': 'Executado por'})
                 servicos_da_visita.dropna(subset=['Tipo de Serviço'], inplace=True)
                 st.table(servicos_da_visita)
-
+                
     except Exception as e:
         st.error(f"❌ Ocorreu um erro: {e}")
     finally:
