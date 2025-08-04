@@ -3,7 +3,7 @@ import pandas as pd
 from database import get_connection, release_connection
 from datetime import datetime
 import pytz
-from utils import get_catalogo_servicos, enviar_notificacao_telegram # Adiciona a nova importação
+from utils import get_catalogo_servicos, enviar_notificacao_telegram
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
@@ -95,4 +95,55 @@ def render_box(conn, box_data, catalogo_servicos):
         st.markdown("---")
         obs_final = st.text_area("Observações Finais da Execução", key=f"obs_final_{box_id}", value=box_state.get('obs_final', ''))
         st.session_state.box_states[box_id]['obs_final'] = obs_final
-        if st.form_submit_button("✅
+        
+        # --- LINHA CORRIGIDA ---
+        if st.form_submit_button("✅ Salvar e Finalizar Box", type="primary", use_container_width=True):
+            finalizar_execucao(conn, box_id, int(execucao_id))
+            st.rerun()
+
+def sync_box_state_from_db(conn, box_id, veiculo_id):
+    query = """
+        (SELECT 'borracharia' as area, id, tipo, quantidade, observacao FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento') UNION ALL
+        (SELECT 'alinhamento' as area, id, tipo, quantidade, observacao FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento') UNION ALL
+        (SELECT 'manutencao' as area, id, tipo, quantidade, observacao FROM servicos_solicitados_manutencao WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento')
+    """
+    df_servicos = pd.read_sql(query, conn, params=[veiculo_id, box_id] * 3)
+    servicos_dict = {f"{row['area']}_{row['id']}": {'db_id': row['id'], 'tipo': row['tipo'], 'quantidade': row['quantidade'], 'qtd_executada': row['quantidade'], 'area': row['area'], 'status': 'ativo'} for _, row in df_servicos.iterrows()}
+    st.session_state.box_states[box_id] = {'servicos': servicos_dict, 'obs_final': '','observacao_geral': df_servicos['observacao'].iloc[0] if not df_servicos.empty and pd.notna(df_servicos['observacao'].iloc[0]) else ""}
+
+def finalizar_execucao(conn, box_id, execucao_id):
+    box_state = st.session_state.box_states.get(box_id, {})
+    obs_final = box_state.get('obs_final', '')
+    if not box_state: return
+    try:
+        with conn.cursor() as cursor:
+            usuario_finalizacao_id = st.session_state.get('user_id')
+            usuario_finalizacao_nome = st.session_state.get('user_name')
+            for servico in box_state.get('servicos', {}).values():
+                if servico['status'] == 'ativo_novo':
+                    tabela = f"servicos_solicitados_{servico['area']}"
+                    query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, id, %s, %s, %s FROM execucao_servico WHERE id = %s"
+                    cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
+                else:
+                    status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
+                    tabela = f"servicos_solicitados_{servico['area']}"
+                    query = f"UPDATE {tabela} SET status = %s, quantidade = %s, data_atualizacao = %s, observacao_execucao = %s WHERE id = %s"
+                    cursor.execute(query, (status_final, servico['qtd_executada'], datetime.now(MS_TZ), obs_final, servico['db_id']))
+            cursor.execute("UPDATE execucao_servico SET status = 'finalizado', fim_execucao = %s, usuario_finalizacao_id = %s WHERE id = %s", (datetime.now(MS_TZ), usuario_finalizacao_id, execucao_id))
+            cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
+            conn.commit()
+            st.success(f"Box {box_id} finalizado com sucesso!")
+            
+            query_placa = "SELECT v.placa FROM veiculos v JOIN execucao_servico es ON v.id = es.veiculo_id WHERE es.id = %s"
+            df_placa = pd.read_sql(query_placa, conn, params=(execucao_id,))
+            placa_veiculo = df_placa.iloc[0]['placa'] if not df_placa.empty else "N/A"
+            mensagem = (f"✅ *Serviço Finalizado!*\n\n*Veículo:* {placa_veiculo}\n*Box:* {box_id}\n*Finalizado por:* {usuario_finalizacao_nome}\n")
+            if obs_final:
+                mensagem += f"*Observação:* {obs_final}"
+            enviar_notificacao_telegram(mensagem)
+            
+            if box_id in st.session_state.box_states:
+                del st.session_state.box_states[box_id]
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Erro ao finalizar Box {box_id}: {e}")
