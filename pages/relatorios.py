@@ -4,10 +4,10 @@ from database import get_connection, release_connection
 from datetime import date, timedelta
 import plotly.express as px
 
-# Função para buscar e cachear os dados (com adição do box_id)
+# Função de busca de dados foi melhorada para calcular a duração dos serviços
 @st.cache_data(ttl=600)
 def buscar_dados_relatorio(start_date, end_date):
-    """Busca e une todos os dados necessários para os relatórios."""
+    """Busca e une todos os dados necessários para os relatórios, já calculando a duração."""
     conn = get_connection()
     if not conn:
         st.error("Falha ao obter conexão para o relatório.")
@@ -16,12 +16,12 @@ def buscar_dados_relatorio(start_date, end_date):
     try:
         query = """
             SELECT
-                es.id as execucao_id, es.quilometragem, es.inicio_execucao, es.fim_execucao,
+                es.quilometragem, es.inicio_execucao, es.fim_execucao,
+                -- Calcula a duração em minutos
+                EXTRACT(EPOCH FROM (es.fim_execucao - es.inicio_execucao)) / 60 AS duracao_minutos,
                 es.box_id, v.placa, v.empresa,
                 serv.tipo as tipo_servico,
-                func.nome as funcionario_nome,
-                usr_aloc.nome as alocado_por,
-                usr_final.nome as finalizado_por
+                func.nome as funcionario_nome
             FROM execucao_servico es
             JOIN veiculos v ON es.veiculo_id = v.id
             LEFT JOIN (
@@ -29,9 +29,7 @@ def buscar_dados_relatorio(start_date, end_date):
                 SELECT execucao_id, tipo, funcionario_id FROM servicos_solicitados_alinhamento UNION ALL
                 SELECT execucao_id, tipo, funcionario_id FROM servicos_solicitados_manutencao
             ) serv ON es.id = serv.execucao_id
-            LEFT JOIN funcionarios func ON serv.funcionario_id = func.id
-            LEFT JOIN usuarios usr_aloc ON es.usuario_alocacao_id = usr_aloc.id
-            LEFT JOIN usuarios usr_final ON es.usuario_finalizacao_id = usr_final.id
+            LEFT JOIN funcionarios func ON serv.funcionario_id = f.id
             WHERE
                 es.status = 'finalizado'
                 AND es.fim_execucao BETWEEN %s AND %s;
@@ -43,8 +41,8 @@ def buscar_dados_relatorio(start_date, end_date):
         release_connection(conn)
 
 def app():
-    st.title("📊 Construtor de Relatórios (BI)")
-    st.markdown("Use os filtros e seletores para explorar os dados da operação.")
+    st.title("📊 Dashboard de Gestão")
+    st.markdown("Use os filtros para analisar a operação do pátio.")
 
     if st.session_state.get('user_role') != 'admin':
         st.error("Acesso negado. Apenas administradores podem acessar esta página.")
@@ -53,7 +51,7 @@ def app():
     st.markdown("---")
     
     # --- Filtro de Data ---
-    st.subheader("1. Selecione o Período")
+    st.subheader("Filtro de Período")
     today = date.today()
     col1, col2 = st.columns(2)
     start_date = col1.date_input("Data de Início", today - timedelta(days=30), key="bi_start_date")
@@ -67,59 +65,51 @@ def app():
     st.markdown("---")
 
     if df_relatorio.empty:
-        st.info(f"Nenhum serviço finalizado no período de {start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}.")
+        st.info(f"Nenhum serviço finalizado no período selecionado.")
     else:
-        # --- Controles do Construtor de Gráficos ---
-        st.subheader("2. Monte sua Análise")
-        
-        # Mapeamento de colunas para nomes amigáveis
-        opcoes_analise = {
-            'Funcionário': 'funcionario_nome',
-            'Tipo de Serviço': 'tipo_servico',
-            'Empresa (Cliente)': 'empresa',
-            'Box': 'box_id'
-        }
+        # --- Abas para cada área de análise ---
+        tab_op, tab_com, tab_eq = st.tabs(["Visão Operacional", "Visão Comercial", "Visão de Equipe"])
 
-        col_analise, col_grafico = st.columns(2)
+        with tab_op:
+            st.header("Análise de Eficiência do Pátio")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Serviços por Box")
+                servicos_por_box = df_relatorio['box_id'].value_counts()
+                st.bar_chart(servicos_por_box)
 
-        # Seletor do Eixo X
-        opcao_selecionada = col_analise.selectbox(
-            "Analisar por:",
-            options=list(opcoes_analise.keys())
-        )
-        
-        # Seletor do Tipo de Gráfico
-        tipo_grafico = col_grafico.selectbox(
-            "Visualizar como:",
-            options=["Gráfico de Barras", "Gráfico de Pizza"]
-        )
+            with col2:
+                st.subheader("Tempo Médio por Serviço (minutos)")
+                tempo_por_servico = df_relatorio.groupby('tipo_servico')['duracao_minutos'].mean().sort_values(ascending=False)
+                st.bar_chart(tempo_por_servico)
 
-        # --- Processamento e Exibição dos Dados ---
-        st.markdown("---")
-        st.header(f"Análise por: {opcao_selecionada}")
+        with tab_com:
+            st.header("Análise de Clientes e Serviços")
+            col1, col2 = st.columns(2)
 
-        # Pega o nome da coluna no DataFrame com base na seleção do usuário
-        coluna_para_analise = opcoes_analise[opcao_selecionada]
-        
-        # Realiza a contagem dos dados
-        dados_agrupados = df_relatorio[coluna_para_analise].value_counts()
-        
-        # Converte para um DataFrame para o Plotly
-        df_grafico = dados_agrupados.reset_index()
-        df_grafico.columns = [opcao_selecionada, 'Contagem de Serviços']
+            with col1:
+                st.subheader("Top 10 Clientes por Volume")
+                top_clientes = df_relatorio['empresa'].value_counts().head(10)
+                st.bar_chart(top_clientes)
+            
+            with col2:
+                st.subheader("Serviços Mais Realizados")
+                top_servicos = df_relatorio['tipo_servico'].value_counts().head(10)
+                fig = px.pie(top_servicos, names=top_servicos.index, values=top_servicos.values, title="Distribuição de Serviços")
+                st.plotly_chart(fig, use_container_width=True)
 
-        # Exibe o gráfico escolhido
-        if tipo_grafico == "Gráfico de Barras":
-            fig = px.bar(df_grafico, x=opcao_selecionada, y='Contagem de Serviços',
-                         title=f"Total de Serviços por {opcao_selecionada}",
-                         text_auto=True)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        elif tipo_grafico == "Gráfico de Pizza":
-            fig = px.pie(df_grafico, names=opcao_selecionada, values='Contagem de Serviços',
-                         title=f"Distribuição de Serviços por {opcao_selecionada}")
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Exibe a tabela com os dados agrupados
-        with st.expander("Ver dados da tabela"):
-            st.dataframe(df_grafico, use_container_width=True)
+        with tab_eq:
+            st.header("Análise de Performance da Equipe")
+            st.subheader("Especialização por Funcionário")
+            
+            # Cruzamento de Funcionário vs. Tipo de Serviço
+            tabela_cruzada = pd.crosstab(df_relatorio['funcionario_nome'], df_relatorio['tipo_servico'])
+            
+            if not tabela_cruzada.empty:
+                # Usamos um gráfico de calor (heatmap) para ver a especialização
+                fig = px.imshow(tabela_cruzada, text_auto=True, aspect="auto",
+                                title="Contagem de Serviços por Funcionário e Tipo")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Não há dados suficientes para gerar a análise de especialização.")
