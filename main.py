@@ -10,7 +10,7 @@ from pages import (
     servicos_concluidos,
     historico_veiculo,
     gerenciar_usuarios,
-    relatorios # Importa a nova página
+    relatorios
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
@@ -33,13 +33,17 @@ icons = ["truck-front", "card-list", "card-checklist", "view-stacked", "check-ci
 if st.session_state.get('user_role') == 'admin':
     options.append("Gerenciar Usuários")
     icons.append("people-fill")
-    options.append("Relatórios") # Adiciona a opção de Relatórios
-    icons.append("graph-up")     # Ícone para Relatórios
+    options.append("Relatórios")
+    icons.append("graph-up")
 
 selected_page = option_menu(
-    menu_title=None, options=options, icons=icons, menu_icon="cast",
-    default_index=0, orientation="horizontal",
-    styles={ # (seus estilos aqui, sem alteração)
+    menu_title=None, 
+    options=options, 
+    icons=icons, 
+    menu_icon="cast",
+    default_index=0, 
+    orientation="horizontal",
+    styles={
         "container": {"padding": "0!important", "background-color": "#292929"},
         "icon": {"color": "#22a7f0", "font-size": "25px"},
         "nav-link": {"font-size": "16px", "text-align": "center", "margin":"0px", "--hover-color": "#444"},
@@ -47,22 +51,7 @@ selected_page = option_menu(
     }
 )
 
-# --- LÓGICA DE EXIBIÇÃO DE PÁGINA ATUALIZADA ---
-if selected_page == "Alocar Serviços":
-    alocar_servicos.alocar_servicos()
-elif selected_page == "Cadastro de Serviço":
-    cadastro_servico.app()
-# ... (elif para as outras páginas sem alteração) ...
-elif selected_page == "Histórico por Veículo":
-    historico_veiculo.app()
-elif selected_page == "Gerenciar Usuários":
-    gerenciar_usuarios.app()
-elif selected_page == "Relatórios": # Adiciona o roteamento para a nova página
-    relatorios.app()
-
-# O código completo do main.py está abaixo para garantir
-# (Copie a partir daqui para substituir o seu arquivo inteiro)
-
+# --- LÓGICA DE EXIBIÇÃO DE PÁGINA (VERSÃO CORRIGIDA, SEM DUPLICAÇÃO) ---
 if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
