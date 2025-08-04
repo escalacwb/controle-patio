@@ -6,3 +6,4 @@ SQLAlchemy
 python-dotenv
 streamlit-option-menu
 plotly
+requests
