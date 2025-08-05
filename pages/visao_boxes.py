@@ -97,7 +97,7 @@ def render_box(conn, box_data, catalogo_servicos):
         st.session_state.box_states[box_id]['obs_final'] = obs_final
         if st.form_submit_button("✅ Salvar e Finalizar Box", type="primary", use_container_width=True):
             finalizar_execucao(conn, box_id, int(execucao_id))
-            st.rerun()
+            # O st.rerun() agora está dentro da função finalizar_execucao
 
 def sync_box_state_from_db(conn, box_id, veiculo_id):
     query = """
@@ -117,33 +117,50 @@ def finalizar_execucao(conn, box_id, execucao_id):
         with conn.cursor() as cursor:
             usuario_finalizacao_id = st.session_state.get('user_id')
             usuario_finalizacao_nome = st.session_state.get('user_name')
+            
+            # --- PREPARAÇÃO PARA A MENSAGEM ---
+            # Vamos guardar os detalhes dos serviços finalizados para usar na notificação
+            detalhes_servicos_para_msg = []
+
             for servico in box_state.get('servicos', {}).values():
+                status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
+                
+                # Adiciona o serviço à lista da mensagem apenas se ele foi de fato executado
+                if status_final == 'finalizado':
+                    detalhes_servicos_para_msg.append(f"- {servico['tipo']} (Qtd: {servico['qtd_executada']})")
+
                 if servico['status'] == 'ativo_novo':
                     tabela = f"servicos_solicitados_{servico['area']}"
                     query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, id, %s, %s, %s FROM execucao_servico WHERE id = %s"
                     cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
                 else:
-                    status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
                     tabela = f"servicos_solicitados_{servico['area']}"
                     query = f"UPDATE {tabela} SET status = %s, quantidade = %s, data_atualizacao = %s, observacao_execucao = %s WHERE id = %s"
                     cursor.execute(query, (status_final, servico['qtd_executada'], datetime.now(MS_TZ), obs_final, servico['db_id']))
+            
             cursor.execute("UPDATE execucao_servico SET status = 'finalizado', fim_execucao = %s, usuario_finalizacao_id = %s WHERE id = %s", (datetime.now(MS_TZ), usuario_finalizacao_id, execucao_id))
             cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
 
-            query_placa = "SELECT v.placa FROM veiculos v JOIN execucao_servico es ON v.id = es.veiculo_id WHERE es.id = %s"
-            df_placa = pd.read_sql(query_placa, conn, params=(execucao_id,))
-            placa_veiculo = df_placa.iloc[0]['placa'] if not df_placa.empty else "N/A"
+            # --- MONTAGEM DA MENSAGEM ATUALIZADA ---
+            query_info = "SELECT v.placa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = %s"
+            df_info = pd.read_sql(query_info, conn, params=(execucao_id,))
+            info = df_info.iloc[0] if not df_info.empty else {'placa': 'N/A', 'funcionario_nome': 'N/A'}
             
+            # Junta a lista de serviços em uma string
+            servicos_str = "\n".join(detalhes_servicos_para_msg) if detalhes_servicos_para_msg else "Nenhum serviço executado."
+
             mensagem = (
                 f"✅ *Serviço Finalizado!*\n\n"
-                f"*Veículo:* `{placa_veiculo}`\n"
+                f"*Veículo:* `{info['placa']}`\n"
                 f"*Box:* {box_id}\n"
-                f"*Finalizado por:* {usuario_finalizacao_nome}\n"
+                f"*Mecânico:* {info['funcionario_nome']}\n"
+                f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
+                f"*Serviços Executados:*\n{servicos_str}\n"
             )
             if obs_final:
-                mensagem += f"*Observação:* {obs_final}"
+                mensagem += f"\n*Observação:* {obs_final}"
             
             sucesso_notificacao, mensagem_status = enviar_notificacao_telegram(mensagem)
 
@@ -154,6 +171,9 @@ def finalizar_execucao(conn, box_id, execucao_id):
             
             if box_id in st.session_state.box_states:
                 del st.session_state.box_states[box_id]
+            
+            st.rerun()
+
     except Exception as e:
         conn.rollback()
         st.error(f"Erro ao finalizar Box {box_id}: {e}")
