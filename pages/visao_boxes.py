@@ -122,7 +122,6 @@ def finalizar_execucao(conn, box_id, execucao_id):
             veiculo_id, quilometragem = result[0], result[1]
 
             for servico in box_state.get('servicos', {}).values():
-                # ... (lógica de salvar no banco continua a mesma)
                 if servico['status'] == 'ativo_novo':
                     tabela = f"servicos_solicitados_{servico['area']}"
                     query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, id, %s, %s, %s FROM execucao_servico WHERE id = %s"
@@ -138,33 +137,9 @@ def finalizar_execucao(conn, box_id, execucao_id):
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
 
-            # --- LÓGICA DE NOTIFICAÇÃO ATUALIZADA ---
             chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
             chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
-            
-            # 1. Prepara e envia a notificação simples para o grupo operacional (SEMPRE)
-            if chat_id_operacional:
-                info_execucao = pd.read_sql(f"SELECT v.placa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = {execucao_id}", conn).iloc[0]
-                servicos_nesta_etapa = [f"- {s['tipo']} (Qtd: {s['qtd_executada']})" for s in box_state.get('servicos', {}).values() if s.get('status') != 'removido']
-                servicos_str = "\n".join(servicos_nesta_etapa)
-                
-                mensagem_op = (
-                    f"▶️ *Etapa Concluída!*\n\n"
-                    f"*Veículo:* `{info_execucao['placa']}`\n"
-                    f"*Box:* {box_id}\n"
-                    f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
-                    f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
-                    f"*Serviços nesta etapa:*\n{servicos_str}"
-                )
-                # Adiciona a observação do box na mensagem operacional
-                if obs_final:
-                    mensagem_op += f"\n\n*Observação da Etapa:*\n_{obs_final}_"
 
-                sucesso_op, status_op = enviar_notificacao_telegram(mensagem_op, chat_id_operacional)
-                if sucesso_op: st.toast("🚀 Notificação operacional enviada!")
-                else: st.warning(f"Falha na notificação operacional: {status_op}")
-
-            # 2. Verifica se foi o último serviço
             query_pendentes = """
                 SELECT COUNT(*) FROM (
                     SELECT 1 FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION ALL
@@ -175,21 +150,44 @@ def finalizar_execucao(conn, box_id, execucao_id):
             cursor.execute(query_pendentes, (veiculo_id, veiculo_id, veiculo_id))
             servicos_pendentes_restantes = cursor.fetchone()[0]
 
-            # 3. Se foi o último, envia a notificação completa para o grupo de Faturamento
+            # --- LÓGICA DE NOTIFICAÇÃO ATUALIZADA ---
+            # Montamos a mensagem operacional base primeiro
+            info_execucao = pd.read_sql(f"SELECT v.placa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = {execucao_id}", conn).iloc[0]
+            servicos_nesta_etapa = [f"- {s['tipo']} (Qtd: {s['qtd_executada']})" for s in box_state.get('servicos', {}).values() if s.get('status') != 'removido']
+            servicos_str = "\n".join(servicos_nesta_etapa)
+            
+            mensagem_op = (
+                f"▶️ *Etapa Concluída!*\n\n"
+                f"*Veículo:* `{info_execucao['placa']}`\n"
+                f"*Box:* {box_id}\n"
+                f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
+                f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
+                f"*Serviços nesta etapa:*\n{servicos_str}"
+            )
+
+            # Se for o último serviço, adiciona o aviso na mensagem operacional
+            if servicos_pendentes_restantes == 0:
+                mensagem_op += "\n\n*✅ TODOS OS SERVIÇOS CONCLUÍDOS. Encaminhar motorista para faturamento.*"
+
+            # Envia a mensagem operacional (agora com o possível aviso)
+            if chat_id_operacional:
+                sucesso_op, status_op = enviar_notificacao_telegram(mensagem_op, chat_id_operacional)
+                if sucesso_op: st.toast("🚀 Notificação operacional enviada!")
+                else: st.warning(f"Falha na notificação operacional: {status_op}")
+
+            # Se for o último serviço, também envia a mensagem completa para o faturamento
             if servicos_pendentes_restantes == 0 and chat_id_faturamento:
                 query_info_veiculo = "SELECT placa, empresa FROM veiculos WHERE id = %s"
                 cursor.execute(query_info_veiculo, (veiculo_id,))
                 info_veiculo = cursor.fetchone()
                 placa, empresa = info_veiculo[0], info_veiculo[1]
                 
-                # Query para buscar TODOS os detalhes da visita (incluindo as observações)
                 query_full_visit = """
-                    SELECT serv.tipo, serv.quantidade, f.nome as funcionario_nome, serv.observacao, serv.observacao_execucao
-                    FROM execucao_servico es
+                    SELECT serv.tipo, serv.quantidade, f.nome as funcionario_nome FROM execucao_servico es
                     LEFT JOIN (
-                        SELECT execucao_id, tipo, quantidade, funcionario_id, observacao, observacao_execucao FROM servicos_solicitados_borracharia UNION ALL
-                        SELECT execucao_id, tipo, quantidade, funcionario_id, observacao, observacao_execucao FROM servicos_solicitados_alinhamento UNION ALL
-                        SELECT execucao_id, tipo, quantidade, funcionario_id, observacao, observacao_execucao FROM servicos_solicitados_manutencao
+                        SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_borracharia UNION ALL
+                        SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_alinhamento UNION ALL
+                        SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_manutencao
                     ) serv ON es.id = serv.execucao_id
                     LEFT JOIN funcionarios f ON serv.funcionario_id = f.id
                     WHERE es.veiculo_id = %s AND es.quilometragem = %s AND serv.tipo IS NOT NULL;
@@ -198,24 +196,14 @@ def finalizar_execucao(conn, box_id, execucao_id):
                 
                 lista_servicos_str = "\n".join([f"- {row['tipo']} (Qtd: {row['quantidade']}, Mec: {row['funcionario_nome']})" for _, row in df_visita_completa.iterrows()])
                 
-                # Coleta e junta todas as observações
-                obs_inicial = df_visita_completa['observacao'].dropna().unique()
-                obs_finais = df_visita_completa['observacao_execucao'].dropna().unique()
-                
                 mensagem_fat = (
                     f"✅ *VEÍCULO LIBERADO PARA FATURAMENTO!*\n\n"
                     f"*Veículo:* `{placa}` ({empresa})\n"
                     f"*KM:* {quilometragem}\n"
                     f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
-                    f"*Resumo de Todos os Serviços:*\n{lista_servicos_str}\n"
+                    f"*Resumo de Todos os Serviços:*\n{lista_servicos_str}\n\n"
+                    f"TODOS OS SERVIÇOS CONCLUÍDOS! Alterar venda e deixar pronto para assinar ou pagar!"
                 )
-                if len(obs_inicial) > 0 and obs_inicial[0]:
-                    mensagem_fat += f"\n*Observação Inicial (Cadastro):*\n_{obs_inicial[0]}_\n"
-                if len(obs_finais) > 0:
-                    obs_finais_str = "\n".join([f"- _{obs}_" for obs in obs_finais if obs])
-                    if obs_finais_str:
-                        mensagem_fat += f"\n*Observações dos Boxes:*\n{obs_finais_str}"
-
                 sucesso_fat, status_fat = enviar_notificacao_telegram(mensagem_fat, chat_id_faturamento)
                 if sucesso_fat: st.toast("🚀 Notificação de faturamento enviada!")
                 else: st.warning(f"Falha na notificação de faturamento: {status_fat}")
