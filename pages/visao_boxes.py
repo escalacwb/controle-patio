@@ -97,7 +97,7 @@ def render_box(conn, box_data, catalogo_servicos):
         st.session_state.box_states[box_id]['obs_final'] = obs_final
         if st.form_submit_button("✅ Salvar e Finalizar Box", type="primary", use_container_width=True):
             finalizar_execucao(conn, box_id, int(execucao_id))
-            # --- CORREÇÃO APLICADA AQUI: O 'st.rerun()' foi removido ---
+            st.rerun()
 
 def sync_box_state_from_db(conn, box_id, veiculo_id):
     query = """
