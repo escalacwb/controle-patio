@@ -9,21 +9,20 @@ def hash_password(password):
     """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-def enviar_notificacao_telegram(mensagem):
-    """
-    Envia uma mensagem para o Telegram e retorna um status.
-    Retorna: (True, "Mensagem de sucesso") ou (False, "Mensagem de erro")
-    """
+# --- FUNÇÃO DE NOTIFICAÇÃO ATUALIZADA ---
+def enviar_notificacao_telegram(mensagem, chat_id_destino):
+    """Envia uma mensagem para um chat_id específico do Telegram."""
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
-        chat_id = st.secrets.get("TELEGRAM_CHAT_ID")
-
-        if not token or not chat_id:
-            return False, "Credenciais do Telegram (TOKEN ou CHAT_ID) não encontradas nos Secrets."
+        
+        # Verifica se as credenciais necessárias existem
+        if not token or not chat_id_destino:
+            print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
+            return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
 
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         params = {
-            "chat_id": chat_id,
+            "chat_id": chat_id_destino,
             "text": mensagem,
             "parse_mode": "Markdown"
         }

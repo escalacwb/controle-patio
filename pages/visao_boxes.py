@@ -97,7 +97,6 @@ def render_box(conn, box_data, catalogo_servicos):
         st.session_state.box_states[box_id]['obs_final'] = obs_final
         if st.form_submit_button("✅ Salvar e Finalizar Box", type="primary", use_container_width=True):
             finalizar_execucao(conn, box_id, int(execucao_id))
-            # O st.rerun() agora está dentro da função finalizar_execucao
 
 def sync_box_state_from_db(conn, box_id, veiculo_id):
     query = """
@@ -118,22 +117,17 @@ def finalizar_execucao(conn, box_id, execucao_id):
             usuario_finalizacao_id = st.session_state.get('user_id')
             usuario_finalizacao_nome = st.session_state.get('user_name')
             
-            # --- PREPARAÇÃO PARA A MENSAGEM ---
-            # Vamos guardar os detalhes dos serviços finalizados para usar na notificação
-            detalhes_servicos_para_msg = []
+            cursor.execute("SELECT veiculo_id, quilometragem FROM execucao_servico WHERE id = %s", (execucao_id,))
+            result = cursor.fetchone()
+            veiculo_id, quilometragem = result[0], result[1]
 
             for servico in box_state.get('servicos', {}).values():
-                status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
-                
-                # Adiciona o serviço à lista da mensagem apenas se ele foi de fato executado
-                if status_final == 'finalizado':
-                    detalhes_servicos_para_msg.append(f"- {servico['tipo']} (Qtd: {servico['qtd_executada']})")
-
                 if servico['status'] == 'ativo_novo':
                     tabela = f"servicos_solicitados_{servico['area']}"
                     query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, id, %s, %s, %s FROM execucao_servico WHERE id = %s"
                     cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
                 else:
+                    status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
                     tabela = f"servicos_solicitados_{servico['area']}"
                     query = f"UPDATE {tabela} SET status = %s, quantidade = %s, data_atualizacao = %s, observacao_execucao = %s WHERE id = %s"
                     cursor.execute(query, (status_final, servico['qtd_executada'], datetime.now(MS_TZ), obs_final, servico['db_id']))
@@ -143,35 +137,73 @@ def finalizar_execucao(conn, box_id, execucao_id):
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
 
-            # --- MONTAGEM DA MENSAGEM ATUALIZADA ---
-            query_info = "SELECT v.placa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = %s"
-            df_info = pd.read_sql(query_info, conn, params=(execucao_id,))
-            info = df_info.iloc[0] if not df_info.empty else {'placa': 'N/A', 'funcionario_nome': 'N/A'}
-            
-            # Junta a lista de serviços em uma string
-            servicos_str = "\n".join(detalhes_servicos_para_msg) if detalhes_servicos_para_msg else "Nenhum serviço executado."
+            # --- NOVA LÓGICA DE NOTIFICAÇÃO ---
+            chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
+            chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
 
-            mensagem = (
-                f"✅ *Serviço Finalizado!*\n\n"
-                f"*Veículo:* `{info['placa']}`\n"
-                f"*Box:* {box_id}\n"
-                f"*Mecânico:* {info['funcionario_nome']}\n"
-                f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
-                f"*Serviços Executados:*\n{servicos_str}\n"
-            )
-            if obs_final:
-                mensagem += f"\n*Observação:* {obs_final}"
-            
-            sucesso_notificacao, mensagem_status = enviar_notificacao_telegram(mensagem)
+            query_pendentes = """
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION ALL
+                    SELECT 1 FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND status = 'pendente' UNION ALL
+                    SELECT 1 FROM servicos_solicitados_manutencao WHERE veiculo_id = %s AND status = 'pendente'
+                ) as pending_services;
+            """
+            cursor.execute(query_pendentes, (veiculo_id, veiculo_id, veiculo_id))
+            servicos_pendentes_restantes = cursor.fetchone()[0]
 
-            if sucesso_notificacao:
+            query_info_veiculo = "SELECT placa, empresa FROM veiculos WHERE id = %s"
+            cursor.execute(query_info_veiculo, (veiculo_id,))
+            info_veiculo = cursor.fetchone()
+            placa, empresa = info_veiculo[0], info_veiculo[1]
+
+            # SE FOR O ÚLTIMO SERVIÇO, notifica o grupo de FATURAMENTO
+            if servicos_pendentes_restantes == 0 and chat_id_faturamento:
+                query_full_visit = """
+                    SELECT serv.tipo, serv.quantidade, f.nome as funcionario_nome FROM execucao_servico es
+                    LEFT JOIN (
+                        SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_borracharia UNION ALL
+                        SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_alinhamento UNION ALL
+                        SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_manutencao
+                    ) serv ON es.id = serv.execucao_id
+                    LEFT JOIN funcionarios f ON serv.funcionario_id = f.id
+                    WHERE es.veiculo_id = %s AND es.quilometragem = %s AND serv.tipo IS NOT NULL;
+                """
+                df_visita_completa = pd.read_sql(query_full_visit, conn, params=(veiculo_id, quilometragem))
+                
+                lista_servicos_str = "\n".join([f"- {row['tipo']} (Qtd: {row['quantidade']}, Mec: {row['funcionario_nome']})" for _, row in df_visita_completa.iterrows()])
+                
+                mensagem = (
+                    f"✅ *VEÍCULO LIBERADO PARA FATURAMENTO!*\n\n"
+                    f"*Veículo:* `{placa}` ({empresa})\n"
+                    f"*KM:* {quilometragem}\n"
+                    f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
+                    f"*Resumo de Todos os Serviços:*\n{lista_servicos_str}\n\n"
+                    f"TODOS OS SERVIÇOS CONCLUÍDOS! Alterar venda e deixar pronto para assinar ou pagar!"
+                )
+                sucesso, status_msg = enviar_notificacao_telegram(mensagem, chat_id_faturamento)
+            
+            # SE AINDA HÁ SERVIÇOS PENDENTES, notifica o grupo OPERACIONAL
+            else:
+                info_execucao = pd.read_sql(f"SELECT f.nome as funcionario_nome FROM execucao_servico es LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = {execucao_id}", conn).iloc[0]
+                servicos_nesta_etapa = [f"- {s['tipo']} (Qtd: {s['qtd_executada']})" for s in box_state.get('servicos', {}).values() if s.get('status') != 'removido']
+                servicos_str = "\n".join(servicos_nesta_etapa)
+                
+                mensagem = (
+                    f"▶️ *Etapa Concluída!*\n\n"
+                    f"*Veículo:* `{placa}`\n"
+                    f"*Box:* {box_id}\n"
+                    f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
+                    f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
+                    f"*Serviços nesta etapa:*\n{servicos_str}"
+                )
+                sucesso, status_msg = enviar_notificacao_telegram(mensagem, chat_id_operacional)
+
+            if sucesso:
                 st.toast("🚀 Notificação enviada para o Telegram!")
             else:
-                st.warning(f"O serviço foi finalizado, mas a notificação falhou. Detalhe: {mensagem_status}")
+                st.warning(f"O serviço foi finalizado, mas a notificação falhou. Detalhe: {status_msg}")
             
-            if box_id in st.session_state.box_states:
-                del st.session_state.box_states[box_id]
-            
+            if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
             st.rerun()
 
     except Exception as e:
