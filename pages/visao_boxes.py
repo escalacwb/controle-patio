@@ -137,10 +137,29 @@ def finalizar_execucao(conn, box_id, execucao_id):
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
 
-            # --- NOVA LÓGICA DE NOTIFICAÇÃO ---
+            # --- LÓGICA DE NOTIFICAÇÃO ATUALIZADA ---
             chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
             chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
 
+            # 1. Prepara e envia a notificação simples para o grupo operacional (SEMPRE)
+            if chat_id_operacional:
+                info_execucao = pd.read_sql(f"SELECT v.placa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = {execucao_id}", conn).iloc[0]
+                servicos_nesta_etapa = [f"- {s['tipo']} (Qtd: {s['qtd_executada']})" for s in box_state.get('servicos', {}).values() if s.get('status') != 'removido']
+                servicos_str = "\n".join(servicos_nesta_etapa)
+                
+                mensagem_op = (
+                    f"▶️ *Etapa Concluída!*\n\n"
+                    f"*Veículo:* `{info_execucao['placa']}`\n"
+                    f"*Box:* {box_id}\n"
+                    f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
+                    f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
+                    f"*Serviços nesta etapa:*\n{servicos_str}"
+                )
+                sucesso_op, status_op = enviar_notificacao_telegram(mensagem_op, chat_id_operacional)
+                if sucesso_op: st.toast("🚀 Notificação operacional enviada!")
+                else: st.warning(f"Falha na notificação operacional: {status_op}")
+
+            # 2. Verifica se foi o último serviço
             query_pendentes = """
                 SELECT COUNT(*) FROM (
                     SELECT 1 FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION ALL
@@ -151,13 +170,13 @@ def finalizar_execucao(conn, box_id, execucao_id):
             cursor.execute(query_pendentes, (veiculo_id, veiculo_id, veiculo_id))
             servicos_pendentes_restantes = cursor.fetchone()[0]
 
-            query_info_veiculo = "SELECT placa, empresa FROM veiculos WHERE id = %s"
-            cursor.execute(query_info_veiculo, (veiculo_id,))
-            info_veiculo = cursor.fetchone()
-            placa, empresa = info_veiculo[0], info_veiculo[1]
-
-            # SE FOR O ÚLTIMO SERVIÇO, notifica o grupo de FATURAMENTO
+            # 3. Se foi o último, envia a notificação completa para o grupo de Faturamento
             if servicos_pendentes_restantes == 0 and chat_id_faturamento:
+                query_info_veiculo = "SELECT placa, empresa FROM veiculos WHERE id = %s"
+                cursor.execute(query_info_veiculo, (veiculo_id,))
+                info_veiculo = cursor.fetchone()
+                placa, empresa = info_veiculo[0], info_veiculo[1]
+                
                 query_full_visit = """
                     SELECT serv.tipo, serv.quantidade, f.nome as funcionario_nome FROM execucao_servico es
                     LEFT JOIN (
@@ -172,7 +191,7 @@ def finalizar_execucao(conn, box_id, execucao_id):
                 
                 lista_servicos_str = "\n".join([f"- {row['tipo']} (Qtd: {row['quantidade']}, Mec: {row['funcionario_nome']})" for _, row in df_visita_completa.iterrows()])
                 
-                mensagem = (
+                mensagem_fat = (
                     f"✅ *VEÍCULO LIBERADO PARA FATURAMENTO!*\n\n"
                     f"*Veículo:* `{placa}` ({empresa})\n"
                     f"*KM:* {quilometragem}\n"
@@ -180,28 +199,9 @@ def finalizar_execucao(conn, box_id, execucao_id):
                     f"*Resumo de Todos os Serviços:*\n{lista_servicos_str}\n\n"
                     f"TODOS OS SERVIÇOS CONCLUÍDOS! Alterar venda e deixar pronto para assinar ou pagar!"
                 )
-                sucesso, status_msg = enviar_notificacao_telegram(mensagem, chat_id_faturamento)
-            
-            # SE AINDA HÁ SERVIÇOS PENDENTES, notifica o grupo OPERACIONAL
-            else:
-                info_execucao = pd.read_sql(f"SELECT f.nome as funcionario_nome FROM execucao_servico es LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = {execucao_id}", conn).iloc[0]
-                servicos_nesta_etapa = [f"- {s['tipo']} (Qtd: {s['qtd_executada']})" for s in box_state.get('servicos', {}).values() if s.get('status') != 'removido']
-                servicos_str = "\n".join(servicos_nesta_etapa)
-                
-                mensagem = (
-                    f"▶️ *Etapa Concluída!*\n\n"
-                    f"*Veículo:* `{placa}`\n"
-                    f"*Box:* {box_id}\n"
-                    f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
-                    f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
-                    f"*Serviços nesta etapa:*\n{servicos_str}"
-                )
-                sucesso, status_msg = enviar_notificacao_telegram(mensagem, chat_id_operacional)
-
-            if sucesso:
-                st.toast("🚀 Notificação enviada para o Telegram!")
-            else:
-                st.warning(f"O serviço foi finalizado, mas a notificação falhou. Detalhe: {status_msg}")
+                sucesso_fat, status_fat = enviar_notificacao_telegram(mensagem_fat, chat_id_faturamento)
+                if sucesso_fat: st.toast("🚀 Notificação de faturamento enviada!")
+                else: st.warning(f"Falha na notificação de faturamento: {status_fat}")
             
             if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
             st.rerun()
