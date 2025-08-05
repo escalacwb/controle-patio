@@ -3,6 +3,47 @@ import pandas as pd
 from database import get_connection, release_connection
 from datetime import date, timedelta
 
+def reverter_visita(conn, veiculo_id, quilometragem):
+    """
+    Reverte todos os serviços de uma visita (agrupada por km) de 'finalizado' para 'pendente'.
+    """
+    try:
+        with conn.cursor() as cursor:
+            # Passo 1: Encontra todos os IDs de execução para esta visita específica
+            cursor.execute(
+                "SELECT id FROM execucao_servico WHERE veiculo_id = %s AND quilometragem = %s AND status = 'finalizado'",
+                (veiculo_id, quilometragem)
+            )
+            execucao_ids_tuples = cursor.fetchall()
+            if not execucao_ids_tuples:
+                st.error("Nenhuma execução finalizada encontrada para reverter.")
+                return
+
+            execucao_ids = [item[0] for item in execucao_ids_tuples]
+
+            # Passo 2: Para cada tabela de serviço, reverte os serviços para 'pendente'
+            tabelas = ["servicos_solicitados_borracharia", "servicos_solicitados_alinhamento", "servicos_solicitados_manutencao"]
+            for tabela in tabelas:
+                # Usamos ANY(%s) para atualizar todos os serviços de uma vez
+                cursor.execute(
+                    f"UPDATE {tabela} SET status = 'pendente', box_id = NULL, funcionario_id = NULL, execucao_id = NULL WHERE execucao_id = ANY(%s)",
+                    (execucao_ids,)
+                )
+            
+            # Passo 3: Marca as execuções como 'canceladas' para manter o histórico da reversão
+            cursor.execute(
+                "UPDATE execucao_servico SET status = 'cancelado' WHERE id = ANY(%s)",
+                (execucao_ids,)
+            )
+
+            conn.commit()
+            st.success("Visita revertida com sucesso! Os serviços estão pendentes novamente na tela de alocação.")
+            st.rerun()
+
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Erro ao reverter a visita: {e}")
+
 def app():
     st.title("✅ Histórico de Serviços Concluídos")
     st.markdown("Uma lista de todas as visitas finalizadas, agrupadas por veículo e quilometragem.")
@@ -13,7 +54,7 @@ def app():
     
     selected_dates = st.date_input(
         "Selecione um dia ou um intervalo de datas",
-        value=(today - timedelta(days=30), today), # Padrão para os últimos 30 dias
+        value=(today - timedelta(days=30), today),
         max_value=today,
         key="date_filter_concluidos"
     )
@@ -33,8 +74,6 @@ def app():
         return
 
     try:
-        # --- QUERY CORRIGIDA ---
-        # A coluna 'observacao_execucao' agora é buscada da subquery 'serv'
         query = """
             SELECT
                 es.veiculo_id, es.quilometragem, es.fim_execucao,
@@ -78,8 +117,7 @@ def app():
                 with col3:
                     if st.session_state.get('user_role') == 'admin':
                         if st.button("Reverter Visita", key=f"revert_{veiculo_id}_{quilometragem}", type="secondary", use_container_width=True):
-                            # A função de reverter precisa ser criada ou ajustada
-                            st.warning("Função de reverter ainda não implementada.")
+                            reverter_visita(conn, veiculo_id, quilometragem)
 
                 observacoes = grupo_visita['observacao_execucao'].dropna().unique()
                 if len(observacoes) > 0 and any(obs for obs in observacoes):

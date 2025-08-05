@@ -24,9 +24,6 @@ def app():
             return
         veiculo_id = int(df_veiculo.iloc[0]['id'])
 
-        # --- QUERY CORRIGIDA ---
-        # A coluna 'observacao_execucao' foi removida da tabela principal 'es'
-        # e agora é buscada da subquery 'serv'
         execucoes_query = """
             SELECT 
                 es.id as execucao_id, es.quilometragem, es.inicio_execucao, es.fim_execucao, 
@@ -44,7 +41,6 @@ def app():
         df_execucoes = pd.read_sql(execucoes_query, conn, params=(veiculo_id,))
         df_execucoes = df_execucoes.drop_duplicates(subset=['execucao_id'])
 
-
         if df_execucoes.empty:
             st.info("Nenhum histórico encontrado para esta placa.")
             return
@@ -54,6 +50,8 @@ def app():
         for _, execucao in df_execucoes.iterrows():
             inicio_execucao = pd.to_datetime(execucao['inicio_execucao'])
             
+            # --- ALTERAÇÃO APLICADA AQUI ---
+            # Formatamos a data e a adicionamos ao título do expander.
             titulo_expander = f"Visita de {inicio_execucao.strftime('%d/%m/%Y')} (KM: {execucao['quilometragem']:,}) | Status: {execucao['status_execucao'].upper()}".replace(',', '.')
             
             with st.expander(titulo_expander):
