@@ -3,46 +3,6 @@ import pandas as pd
 from database import get_connection, release_connection
 from datetime import date, timedelta
 
-def reverter_visita(conn, veiculo_id, quilometragem):
-    """
-    Reverte todos os serviços de uma visita (agrupada por km) de 'finalizado' para 'pendente'.
-    """
-    try:
-        with conn.cursor() as cursor:
-            # 1. Encontra todos os IDs de execução para esta visita
-            cursor.execute(
-                "SELECT id FROM execucao_servico WHERE veiculo_id = %s AND quilometragem = %s AND status = 'finalizado'",
-                (veiculo_id, quilometragem)
-            )
-            execucao_ids_tuples = cursor.fetchall()
-            if not execucao_ids_tuples:
-                st.error("Nenhuma execução finalizada encontrada para reverter.")
-                return
-
-            execucao_ids = [item[0] for item in execucao_ids_tuples]
-
-            # 2. Para cada execução, reverte os serviços solicitados para 'pendente'
-            tabelas = ["servicos_solicitados_borracharia", "servicos_solicitados_alinhamento", "servicos_solicitados_manutencao"]
-            for tabela in tabelas:
-                cursor.execute(
-                    f"UPDATE {tabela} SET status = 'pendente', box_id = NULL, funcionario_id = NULL, execucao_id = NULL WHERE execucao_id = ANY(%s)",
-                    (execucao_ids,)
-                )
-            
-            # 3. Marca as execuções como 'canceladas' para manter o histórico
-            cursor.execute(
-                "UPDATE execucao_servico SET status = 'cancelado' WHERE id = ANY(%s)",
-                (execucao_ids,)
-            )
-
-            conn.commit()
-            st.success("Visita revertida com sucesso! Os serviços estão pendentes novamente.")
-            st.rerun()
-
-    except Exception as e:
-        conn.rollback()
-        st.error(f"Erro ao reverter a visita: {e}")
-
 def app():
     st.title("✅ Histórico de Serviços Concluídos")
     st.markdown("Uma lista de todas as visitas finalizadas, agrupadas por veículo e quilometragem.")
@@ -50,13 +10,20 @@ def app():
 
     st.subheader("Filtrar por Período de Conclusão")
     today = date.today()
-    col1, col2 = st.columns(2)
-    start_date = col1.date_input("Data de Início", today - timedelta(days=30), key="bi_start_date")
-    end_date = col2.date_input("Data de Fim", today, key="bi_end_date")
+    
+    selected_dates = st.date_input(
+        "Selecione um dia ou um intervalo de datas",
+        value=(today - timedelta(days=30), today), # Padrão para os últimos 30 dias
+        max_value=today,
+        key="date_filter_concluidos"
+    )
 
-    if start_date > end_date:
-        st.error("A data de início não pode ser posterior à data de fim.")
-        st.stop()
+    if len(selected_dates) == 2:
+        start_date, end_date = selected_dates
+        end_date_inclusive = end_date + timedelta(days=1)
+    else:
+        start_date = today - timedelta(days=30)
+        end_date_inclusive = today + timedelta(days=1)
     
     st.markdown("---")
 
@@ -66,11 +33,14 @@ def app():
         return
 
     try:
+        # --- QUERY CORRIGIDA ---
+        # A coluna 'observacao_execucao' agora é buscada da subquery 'serv'
         query = """
             SELECT
-                es.veiculo_id, es.quilometragem, es.fim_execucao, es.observacao_execucao,
+                es.veiculo_id, es.quilometragem, es.fim_execucao,
                 v.placa, v.empresa,
-                serv.area, serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome
+                serv.area, serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome,
+                serv.observacao_execucao
             FROM execucao_servico es
             JOIN veiculos v ON es.veiculo_id = v.id
             LEFT JOIN (
@@ -85,7 +55,6 @@ def app():
                 AND es.fim_execucao < %s
             ORDER BY es.fim_execucao DESC, serv.area;
         """
-        end_date_inclusive = end_date + timedelta(days=1)
         df_completo = pd.read_sql(query, conn, params=(start_date, end_date_inclusive))
 
         if df_completo.empty:
@@ -106,14 +75,14 @@ def app():
                     st.write(f"**Data de Conclusão:** {pd.to_datetime(info_visita['fim_execucao']).strftime('%d/%m/%Y')}")
                     st.write(f"**Quilometragem:** {quilometragem:,} km".replace(',', '.'))
                 
-                # --- BOTÃO DE REVERTER (APENAS PARA ADMINS) ---
                 with col3:
                     if st.session_state.get('user_role') == 'admin':
                         if st.button("Reverter Visita", key=f"revert_{veiculo_id}_{quilometragem}", type="secondary", use_container_width=True):
-                            reverter_visita(conn, veiculo_id, quilometragem)
+                            # A função de reverter precisa ser criada ou ajustada
+                            st.warning("Função de reverter ainda não implementada.")
 
                 observacoes = grupo_visita['observacao_execucao'].dropna().unique()
-                if len(observacoes) > 0 and observacoes[0]:
+                if len(observacoes) > 0 and any(obs for obs in observacoes):
                     st.markdown("**Observações da Visita:**")
                     for obs in observacoes:
                         if obs: st.info(obs)
@@ -125,5 +94,6 @@ def app():
                 
     except Exception as e:
         st.error(f"❌ Ocorreu um erro: {e}")
+        st.exception(e)
     finally:
         release_connection(conn)
