@@ -8,11 +8,15 @@ def reverter_visita(conn, veiculo_id, quilometragem):
     Reverte todos os serviços de uma visita (agrupada por km) de 'finalizado' para 'pendente'.
     """
     try:
+        # CORREÇÃO: Converte os tipos de dados para o padrão do Python
+        p_veiculo_id = int(veiculo_id)
+        p_quilometragem = int(quilometragem)
+
         with conn.cursor() as cursor:
             # Passo 1: Encontra todos os IDs de execução para esta visita específica
             cursor.execute(
                 "SELECT id FROM execucao_servico WHERE veiculo_id = %s AND quilometragem = %s AND status = 'finalizado'",
-                (veiculo_id, quilometragem)
+                (p_veiculo_id, p_quilometragem)
             )
             execucao_ids_tuples = cursor.fetchall()
             if not execucao_ids_tuples:
@@ -24,7 +28,6 @@ def reverter_visita(conn, veiculo_id, quilometragem):
             # Passo 2: Para cada tabela de serviço, reverte os serviços para 'pendente'
             tabelas = ["servicos_solicitados_borracharia", "servicos_solicitados_alinhamento", "servicos_solicitados_manutencao"]
             for tabela in tabelas:
-                # Usamos ANY(%s) para atualizar todos os serviços de uma vez
                 cursor.execute(
                     f"UPDATE {tabela} SET status = 'pendente', box_id = NULL, funcionario_id = NULL, execucao_id = NULL WHERE execucao_id = ANY(%s)",
                     (execucao_ids,)
