@@ -1,31 +1,62 @@
 import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
-from datetime import date, timedelta # Importamos as ferramentas de data
+from datetime import date, timedelta
+
+def reverter_visita(conn, veiculo_id, quilometragem):
+    """
+    Reverte todos os serviços de uma visita (agrupada por km) de 'finalizado' para 'pendente'.
+    """
+    try:
+        with conn.cursor() as cursor:
+            # 1. Encontra todos os IDs de execução para esta visita
+            cursor.execute(
+                "SELECT id FROM execucao_servico WHERE veiculo_id = %s AND quilometragem = %s AND status = 'finalizado'",
+                (veiculo_id, quilometragem)
+            )
+            execucao_ids_tuples = cursor.fetchall()
+            if not execucao_ids_tuples:
+                st.error("Nenhuma execução finalizada encontrada para reverter.")
+                return
+
+            execucao_ids = [item[0] for item in execucao_ids_tuples]
+
+            # 2. Para cada execução, reverte os serviços solicitados para 'pendente'
+            tabelas = ["servicos_solicitados_borracharia", "servicos_solicitados_alinhamento", "servicos_solicitados_manutencao"]
+            for tabela in tabelas:
+                cursor.execute(
+                    f"UPDATE {tabela} SET status = 'pendente', box_id = NULL, funcionario_id = NULL, execucao_id = NULL WHERE execucao_id = ANY(%s)",
+                    (execucao_ids,)
+                )
+            
+            # 3. Marca as execuções como 'canceladas' para manter o histórico
+            cursor.execute(
+                "UPDATE execucao_servico SET status = 'cancelado' WHERE id = ANY(%s)",
+                (execucao_ids,)
+            )
+
+            conn.commit()
+            st.success("Visita revertida com sucesso! Os serviços estão pendentes novamente.")
+            st.rerun()
+
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Erro ao reverter a visita: {e}")
 
 def app():
     st.title("✅ Histórico de Serviços Concluídos")
     st.markdown("Uma lista de todas as visitas finalizadas, agrupadas por veículo e quilometragem.")
     st.markdown("---")
 
-    # --- FILTRO DE DATA ADICIONADO AQUI ---
     st.subheader("Filtrar por Período de Conclusão")
     today = date.today()
-    
-    selected_dates = st.date_input(
-        "Selecione um dia ou um intervalo de datas",
-        value=(today, today),
-        max_value=today,
-        key="date_filter_concluidos"
-    )
+    col1, col2 = st.columns(2)
+    start_date = col1.date_input("Data de Início", today - timedelta(days=30), key="bi_start_date")
+    end_date = col2.date_input("Data de Fim", today, key="bi_end_date")
 
-    if len(selected_dates) == 2:
-        start_date, end_date = selected_dates
-        end_date_inclusive = end_date + timedelta(days=1)
-    else:
-        start_date = today
-        end_date_inclusive = today + timedelta(days=1)
-        st.warning("Por favor, selecione um intervalo de datas válido (início e fim).")
+    if start_date > end_date:
+        st.error("A data de início não pode ser posterior à data de fim.")
+        st.stop()
     
     st.markdown("---")
 
@@ -35,13 +66,11 @@ def app():
         return
 
     try:
-        # --- QUERY CORRIGIDA E COM FILTRO DE DATA ---
         query = """
             SELECT
-                es.veiculo_id, es.quilometragem, es.fim_execucao,
+                es.veiculo_id, es.quilometragem, es.fim_execucao, es.observacao_execucao,
                 v.placa, v.empresa,
-                serv.area, serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome,
-                serv.observacao_execucao
+                serv.area, serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome
             FROM execucao_servico es
             JOIN veiculos v ON es.veiculo_id = v.id
             LEFT JOIN (
@@ -56,26 +85,33 @@ def app():
                 AND es.fim_execucao < %s
             ORDER BY es.fim_execucao DESC, serv.area;
         """
+        end_date_inclusive = end_date + timedelta(days=1)
         df_completo = pd.read_sql(query, conn, params=(start_date, end_date_inclusive))
 
         if df_completo.empty:
-            st.info(f"ℹ️ Nenhum serviço foi concluído no período selecionado ({start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}).")
+            st.info(f"ℹ️ Nenhum serviço foi concluído no período selecionado.")
             return
             
-        visitas_agrupadas = df_completo.groupby(['placa', 'quilometragem'], sort=False)
+        visitas_agrupadas = df_completo.groupby(['veiculo_id', 'placa', 'empresa', 'quilometragem'], sort=False)
         
         st.subheader(f"Total de visitas encontradas no período: {len(visitas_agrupadas)}")
         
-        for (placa, quilometragem), grupo_visita in visitas_agrupadas:
+        for (veiculo_id, placa, empresa, quilometragem), grupo_visita in visitas_agrupadas:
             info_visita = grupo_visita.iloc[0]
             with st.container(border=True):
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns([0.5, 0.3, 0.2])
                 with col1:
-                    st.markdown(f"#### Veículo: **{placa}** ({info_visita['empresa']})")
+                    st.markdown(f"#### Veículo: **{placa}** ({empresa})")
                 with col2:
                     st.write(f"**Data de Conclusão:** {pd.to_datetime(info_visita['fim_execucao']).strftime('%d/%m/%Y')}")
                     st.write(f"**Quilometragem:** {quilometragem:,} km".replace(',', '.'))
                 
+                # --- BOTÃO DE REVERTER (APENAS PARA ADMINS) ---
+                with col3:
+                    if st.session_state.get('user_role') == 'admin':
+                        if st.button("Reverter Visita", key=f"revert_{veiculo_id}_{quilometragem}", type="secondary", use_container_width=True):
+                            reverter_visita(conn, veiculo_id, quilometragem)
+
                 observacoes = grupo_visita['observacao_execucao'].dropna().unique()
                 if len(observacoes) > 0 and observacoes[0]:
                     st.markdown("**Observações da Visita:**")
