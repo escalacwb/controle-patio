@@ -11,8 +11,7 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
-    # --- MUDANÇA 1: INICIALIZAR O ESTADO DA SESSÃO PARA A LISTA DE SERVIÇOS ---
-    # Este é o carrinho de compras para os serviços
+    # Inicializa o estado da sessão para a lista de serviços
     if 'servicos_para_adicionar' not in st.session_state:
         st.session_state.servicos_para_adicionar = []
 
@@ -26,8 +25,10 @@ def app():
     placa_input = st.text_input("Digite a placa do veículo", value=state["placa_input"], key="placa_input_cadastro_servico").upper()
     if placa_input != state["placa_input"]:
         state["placa_input"], state["veiculo_id"], state["veiculo_info"] = placa_input, None, None
-        # Limpa a lista de serviços se o veículo for trocado
         st.session_state.servicos_para_adicionar = []
+        # --- MUDANÇA 1: Limpar o estado do formulário de edição ao trocar de placa ---
+        if 'show_edit_form' in st.session_state:
+            del st.session_state['show_edit_form']
         st.rerun()
 
     if state["placa_input"] and state["veiculo_id"] is None:
@@ -46,8 +47,56 @@ def app():
             finally:
                 release_connection(conn)
 
+    # --- MUDANÇA 2: LÓGICA DE EXIBIÇÃO E EDIÇÃO DO VEÍCULO ---
     if state["veiculo_id"]:
-        st.success(f"Veículo selecionado: **{state['veiculo_info']['modelo']}** | Empresa: **{state['veiculo_info']['empresa']}**")
+        col1, col2 = st.columns([0.7, 0.3])
+        with col1:
+            # Exibe os dados do veículo que estão na memória (session_state)
+            st.success(f"Veículo: **{state['veiculo_info']['modelo']}** | Empresa Atual: **{state['veiculo_info']['empresa']}**")
+        with col2:
+            # Botão para mostrar/esconder o formulário de edição
+            if st.button("🔄 Alterar Empresa", use_container_width=True):
+                st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
+                st.rerun()
+
+        # O formulário de edição só aparece se o botão for clicado
+        if st.session_state.get('show_edit_form', False):
+            with st.form("form_edit_empresa"):
+                st.info("Digite o novo nome da empresa para o veículo selecionado.")
+                nova_empresa = st.text_input(
+                    "Novo nome da Empresa", 
+                    value=state['veiculo_info']['empresa'],
+                    label_visibility="collapsed",
+                    placeholder="Digite o novo nome da empresa"
+                )
+                submitted = st.form_submit_button("✅ Salvar Alteração")
+                
+                if submitted:
+                    if nova_empresa:
+                        conn = get_connection()
+                        if conn:
+                            try:
+                                with conn.cursor() as cursor:
+                                    # Comando SQL para atualizar a empresa no banco de dados
+                                    query = "UPDATE veiculos SET empresa = %s WHERE id = %s"
+                                    cursor.execute(query, (nova_empresa, state['veiculo_id']))
+                                    conn.commit()
+                                
+                                # Atualiza a informação na tela (no session_state)
+                                state['veiculo_info']['empresa'] = nova_empresa
+                                # Esconde o formulário de edição
+                                st.session_state.show_edit_form = False
+                                st.success("Empresa do veículo atualizada com sucesso!")
+                                st.rerun()
+                                    
+                            except Exception as e:
+                                conn.rollback()
+                                st.error(f"Erro ao atualizar a empresa: {e}")
+                            finally:
+                                release_connection(conn)
+                    else:
+                        st.warning("O nome da empresa não pode ser vazio.")
+    
     elif state["placa_input"]:
         with st.expander("Cadastrar Novo Veículo", expanded=True):
             with st.form("form_novo_veiculo_rapido"):
@@ -78,9 +127,6 @@ def app():
         
         servicos_do_banco = get_catalogo_servicos()
         
-        # --- MUDANÇA 2: CRIAR AS CAIXAS DE SELEÇÃO E BOTÕES DE ADICIONAR ---
-        
-        # Função auxiliar para não repetir código
         def area_de_servico(nome_area, chave_area):
             st.subheader(nome_area)
             servicos_disponiveis = servicos_do_banco.get(chave_area, [])
@@ -100,18 +146,16 @@ def app():
                     if servico_selecionado:
                         novo_servico = {"area": nome_area, "tipo": servico_selecionado, "qtd": quantidade}
                         st.session_state.servicos_para_adicionar.append(novo_servico)
-                        st.rerun() # Atualiza a tela para mostrar o item adicionado
+                        st.rerun()
                     else:
                         st.warning("Por favor, selecione um serviço para adicionar.")
 
-        # Criar uma seção para cada área
         area_de_servico("Borracharia", "borracharia")
         area_de_servico("Alinhamento", "alinhamento")
         area_de_servico("Mecânica", "manutencao")
 
         st.markdown("---")
 
-        # --- MUDANÇA 3: EXIBIR A LISTA DE SERVIÇOS JÁ ADICIONADOS ---
         if st.session_state.servicos_para_adicionar:
             st.subheader("Serviços na Lista para Cadastro:")
             for i, servico in enumerate(st.session_state.servicos_para_adicionar):
@@ -125,7 +169,6 @@ def app():
         observacao_geral = st.text_area("Observações gerais para todos os serviços")
         
         st.markdown("---")
-        # --- MUDANÇA 4: ATUALIZAR O BOTÃO FINAL PARA USAR A LISTA DA SESSÃO ---
         if st.button("Registrar todos os serviços da lista", type="primary"):
             servicos_a_cadastrar = st.session_state.servicos_para_adicionar
             if not servicos_a_cadastrar:
@@ -152,7 +195,6 @@ def app():
                     release_connection(conn)
                 if sucesso:
                     st.success("✅ Serviços cadastrados com sucesso!")
-                    # Limpa a lista após o sucesso
                     st.session_state.servicos_para_adicionar = []
                     st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
                     st.balloons()
@@ -160,6 +202,5 @@ def app():
 
     if st.button("Limpar tela e iniciar novo cadastro"):
         st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
-        # Limpa a lista de serviços
         st.session_state.servicos_para_adicionar = []
         st.rerun()
