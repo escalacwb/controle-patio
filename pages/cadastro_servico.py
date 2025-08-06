@@ -3,6 +3,8 @@ from database import get_connection, release_connection
 import psycopg2.extras
 from datetime import datetime
 import pytz
+# --- MUDANÇA 1: Importar a função que busca os serviços do banco de dados ---
+from utils import get_catalogo_servicos
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
@@ -67,25 +69,37 @@ def app():
         km_value = state.get("quilometragem") if state.get("quilometragem") else None
         state["quilometragem"] = st.number_input("Quilometragem (Obrigatório)", min_value=1, step=1, value=km_value, key="km_servico", placeholder="Digite a KM...")
         
-        # CORREÇÃO: Nome da área
-        servicos = {
-            "Borracharia": ["Montagem/Troca de Pneus", "Balanceamento", "Conserto"],
-            "Alinhamento": ["Alinhamento", "Setback", "Caster", "Cambagem"],
-            "Mecânica": ["Buchas de Tirante", "Jumelo", "Molejo", "Freio"]
+        # --- MUDANÇA 2: Chamar a função para buscar os serviços do banco ---
+        servicos_do_banco = get_catalogo_servicos()
+
+        # Mapeamento para exibir nomes amigáveis para o usuário
+        areas_map = {
+            "borracharia": "Borracharia",
+            "alinhamento": "Alinhamento",
+            "manutencao": "Mecânica"
         }
+        
         observacao_geral = st.text_area("Observações gerais para todos os serviços")
         
         servicos_a_cadastrar = []
-        for area, lista_servicos in servicos.items():
-            st.markdown(f"**{area}**")
+        # --- MUDANÇA 3: Iterar sobre os serviços buscados do banco ---
+        for area_db, nome_amigavel in areas_map.items():
+            # Pega a lista de serviços para a área atual
+            lista_servicos = servicos_do_banco.get(area_db, [])
+            if not lista_servicos:
+                continue
+
+            st.markdown(f"**{nome_amigavel}**")
             for servico in lista_servicos:
                 col_check, col_qtd = st.columns([0.8, 0.2])
                 with col_check:
-                    selecionado = st.checkbox(servico, key=f"cb_{area}_{servico}")
+                    selecionado = st.checkbox(servico, key=f"cb_{area_db}_{servico}")
                 with col_qtd:
-                    qtd = st.number_input("Qtd", min_value=1, value=1, step=1, key=f"qtd_{area}_{servico}", label_visibility="collapsed", disabled=not selecionado)
+                    qtd = st.number_input("Qtd", min_value=1, value=1, step=1, key=f"qtd_{area_db}_{servico}", label_visibility="collapsed", disabled=not selecionado)
+                
                 if selecionado:
-                    servicos_a_cadastrar.append({"area": area, "tipo": servico, "qtd": qtd})
+                    # Adiciona o serviço com o nome da área correto para a inserção no banco
+                    servicos_a_cadastrar.append({"area": nome_amigavel, "tipo": servico, "qtd": qtd})
         
         st.markdown("---")
         if st.button("Registrar todos os serviços selecionados", type="primary"):
@@ -99,7 +113,6 @@ def app():
                 sucesso = True
                 try:
                     with conn.cursor() as cursor:
-                        # CORREÇÃO: Nome da tabela
                         table_map = {"Borracharia": "servicos_solicitados_borracharia", "Alinhamento": "servicos_solicitados_alinhamento", "Mecânica": "servicos_solicitados_manutencao"}
                         for s in servicos_a_cadastrar:
                             table_name = table_map.get(s['area'])
