@@ -3,24 +3,31 @@ from database import get_connection, release_connection
 import psycopg2.extras
 from datetime import datetime
 import pytz
-# --- MUDANÇA 1: Importar a função que busca os serviços do banco de dados ---
 from utils import get_catalogo_servicos
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
 def app():
     st.title("📋 Cadastro Rápido de Serviços")
-    st.markdown("Use esta página para um fluxo rápido...")
-    st.markdown("---")
+    st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
+    
+    # --- MUDANÇA 1: INICIALIZAR O ESTADO DA SESSÃO PARA A LISTA DE SERVIÇOS ---
+    # Este é o carrinho de compras para os serviços
+    if 'servicos_para_adicionar' not in st.session_state:
+        st.session_state.servicos_para_adicionar = []
 
     if "cadastro_servico_state" not in st.session_state:
         st.session_state.cadastro_servico_state = { "placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0 }
     state = st.session_state.cadastro_servico_state
+    
+    st.markdown("---")
 
     st.header("1️⃣ Identificação do Veículo")
     placa_input = st.text_input("Digite a placa do veículo", value=state["placa_input"], key="placa_input_cadastro_servico").upper()
     if placa_input != state["placa_input"]:
         state["placa_input"], state["veiculo_id"], state["veiculo_info"] = placa_input, None, None
+        # Limpa a lista de serviços se o veículo for trocado
+        st.session_state.servicos_para_adicionar = []
         st.rerun()
 
     if state["placa_input"] and state["veiculo_id"] is None:
@@ -69,42 +76,60 @@ def app():
         km_value = state.get("quilometragem") if state.get("quilometragem") else None
         state["quilometragem"] = st.number_input("Quilometragem (Obrigatório)", min_value=1, step=1, value=km_value, key="km_servico", placeholder="Digite a KM...")
         
-        # --- MUDANÇA 2: Chamar a função para buscar os serviços do banco ---
         servicos_do_banco = get_catalogo_servicos()
+        
+        # --- MUDANÇA 2: CRIAR AS CAIXAS DE SELEÇÃO E BOTÕES DE ADICIONAR ---
+        
+        # Função auxiliar para não repetir código
+        def area_de_servico(nome_area, chave_area):
+            st.subheader(nome_area)
+            servicos_disponiveis = servicos_do_banco.get(chave_area, [])
+            
+            col1, col2, col3 = st.columns([0.7, 0.15, 0.15])
+            with col1:
+                servico_selecionado = st.selectbox(
+                    f"Selecione o serviço de {nome_area}",
+                    options=[""] + servicos_disponiveis,
+                    key=f"select_{chave_area}",
+                    label_visibility="collapsed"
+                )
+            with col2:
+                quantidade = st.number_input("Qtd", min_value=1, value=1, step=1, key=f"qtd_{chave_area}", label_visibility="collapsed")
+            with col3:
+                if st.button("➕ Adicionar", key=f"add_{chave_area}", use_container_width=True):
+                    if servico_selecionado:
+                        novo_servico = {"area": nome_area, "tipo": servico_selecionado, "qtd": quantidade}
+                        st.session_state.servicos_para_adicionar.append(novo_servico)
+                        st.rerun() # Atualiza a tela para mostrar o item adicionado
+                    else:
+                        st.warning("Por favor, selecione um serviço para adicionar.")
 
-        # Mapeamento para exibir nomes amigáveis para o usuário
-        areas_map = {
-            "borracharia": "Borracharia",
-            "alinhamento": "Alinhamento",
-            "manutencao": "Mecânica"
-        }
+        # Criar uma seção para cada área
+        area_de_servico("Borracharia", "borracharia")
+        area_de_servico("Alinhamento", "alinhamento")
+        area_de_servico("Mecânica", "manutencao")
+
+        st.markdown("---")
+
+        # --- MUDANÇA 3: EXIBIR A LISTA DE SERVIÇOS JÁ ADICIONADOS ---
+        if st.session_state.servicos_para_adicionar:
+            st.subheader("Serviços na Lista para Cadastro:")
+            for i, servico in enumerate(st.session_state.servicos_para_adicionar):
+                col_serv, col_qtd, col_del = st.columns([0.7, 0.15, 0.15])
+                col_serv.write(f"**{servico['area']}**: {servico['tipo']}")
+                col_qtd.write(f"Qtd: {servico['qtd']}")
+                if col_del.button("❌ Remover", key=f"del_{i}", use_container_width=True):
+                    st.session_state.servicos_para_adicionar.pop(i)
+                    st.rerun()
         
         observacao_geral = st.text_area("Observações gerais para todos os serviços")
         
-        servicos_a_cadastrar = []
-        # --- MUDANÇA 3: Iterar sobre os serviços buscados do banco ---
-        for area_db, nome_amigavel in areas_map.items():
-            # Pega a lista de serviços para a área atual
-            lista_servicos = servicos_do_banco.get(area_db, [])
-            if not lista_servicos:
-                continue
-
-            st.markdown(f"**{nome_amigavel}**")
-            for servico in lista_servicos:
-                col_check, col_qtd = st.columns([0.8, 0.2])
-                with col_check:
-                    selecionado = st.checkbox(servico, key=f"cb_{area_db}_{servico}")
-                with col_qtd:
-                    qtd = st.number_input("Qtd", min_value=1, value=1, step=1, key=f"qtd_{area_db}_{servico}", label_visibility="collapsed", disabled=not selecionado)
-                
-                if selecionado:
-                    # Adiciona o serviço com o nome da área correto para a inserção no banco
-                    servicos_a_cadastrar.append({"area": nome_amigavel, "tipo": servico, "qtd": qtd})
-        
         st.markdown("---")
-        if st.button("Registrar todos os serviços selecionados", type="primary"):
+        # --- MUDANÇA 4: ATUALIZAR O BOTÃO FINAL PARA USAR A LISTA DA SESSÃO ---
+        if st.button("Registrar todos os serviços da lista", type="primary"):
+            servicos_a_cadastrar = st.session_state.servicos_para_adicionar
             if not servicos_a_cadastrar:
-                st.warning("⚠️ Nenhum serviço foi selecionado.")
+                st.warning("⚠️ Nenhum serviço foi adicionado à lista.")
             elif not state["quilometragem"] or state["quilometragem"] <= 0:
                 st.error("❌ A quilometragem é obrigatória e deve ser maior que zero.")
             else:
@@ -127,10 +152,14 @@ def app():
                     release_connection(conn)
                 if sucesso:
                     st.success("✅ Serviços cadastrados com sucesso!")
+                    # Limpa a lista após o sucesso
+                    st.session_state.servicos_para_adicionar = []
                     st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
                     st.balloons()
                     st.rerun()
 
     if st.button("Limpar tela e iniciar novo cadastro"):
         st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
+        # Limpa a lista de serviços
+        st.session_state.servicos_para_adicionar = []
         st.rerun()
