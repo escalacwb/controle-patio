@@ -15,7 +15,6 @@ def enviar_notificacao_telegram(mensagem, chat_id_destino):
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
         
-        # Verifica se as credenciais necessárias existem
         if not token or not chat_id_destino:
             print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
             return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
@@ -71,3 +70,38 @@ def get_service_details_for_execution(conn, execucao_id):
         ORDER BY s.area, s.tipo;
     """
     return pd.read_sql(query, conn, params=(execucao_id,))
+
+# --- MUDANÇA: ADIÇÃO DA FUNÇÃO DE CONSULTA SINESP ---
+def consultar_placa_sinesp(placa: str):
+    """
+    Consulta a API pública do SINESP Cidadão para obter dados básicos de um veículo.
+    AVISO: Esta é uma API não documentada e pode parar de funcionar a qualquer momento.
+    """
+    if not placa:
+        return False, "A placa não pode estar em branco."
+
+    url = "https://cidadao.sinesp.gov.br/sinesp-cidadao/mobile/consultar-placa/v5"
+    headers = {"Content-Type": "application/json; charset=UTF-8", "User-Agent": "SinespCidadao / 3.0.0"}
+    payload = {"placa": placa}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('codigoRetorno') == '0':
+                return True, {
+                    'modelo': data.get('modelo'), 'cor': data.get('cor'),
+                    'ano': data.get('ano'), 'anoModelo': data.get('anoModelo'),
+                    'placa': data.get('placa'), 'chassi': data.get('chassi'),
+                    'situacao': data.get('situacao'),
+                }
+            else:
+                return False, data.get('mensagemRetorno', 'Erro desconhecido retornado pela API.')
+        else:
+            return False, f"Erro na comunicação com a API (Código: {response.status_code})."
+    except requests.exceptions.Timeout:
+        return False, "A consulta demorou muito para responder (Timeout)."
+    except requests.exceptions.RequestException as e:
+        return False, f"Ocorreu um erro de conexão: {e}"
+    except Exception as e:
+        return False, f"Ocorreu um erro inesperado: {str(e)}"
