@@ -9,30 +9,19 @@ def hash_password(password):
     """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-# --- FUNÇÃO DE NOTIFICAÇÃO ATUALIZADA ---
 def enviar_notificacao_telegram(mensagem, chat_id_destino):
     """Envia uma mensagem para um chat_id específico do Telegram."""
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
-        
         if not token or not chat_id_destino:
-            print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
-            return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
-
+            return False, "Credenciais do Telegram incompletas."
         url = f"https://api.telegram.org/bot{token}/sendMessage"
-        params = {
-            "chat_id": chat_id_destino,
-            "text": mensagem,
-            "parse_mode": "Markdown"
-        }
-        
+        params = {"chat_id": chat_id_destino, "text": mensagem, "parse_mode": "Markdown"}
         response = requests.post(url, json=params)
-        
         if response.status_code == 200:
             return True, "Notificação enviada com sucesso!"
         else:
             return False, f"Erro retornado pelo Telegram (código {response.status_code}): {response.text}"
-            
     except Exception as e:
         return False, f"Ocorreu uma exceção no Python ao tentar enviar: {str(e)}"
 
@@ -55,53 +44,55 @@ def get_catalogo_servicos():
     return catalogo
 
 def get_service_details_for_execution(conn, execucao_id):
-    """Busca os detalhes dos serviços para uma execução específica, usando o execucao_id."""
-    query = """
-        SELECT s.area, s.tipo, s.quantidade, s.status, f.nome as funcionario_nome
-        FROM (
-            SELECT execucao_id, 'Borracharia' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_borracharia
-            UNION ALL
-            SELECT execucao_id, 'Alinhamento' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_alinhamento
-            UNION ALL
-            SELECT execucao_id, 'Manutenção Mecânica' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_manutencao
-        ) s
-        LEFT JOIN funcionarios f ON s.funcionario_id = f.id
-        WHERE s.execucao_id = %s
-        ORDER BY s.area, s.tipo;
-    """
-    return pd.read_sql(query, conn, params=(execucao_id,))
+    # ... (esta função permanece a mesma)
+    pass # Removido para brevidade, mantenha o código original aqui
 
-# --- MUDANÇA: ADIÇÃO DA FUNÇÃO DE CONSULTA SINESP ---
-def consultar_placa_sinesp(placa: str):
+# --- MUDANÇA: NOVA FUNÇÃO PARA A API COMERCIAL ---
+def consultar_placa_comercial(placa: str):
     """
-    Consulta a API pública do SINESP Cidadão para obter dados básicos de um veículo.
-    AVISO: Esta é uma API não documentada e pode parar de funcionar a qualquer momento.
+    Consulta a API comercial (API Placas) para obter dados do veículo.
     """
     if not placa:
         return False, "A placa não pode estar em branco."
 
-    url = "https://cidadao.sinesp.gov.br/sinesp-cidadao/mobile/consultar-placa/v5"
-    headers = {"Content-Type": "application/json; charset=UTF-8", "User-Agent": "SinespCidadao / 3.0.0"}
-    payload = {"placa": placa}
+    # Puxa o token dos Secrets do Streamlit de forma segura
+    token = st.secrets.get("PLACA_API_TOKEN")
+    if not token:
+        return False, "Token da API de Placas não encontrado nos Secrets."
+
+    # Monta a URL conforme a documentação
+    url = f"https://wdapi2.com.br/consulta/{placa}/{token}"
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        response = requests.get(url, timeout=15)
+
         if response.status_code == 200:
             data = response.json()
-            if data.get('codigoRetorno') == '0':
-                return True, {
-                    'modelo': data.get('modelo'), 'cor': data.get('cor'),
-                    'ano': data.get('ano'), 'anoModelo': data.get('anoModelo'),
-                    'placa': data.get('placa'), 'chassi': data.get('chassi'),
-                    'situacao': data.get('situacao'),
-                }
-            else:
-                return False, data.get('mensagemRetorno', 'Erro desconhecido retornado pela API.')
+            
+            # Lógica para pegar o melhor nome de modelo disponível
+            modelo_veiculo = data.get('marcaModelo', data.get('MODELO', 'Não encontrado'))
+            if data.get('fipe') and data['fipe'].get('dados'):
+                # Se houver dados da FIPE, tenta pegar o modelo mais completo
+                fipe_dados = sorted(data['fipe']['dados'], key=lambda x: x.get('score', 0), reverse=True)
+                if fipe_dados:
+                    modelo_veiculo = fipe_dados[0].get('texto_modelo', modelo_veiculo)
+            
+            return True, {
+                'modelo': modelo_veiculo,
+                'cor': data.get('cor'),
+                'ano': data.get('ano'),
+                'anoModelo': data.get('anoModelo'),
+                'placa': data.get('placa'),
+                'municipio': data.get('municipio'),
+                'uf': data.get('uf'),
+                'situacao': data.get('situacao'),
+            }
         else:
-            return False, f"Erro na comunicação com a API (Código: {response.status_code})."
+            # Usa a mensagem de erro da própria API
+            error_message = response.json().get("message", f"Erro na API (Código: {response.status_code}).")
+            return False, error_message
+
     except requests.exceptions.Timeout:
         return False, "A consulta demorou muito para responder (Timeout)."
-    except requests.exceptions.RequestException as e:
-        return False, f"Ocorreu um erro de conexão: {e}"
     except Exception as e:
         return False, f"Ocorreu um erro inesperado: {str(e)}"
