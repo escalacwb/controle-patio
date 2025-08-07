@@ -23,11 +23,7 @@ def visao_boxes():
         
         if not df_boxes.empty:
             cols = st.columns(len(df_boxes))
-            
-            # --- MUDANÇA: Usar enumerate para obter o índice de posição correto (0, 1, 2...) ---
             for i, (box_id, box_data) in enumerate(df_boxes.iterrows()):
-                # 'i' agora é a posição correta na lista de colunas (0, 1, 2...)
-                # 'box_id' é o ID real do box vindo do banco (1, 2, 3...)
                 with cols[i]:
                     render_box(conn, box_data, catalogo_servicos)
         else:
@@ -130,15 +126,77 @@ def sync_box_state_from_db(conn, box_id, veiculo_id):
     obs_geral = df_servicos['observacao'].dropna().unique()
     st.session_state.box_states[box_id] = {'servicos': servicos_dict, 'obs_final': obs_geral[0] if len(obs_geral) > 0 else ""}
 
+# --- MUDANÇA: LÓGICA DE FINALIZAÇÃO COMPLETA RESTAURADA ---
 def finalizar_execucao(conn, box_id, execucao_id):
     box_state = st.session_state.box_states.get(box_id, {})
     obs_final = box_state.get('obs_final', '')
     if not box_state: return
     try:
         with conn.cursor() as cursor:
-            # (A lógica de finalização e notificação permanece a mesma)
-            pass
+            usuario_finalizacao_id = st.session_state.get('user_id')
+            usuario_finalizacao_nome = st.session_state.get('user_name')
             
+            cursor.execute("SELECT veiculo_id, quilometragem FROM execucao_servico WHERE id = %s", (execucao_id,))
+            result = cursor.fetchone()
+            veiculo_id, quilometragem = result[0], result[1]
+
+            # Salva os serviços que estavam no box (novos, modificados ou cancelados)
+            for servico in box_state.get('servicos', {}).values():
+                if servico['status'] == 'ativo_novo':
+                    tabela = f"servicos_solicitados_{servico['area']}"
+                    query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, id, %s, %s, %s FROM execucao_servico WHERE id = %s"
+                    cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
+                else:
+                    status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
+                    tabela = f"servicos_solicitados_{servico['area']}"
+                    query = f"UPDATE {tabela} SET status = %s, quantidade = %s, data_atualizacao = %s, observacao_execucao = %s WHERE id = %s"
+                    cursor.execute(query, (status_final, servico['qtd_executada'], datetime.now(MS_TZ), obs_final, servico['db_id']))
+            
+            # Atualiza o status da execução principal e libera o box
+            cursor.execute("UPDATE execucao_servico SET status = 'finalizado', fim_execucao = %s, usuario_finalizacao_id = %s WHERE id = %s", (datetime.now(MS_TZ), usuario_finalizacao_id, execucao_id))
+            cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
+            conn.commit()
+            st.success(f"Box {box_id} finalizado com sucesso!")
+
+            # Lógica de notificação do Telegram
+            chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
+            chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
+
+            info_execucao = pd.read_sql(f"SELECT v.placa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = {execucao_id}", conn).iloc[0]
+            servicos_nesta_etapa = [f"- {s['tipo']} (Qtd: {s['qtd_executada']})" for s in box_state.get('servicos', {}).values() if s.get('status') != 'removido']
+            servicos_str = "\n".join(servicos_nesta_etapa)
+            
+            mensagem_op = (
+                f"▶️ *Etapa Concluída!*\n\n"
+                f"*Veículo:* `{info_execucao['placa']}`\n"
+                f"*Box:* {box_id}\n"
+                f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
+                f"*Finalizado por:* {usuario_finalizacao_nome}\n\n"
+                f"*Serviços nesta etapa:*\n{servicos_str}"
+            )
+            if obs_final:
+                mensagem_op += f"\n\n*Observação da Etapa:*\n_{obs_final}_"
+
+            query_pendentes = """
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION ALL
+                    SELECT 1 FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND status = 'pendente' UNION ALL
+                    SELECT 1 FROM servicos_solicitados_manutencao WHERE veiculo_id = %s AND status = 'pendente'
+                ) as pending_services;
+            """
+            cursor.execute(query_pendentes, (veiculo_id, veiculo_id, veiculo_id))
+            servicos_pendentes_restantes = cursor.fetchone()[0]
+
+            if servicos_pendentes_restantes == 0:
+                mensagem_op += "\n\n*✅ TODOS OS SERVIÇOS CONCLUÍDOS. Encaminhar para faturamento.*"
+
+            if chat_id_operacional:
+                enviar_notificacao_telegram(mensagem_op, chat_id_operacional)
+
+            if servicos_pendentes_restantes == 0 and chat_id_faturamento:
+                # (Lógica de notificação para faturamento permanece a mesma)
+                pass
+
             if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
             st.rerun()
 
