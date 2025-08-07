@@ -31,7 +31,6 @@ try:
 except locale.Error:
     st.warning("Não foi possível configurar a localidade para pt_BR.")
 
-# --- MUDANÇA: A LINHA DE CACHE FOI REMOVIDA DESTA FUNÇÃO ---
 def get_catalogo_servicos():
     catalogo = {"borracharia": [], "alinhamento": [], "manutencao": []}
     conn = get_connection()
@@ -103,7 +102,9 @@ def formatar_placa(placa: str) -> str:
     """Formata uma placa no padrão antigo (AAA-1234). Placas Mercosul não são alteradas."""
     if not placa:
         return ""
-    placa_limpa = re.sub(r'[^A-Z0--9]', '', placa.upper())
+    # --- MUDANÇA: Garantindo que a expressão regular está 100% correta ---
+    # O padrão r'[^A-Z0-9]' remove qualquer caractere que NÃO seja uma letra de A a Z ou um número de 0 a 9.
+    placa_limpa = re.sub(r'[^A-Z0-9]', '', placa.upper())
     if len(placa_limpa) == 7 and placa_limpa[4].isdigit():
         return f"{placa_limpa[:3]}-{placa_limpa[3:]}"
     else:
