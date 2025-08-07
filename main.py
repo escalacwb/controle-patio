@@ -2,13 +2,13 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 import login
 from pages import (
-    alocar_servicos,
     cadastro_servico,
-    cadastro_veiculo,
+    alocar_servicos,
     filas_servico,
     visao_boxes,
     servicos_concluidos,
     historico_veiculo,
+    cadastro_veiculo,
     gerenciar_usuarios,
     relatorios
 )
@@ -35,7 +35,7 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
-options = ["Alocar Serviços", "Cadastro de Serviço", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"]
+options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"]
 icons = ["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"]
 
 if st.session_state.get('user_role') == 'admin':
