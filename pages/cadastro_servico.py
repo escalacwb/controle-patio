@@ -11,7 +11,7 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
-    # Inicialização do estado da sessão
+    # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
     if "cadastro_servico_state" not in st.session_state:
         st.session_state.cadastro_servico_state = {
             "placa_input": "", "veiculo_id": None, "veiculo_info": None,
@@ -32,7 +32,7 @@ def app():
         state["search_triggered"] = True
         state["veiculo_id"] = None
         state["veiculo_info"] = None
-        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito']:
+        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form']:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
@@ -55,7 +55,6 @@ def app():
 
         # --- FLUXO 1: VEÍCULO FOI ENCONTRADO NO BANCO ---
         if state.get("veiculo_id"):
-            # Exibe os dados do veículo e o botão para alterar
             col1, col2 = st.columns([0.7, 0.3])
             with col1:
                 st.success(
@@ -68,7 +67,6 @@ def app():
                     st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
                     st.rerun()
 
-            # Formulário de edição
             if st.session_state.get('show_edit_form', False):
                 with st.form("form_edit_veiculo"):
                     st.info("Altere os dados do veículo e salve.")
@@ -89,10 +87,11 @@ def app():
                                     cursor.execute(query, (nova_empresa, novo_modelo, novo_ano if novo_ano > 0 else None, novo_motorista, contato_formatado, state['veiculo_id']))
                                     conn.commit()
                                 
-                                state['veiculo_info'].update({
-                                    'empresa': nova_empresa, 'modelo': novo_modelo, 'ano_modelo': novo_ano,
-                                    'nome_motorista': novo_motorista, 'contato_motorista': contato_formatado
-                                })
+                                novas_infos = {
+                                    'id': state['veiculo_id'], 'empresa': nova_empresa, 'modelo': novo_modelo, 
+                                    'ano_modelo': novo_ano, 'nome_motorista': novo_motorista, 'contato_motorista': contato_formatado
+                                }
+                                state['veiculo_info'] = novas_infos
                                 st.session_state.show_edit_form = False
                                 st.success("Dados do veículo atualizados!")
                                 st.rerun()
@@ -195,7 +194,7 @@ def app():
                         if st.button("❌ Cancelar", use_container_width=True):
                             del st.session_state.api_vehicle_data
                             st.rerun()
-
+            
             if not st.session_state.get('api_vehicle_data'):
                 with st.expander("Cadastrar Novo Veículo", expanded=True):
                     with st.form("form_novo_veiculo_rapido"):
@@ -229,24 +228,26 @@ def app():
                                                 RETURNING id, empresa, modelo, ano_modelo, nome_motorista, contato_motorista;
                                             """
                                             cursor.execute(query, (placa_formatada, empresa, modelo, ano_modelo if ano_modelo > 1950 else None, nome_motorista, contato_formatado, datetime.now(MS_TZ)))
-                                            novo_veiculo_info = cursor.fetchone()
+                                            novo_veiculo_info_db = cursor.fetchone()
                                             conn.commit()
                                             
-                                            st.success("🚚 Veículo cadastrado com sucesso!")
+                                            st.success("🚚 Veículo cadastrado com sucesso! Continuando para adicionar serviços...")
                                             
                                             # Limpa estados temporários da API
                                             for key in ['modelo_aceito', 'ano_aceito']:
                                                 if key in st.session_state: del st.session_state[key]
                                             
-                                            # ATUALIZA O ESTADO para prosseguir para a seleção de serviços
-                                            state['veiculo_id'] = novo_veiculo_info['id']
-                                            state['veiculo_info'] = novo_veiculo_info
+                                            # --- MUDANÇA CRÍTICA: ATUALIZA O ESTADO PARA PROSSEGUIR ---
+                                            state['veiculo_id'] = novo_veiculo_info_db['id']
+                                            state['veiculo_info'] = dict(novo_veiculo_info_db) # Converte para dict
                                             
                                             st.rerun()
+                                    except Exception as e:
+                                        conn.rollback()
+                                        st.error(f"Erro ao cadastrar novo veículo: {e}")
                                     finally:
                                         release_connection(conn)
 
-    # Botão para limpar a tela
     if state.get("placa_input"):
         if st.button("Limpar e Iniciar Nova Busca"):
             keys_to_delete = ['cadastro_servico_state', 'servicos_para_adicionar', 'api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form']
