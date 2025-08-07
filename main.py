@@ -9,6 +9,7 @@ from pages import (
     servicos_concluidos,
     historico_veiculo,
     cadastro_veiculo,
+    feedback_servicos,
     gerenciar_usuarios,
     relatorios
 )
@@ -35,7 +36,7 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
-options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo"]
+options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo", "Controle de Feedback"]
 icons = ["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"]
 
 if st.session_state.get('user_role') == 'admin':
@@ -74,6 +75,8 @@ elif selected_page == "Serviços Concluídos":
     servicos_concluidos.app()
 elif selected_page == "Histórico por Veículo":
     historico_veiculo.app()
+elif selected_page == "Controle de Feedback": # <-- ADICIONE ESTE BLOCO
+    feedback_servicos.app()
 elif selected_page == "Gerenciar Usuários":
     gerenciar_usuarios.app()
 elif selected_page == "Relatórios":
