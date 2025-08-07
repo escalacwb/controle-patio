@@ -16,10 +16,10 @@ def app():
         return
 
     try:
-        # Uma única query para buscar todos os dados daquele veículo
         query = """
             SELECT
                 es.quilometragem, es.inicio_execucao, es.fim_execucao, es.status as status_execucao,
+                es.nome_motorista, es.contato_motorista,
                 serv.area, serv.tipo, serv.quantidade, serv.status as status_servico, f.nome as funcionario_nome,
                 serv.observacao_execucao
             FROM execucao_servico es
@@ -39,7 +39,6 @@ def app():
             st.info("Nenhum histórico encontrado para esta placa.")
             return
             
-        # Agrupamos as execuções pela quilometragem para definir uma "visita"
         visitas_agrupadas = df_completo.groupby('quilometragem', sort=False)
         st.write(f"**Total de visitas encontradas:** {len(visitas_agrupadas)}")
 
@@ -47,10 +46,12 @@ def app():
             info_visita = grupo_visita.iloc[0]
             inicio_visita = pd.to_datetime(grupo_visita['inicio_execucao'].min())
 
-            # --- CORREÇÃO APLICADA AQUI: Adicionamos a data ao título ---
             titulo_expander = f"Visita de {inicio_visita.strftime('%d/%m/%Y')} (KM: {quilometragem:,}) | Status: {info_visita['status_execucao'].upper()}".replace(',', '.')
             
             with st.expander(titulo_expander):
+                if pd.notna(info_visita['nome_motorista']) and info_visita['nome_motorista']:
+                    st.markdown(f"**Motorista na ocasião:** {info_visita['nome_motorista']} ({info_visita['contato_motorista'] or 'N/A'})")
+                
                 observacoes = grupo_visita['observacao_execucao'].dropna().unique()
                 if len(observacoes) > 0 and any(obs for obs in observacoes):
                     st.markdown("**Observações da Visita:**")

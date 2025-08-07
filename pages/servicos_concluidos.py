@@ -8,12 +8,10 @@ def reverter_visita(conn, veiculo_id, quilometragem):
     Reverte todos os serviços de uma visita (agrupada por km) de 'finalizado' para 'pendente'.
     """
     try:
-        # CORREÇÃO: Converte os tipos de dados para o padrão do Python
         p_veiculo_id = int(veiculo_id)
         p_quilometragem = int(quilometragem)
 
         with conn.cursor() as cursor:
-            # Passo 1: Encontra todos os IDs de execução para esta visita específica
             cursor.execute(
                 "SELECT id FROM execucao_servico WHERE veiculo_id = %s AND quilometragem = %s AND status = 'finalizado'",
                 (p_veiculo_id, p_quilometragem)
@@ -25,7 +23,6 @@ def reverter_visita(conn, veiculo_id, quilometragem):
 
             execucao_ids = [item[0] for item in execucao_ids_tuples]
 
-            # Passo 2: Para cada tabela de serviço, reverte os serviços para 'pendente'
             tabelas = ["servicos_solicitados_borracharia", "servicos_solicitados_alinhamento", "servicos_solicitados_manutencao"]
             for tabela in tabelas:
                 cursor.execute(
@@ -33,7 +30,6 @@ def reverter_visita(conn, veiculo_id, quilometragem):
                     (execucao_ids,)
                 )
             
-            # Passo 3: Marca as execuções como 'canceladas' para manter o histórico da reversão
             cursor.execute(
                 "UPDATE execucao_servico SET status = 'cancelado' WHERE id = ANY(%s)",
                 (execucao_ids,)
@@ -80,6 +76,7 @@ def app():
         query = """
             SELECT
                 es.veiculo_id, es.quilometragem, es.fim_execucao,
+                es.nome_motorista, es.contato_motorista,
                 v.placa, v.empresa,
                 serv.area, serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome,
                 serv.observacao_execucao
@@ -113,6 +110,9 @@ def app():
                 col1, col2, col3 = st.columns([0.5, 0.3, 0.2])
                 with col1:
                     st.markdown(f"#### Veículo: **{placa}** ({empresa})")
+                    if pd.notna(info_visita['nome_motorista']) and info_visita['nome_motorista']:
+                        st.caption(f"Motorista: {info_visita['nome_motorista']} ({info_visita['contato_motorista'] or 'N/A'})")
+
                 with col2:
                     st.write(f"**Data de Conclusão:** {pd.to_datetime(info_visita['fim_execucao']).strftime('%d/%m/%Y')}")
                     st.write(f"**Quilometragem:** {quilometragem:,} km".replace(',', '.'))

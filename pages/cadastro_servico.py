@@ -11,7 +11,6 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
-    # Inicializa o estado da sessão para a lista de serviços
     if 'servicos_para_adicionar' not in st.session_state:
         st.session_state.servicos_para_adicionar = []
 
@@ -26,7 +25,6 @@ def app():
     if placa_input != state["placa_input"]:
         state["placa_input"], state["veiculo_id"], state["veiculo_info"] = placa_input, None, None
         st.session_state.servicos_para_adicionar = []
-        # --- MUDANÇA 1: Limpar o estado do formulário de edição ao trocar de placa ---
         if 'show_edit_form' in st.session_state:
             del st.session_state['show_edit_form']
         st.rerun()
@@ -36,7 +34,8 @@ def app():
         if conn:
             try:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    cursor.execute("SELECT id, empresa, modelo FROM veiculos WHERE placa = %s", (state["placa_input"],))
+                    query = "SELECT id, empresa, modelo, nome_motorista, contato_motorista FROM veiculos WHERE placa = %s"
+                    cursor.execute(query, (state["placa_input"],))
                     resultado = cursor.fetchone()
                     if resultado:
                         state["veiculo_id"], state["veiculo_info"] = resultado["id"], resultado
@@ -47,77 +46,86 @@ def app():
             finally:
                 release_connection(conn)
 
-    # --- MUDANÇA 2: LÓGICA DE EXIBIÇÃO E EDIÇÃO DO VEÍCULO ---
     if state["veiculo_id"]:
         col1, col2 = st.columns([0.7, 0.3])
         with col1:
-            # Exibe os dados do veículo que estão na memória (session_state)
-            st.success(f"Veículo: **{state['veiculo_info']['modelo']}** | Empresa Atual: **{state['veiculo_info']['empresa']}**")
+            st.success(
+                f"Veículo: **{state['veiculo_info']['modelo']}** | "
+                f"Empresa: **{state['veiculo_info']['empresa']}**\n\n"
+                f"Motorista: **{state['veiculo_info']['nome_motorista'] or 'Não informado'}** | "
+                f"Contato: **{state['veiculo_info']['contato_motorista'] or 'Não informado'}**"
+            )
         with col2:
-            # Botão para mostrar/esconder o formulário de edição
-            if st.button("🔄 Alterar Empresa", use_container_width=True):
+            if st.button("🔄 Alterar Dados", use_container_width=True):
                 st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
                 st.rerun()
 
-        # O formulário de edição só aparece se o botão for clicado
         if st.session_state.get('show_edit_form', False):
-            with st.form("form_edit_empresa"):
-                st.info("Digite o novo nome da empresa para o veículo selecionado.")
-                nova_empresa = st.text_input(
-                    "Novo nome da Empresa", 
-                    value=state['veiculo_info']['empresa'],
-                    label_visibility="collapsed",
-                    placeholder="Digite o novo nome da empresa"
-                )
-                submitted = st.form_submit_button("✅ Salvar Alteração")
+            with st.form("form_edit_veiculo"):
+                st.info("Altere os dados do veículo e salve.")
+                
+                nova_empresa = st.text_input("Empresa", value=state['veiculo_info']['empresa'])
+                novo_motorista = st.text_input("Nome do Motorista", value=state['veiculo_info']['nome_motorista'])
+                novo_contato = st.text_input("Contato do Motorista", value=state['veiculo_info']['contato_motorista'])
+                
+                submitted = st.form_submit_button("✅ Salvar Alterações")
                 
                 if submitted:
-                    if nova_empresa:
-                        conn = get_connection()
-                        if conn:
-                            try:
-                                with conn.cursor() as cursor:
-                                    # Comando SQL para atualizar a empresa no banco de dados
-                                    query = "UPDATE veiculos SET empresa = %s WHERE id = %s"
-                                    cursor.execute(query, (nova_empresa, state['veiculo_id']))
-                                    conn.commit()
-                                
-                                # Atualiza a informação na tela (no session_state)
-                                state['veiculo_info']['empresa'] = nova_empresa
-                                # Esconde o formulário de edição
-                                st.session_state.show_edit_form = False
-                                st.success("Empresa do veículo atualizada com sucesso!")
-                                st.rerun()
-                                    
-                            except Exception as e:
-                                conn.rollback()
-                                st.error(f"Erro ao atualizar a empresa: {e}")
-                            finally:
-                                release_connection(conn)
-                    else:
-                        st.warning("O nome da empresa não pode ser vazio.")
-    
-    elif state["placa_input"]:
-        with st.expander("Cadastrar Novo Veículo", expanded=True):
-            with st.form("form_novo_veiculo_rapido"):
-                empresa, modelo = st.text_input("Empresa"), st.text_input("Modelo do Veículo")
-                if st.form_submit_button("Cadastrar e Continuar") and empresa and modelo:
                     conn = get_connection()
                     if conn:
                         try:
                             with conn.cursor() as cursor:
-                                query = "INSERT INTO veiculos (placa, empresa, modelo, data_entrada) VALUES (%s, %s, %s, %s) RETURNING id;"
-                                cursor.execute(query, (state["placa_input"], empresa, modelo, datetime.now(MS_TZ)))
-                                new_id = cursor.fetchone()[0]
+                                query = "UPDATE veiculos SET empresa = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s"
+                                cursor.execute(query, (nova_empresa, novo_motorista, novo_contato, state['veiculo_id']))
                                 conn.commit()
-                                state["veiculo_id"], state["veiculo_info"] = new_id, {"modelo": modelo, "empresa": empresa}
-                                st.success("🚚 Veículo cadastrado com sucesso!")
-                                st.rerun()
+                            
+                            state['veiculo_info']['empresa'] = nova_empresa
+                            state['veiculo_info']['nome_motorista'] = novo_motorista
+                            state['veiculo_info']['contato_motorista'] = novo_contato
+                            
+                            st.session_state.show_edit_form = False
+                            st.success("Dados do veículo atualizados com sucesso!")
+                            st.rerun()
+                                
                         except Exception as e:
                             conn.rollback()
-                            st.error(f"Erro ao cadastrar veículo: {e}")
+                            st.error(f"Erro ao atualizar os dados: {e}")
                         finally:
                             release_connection(conn)
+    
+    elif state["placa_input"]:
+        with st.expander("Cadastrar Novo Veículo", expanded=True):
+            with st.form("form_novo_veiculo_rapido"):
+                empresa = st.text_input("Empresa")
+                modelo = st.text_input("Modelo do Veículo")
+                nome_motorista = st.text_input("Nome do Motorista")
+                contato_motorista = st.text_input("Contato do Motorista")
+
+                if st.form_submit_button("Cadastrar e Continuar"):
+                    if not all([empresa, modelo]):
+                        st.warning("Empresa e Modelo são obrigatórios.")
+                    else:
+                        conn = get_connection()
+                        if conn:
+                            try:
+                                with conn.cursor() as cursor:
+                                    query = """
+                                        INSERT INTO veiculos (placa, empresa, modelo, nome_motorista, contato_motorista, data_entrada) 
+                                        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+                                    """
+                                    cursor.execute(query, (state["placa_input"], empresa, modelo, nome_motorista, contato_motorista, datetime.now(MS_TZ)))
+                                    new_id = cursor.fetchone()[0]
+                                    conn.commit()
+                                    
+                                    state["veiculo_id"] = new_id
+                                    state["veiculo_info"] = {"modelo": modelo, "empresa": empresa, "nome_motorista": nome_motorista, "contato_motorista": contato_motorista}
+                                    st.success("🚚 Veículo cadastrado com sucesso!")
+                                    st.rerun()
+                            except Exception as e:
+                                conn.rollback()
+                                st.error(f"Erro ao cadastrar veículo: {e}")
+                            finally:
+                                release_connection(conn)
 
     if state["veiculo_id"]:
         st.markdown("---")
@@ -133,12 +141,7 @@ def app():
             
             col1, col2, col3 = st.columns([0.7, 0.15, 0.15])
             with col1:
-                servico_selecionado = st.selectbox(
-                    f"Selecione o serviço de {nome_area}",
-                    options=[""] + servicos_disponiveis,
-                    key=f"select_{chave_area}",
-                    label_visibility="collapsed"
-                )
+                servico_selecionado = st.selectbox(f"Selecione o serviço de {nome_area}", options=[""] + servicos_disponiveis, key=f"select_{chave_area}", label_visibility="collapsed")
             with col2:
                 quantidade = st.number_input("Qtd", min_value=1, value=1, step=1, key=f"qtd_{chave_area}", label_visibility="collapsed")
             with col3:
