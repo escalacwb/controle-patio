@@ -17,7 +17,6 @@ def alocar_servicos():
         return
 
     try:
-        # --- MUDANÇA: SUBSTITUIÇÃO DA QUERY LENTA PELA QUERY OTIMIZADA ---
         query_veiculos_pendentes = """
             WITH status_por_veiculo AS (
                 SELECT
@@ -41,9 +40,9 @@ def alocar_servicos():
         """
         veiculos_df = pd.read_sql(query_veiculos_pendentes, conn)
         
-        # Estas consultas são rápidas e não precisam de alteração
-        funcionarios_df = pd.read_sql("SELECT id, nome FROM funcionarios ORDER BY nome", conn)
-        boxes_df = pd.read_sql("SELECT id FROM boxes WHERE ocupado = FALSE ORDER BY id", conn)
+        # --- MUDANÇA: Adicionado "WHERE id > 0" para filtrar os registros de migração ---
+        funcionarios_df = pd.read_sql("SELECT id, nome FROM funcionarios WHERE id > 0 ORDER BY nome", conn)
+        boxes_df = pd.read_sql("SELECT id FROM boxes WHERE ocupado = FALSE AND id > 0 ORDER BY id", conn)
 
         veiculo_options = [f"{row['id']} - {row['placa']} ({row['empresa']})" for _, row in veiculos_df.iterrows()]
         funcionario_options = [f"{row['id']} - {row['nome']}" for _, row in funcionarios_df.iterrows()]
@@ -105,7 +104,6 @@ def alocar_servicos():
                                 
                                 usuario_alocacao_id = st.session_state.get('user_id')
 
-                                # Busca os dados do motorista para salvar no histórico
                                 cursor.execute(
                                     "SELECT nome_motorista, contato_motorista FROM veiculos WHERE id = %s",
                                     (veiculo_id_int,)
@@ -114,7 +112,6 @@ def alocar_servicos():
                                 nome_motorista_atual = motorista_info[0] if motorista_info else None
                                 contato_motorista_atual = motorista_info[1] if motorista_info else None
 
-                                # Insere o registro de execução com os dados do motorista
                                 insert_exec_query = """
                                     INSERT INTO execucao_servico 
                                     (veiculo_id, box_id, funcionario_id, quilometragem, status, inicio_execucao, usuario_alocacao_id, nome_motorista, contato_motorista) 
