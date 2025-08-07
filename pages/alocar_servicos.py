@@ -91,12 +91,28 @@ def alocar_servicos():
                                 funcionario_id_int, box_id_int = int(funcionario_selecionado.split(" - ")[0]), int(box_selecionado)
                                 area_selecionada = area_selecionada_display.replace('Manutenção Mecânica', 'manutencao').lower()
                                 
-                                # --- ALTERAÇÃO: Captura o ID do usuário logado ---
                                 usuario_alocacao_id = st.session_state.get('user_id')
 
-                                # --- ALTERAÇÃO: Adiciona o ID do usuário na inserção ---
-                                insert_exec_query = "INSERT INTO execucao_servico (veiculo_id, box_id, funcionario_id, quilometragem, status, inicio_execucao, usuario_alocacao_id) VALUES (%s, %s, %s, %s, 'em_andamento', %s, %s) RETURNING id"
-                                cursor.execute(insert_exec_query, (veiculo_id_int, box_id_int, funcionario_id_int, quilometragem_cadastrada, datetime.now(MS_TZ), usuario_alocacao_id))
+                                # --- MUDANÇA 1: BUSCAR OS DADOS DO MOTORISTA DO VEÍCULO ---
+                                cursor.execute(
+                                    "SELECT nome_motorista, contato_motorista FROM veiculos WHERE id = %s",
+                                    (veiculo_id_int,)
+                                )
+                                motorista_info = cursor.fetchone()
+                                nome_motorista_atual = motorista_info[0] if motorista_info else None
+                                contato_motorista_atual = motorista_info[1] if motorista_info else None
+
+                                # --- MUDANÇA 2: INSERIR OS DADOS DO MOTORISTA NO REGISTRO HISTÓRICO (EXECUCAO_SERVICO) ---
+                                insert_exec_query = """
+                                    INSERT INTO execucao_servico 
+                                    (veiculo_id, box_id, funcionario_id, quilometragem, status, inicio_execucao, usuario_alocacao_id, nome_motorista, contato_motorista) 
+                                    VALUES (%s, %s, %s, %s, 'em_andamento', %s, %s, %s, %s) RETURNING id
+                                """
+                                cursor.execute(insert_exec_query, (
+                                    veiculo_id_int, box_id_int, funcionario_id_int, 
+                                    quilometragem_cadastrada, datetime.now(MS_TZ), usuario_alocacao_id,
+                                    nome_motorista_atual, contato_motorista_atual
+                                ))
                                 execucao_id = cursor.fetchone()[0]
 
                                 tabela_servico = f"servicos_solicitados_{area_selecionada}"
