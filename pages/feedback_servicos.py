@@ -94,12 +94,11 @@ def app():
         for _, row in df_feedback.iterrows():
             with st.container(border=True):
                 
-                # --- Lógica para criar a mensagem e o link do WhatsApp ---
                 nome_contato = row['nome_motorista'] or "Cliente"
                 data_servico = pd.to_datetime(row['fim_execucao']).strftime('%d/%m/%Y')
                 modelo_caminhao = row['modelo']
                 placa_caminhao = row['placa']
-                km_caminhao = f"{row['quilometragem']:,}".replace(',', '.')
+                km_caminhao = f"{row['quilometragem']:,}".replace(',', '.') if row['quilometragem'] else "N/A"
                 servicos_executados = row['lista_servicos'] or "Não especificado"
                 
                 mensagem_whatsapp = f"""Olá, {nome_contato}! Tudo bem?
@@ -117,7 +116,6 @@ Um grande abraço da equipe Capital Truck Center! 🚛🔧"""
                 mensagem_codificada = quote_plus(mensagem_whatsapp)
                 link_whatsapp = f"https://wa.me/{numero_limpo}?text={mensagem_codificada}"
 
-                # Layout do card
                 col1, col2 = st.columns([0.7, 0.3])
                 with col1:
                     st.markdown(f"**Veículo:** `{row['placa']}` - {row['modelo']}")
@@ -127,15 +125,14 @@ Um grande abraço da equipe Capital Truck Center! 🚛🔧"""
                 
                 with col2:
                     if len(numero_limpo) > 11:
-                        # --- MUDANÇA: Adicionada uma 'key' única ao st.link_button ---
+                        # --- MUDANÇA: Removido o argumento 'key' que estava causando o erro ---
                         st.link_button(
                             "📲 Enviar WhatsApp", 
                             url=link_whatsapp, 
-                            use_container_width=True,
-                            key=f"whatsapp_{row['execucao_id']}" # Chave única
+                            use_container_width=True
                         )
                     else:
-                        st.button("📲 Contato Inválido", use_container_width=True, disabled=True, key=f"whatsapp_disabled_{row['execucao_id']}") # Chave única também para o botão desabilitado
+                        st.button("📲 Contato Inválido", use_container_width=True, disabled=True, key=f"whatsapp_disabled_{row['execucao_id']}")
                     
                     st.button(
                         "✅ Feedback Realizado", 
