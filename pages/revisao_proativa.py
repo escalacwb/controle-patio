@@ -12,7 +12,6 @@ def processar_historico_veiculo(group, intervalo_revisao_km, debug_mode=False):
     Processa o histórico de um veículo para verificar se ele está elegível para
     um contato proativo, agora com um modo de diagnóstico.
     """
-    # Pega a placa do primeiro registro para usar nas mensagens de debug
     placa = group.iloc[0]['placa']
 
     # 1. Limpeza e Validação dos Dados
@@ -21,16 +20,13 @@ def processar_historico_veiculo(group, intervalo_revisao_km, debug_mode=False):
     group = group.sort_values('fim_execucao').reset_index(drop=True)
     group = group.drop_duplicates(subset=['quilometragem'], keep='last')
 
-    # Regra: Mínimo de 3 visitas válidas
     if len(group) < 3:
         if debug_mode:
             return pd.Series({'placa': placa, 'motivo_rejeicao': f'Menos de 3 visitas válidas ({len(group)})'})
         return None
 
-    # Regra: Quilometragem sempre crescente
     if not group['quilometragem'].is_monotonic_increasing:
         if debug_mode:
-            # Para o diagnóstico, vamos mostrar onde a inconsistência ocorre
             kms = group['quilometragem'].to_list()
             return pd.Series({'placa': placa, 'motivo_rejeicao': f'KM não crescente: {kms}'})
         return None
@@ -64,7 +60,7 @@ def processar_historico_veiculo(group, intervalo_revisao_km, debug_mode=False):
             'data_ultima_visita': ultima_visita['fim_execucao'].strftime('%d/%m/%Y'),
             'km_atual_estimada': int(km_atual_estimada), 'proxima_revisao_km': int(proxima_revisao_km),
             'media_km_diaria': round(media_km_diaria),
-            'motivo_rejeicao': 'OK - Aprovado' # Adicionado para o modo de diagnóstico
+            'motivo_rejeicao': 'OK - Aprovado'
         })
     else:
         if debug_mode:
@@ -78,7 +74,6 @@ def app():
     st.title("📞 Revisão Proativa de Clientes")
     st.markdown("Identifique veículos que provavelmente precisam de uma nova revisão com base no histórico de KM.")
     
-    # --- MUDANÇA: Adição do Checkbox de Diagnóstico ---
     debug_mode = st.checkbox("Ativar Modo de Diagnóstico", help="Mostra todos os veículos e o motivo pelo qual foram ou não selecionados.")
     
     st.markdown("---")
@@ -109,16 +104,22 @@ def app():
             st.info("Não há histórico de serviços suficiente para gerar previsões.")
             st.stop()
             
-        # Aplica a função de processamento, passando o modo de diagnóstico como parâmetro
-        resultados = df_historico.groupby('veiculo_id').apply(processar_historico_veiculo, intervalo_revisao_km, debug_mode).dropna().reset_index()
+        resultados = df_historico.groupby('veiculo_id').apply(processar_historico_veiculo, intervalo_revisao_km, debug_mode).dropna()
         
-        # --- MUDANÇA: Exibição condicional (Modo Normal vs. Modo Diagnóstico) ---
+        # --- MUDANÇA: Lógica de exibição do modo de diagnóstico aprimorada ---
         if debug_mode:
             st.subheader("Resultado Completo do Diagnóstico")
-            st.warning("Esta tabela mostra todos os veículos com pelo menos uma visita válida e o motivo da aprovação ou rejeição.")
-            st.dataframe(resultados[['placa', 'motivo_rejeicao', 'veiculo_id']], use_container_width=True)
+            st.warning("Esta é a tabela de dados brutos calculada pelo sistema. Se ela estiver vazia, nenhum veículo passou nos critérios mínimos (3 visitas, KM crescente, etc).")
+            
+            # Mostra a tabela completa que foi calculada, sem tentar selecionar colunas
+            st.dataframe(resultados, use_container_width=True)
         else:
-            veiculos_para_contatar = resultados[resultados['motivo_rejeicao'] == 'OK - Aprovado']
+            # Filtra apenas os veículos aprovados para a visão normal
+            if 'motivo_rejeicao' in resultados.columns:
+                veiculos_para_contatar = resultados[resultados['motivo_rejeicao'] == 'OK - Aprovado']
+            else:
+                veiculos_para_contatar = pd.DataFrame() # Cria um dataframe vazio se a coluna não existir
+
             st.subheader(f"Veículos Sugeridos para Contato ({len(veiculos_para_contatar)}):")
 
             if veiculos_para_contatar.empty:
