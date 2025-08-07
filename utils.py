@@ -4,6 +4,7 @@ from database import get_connection, release_connection
 import locale
 import hashlib
 import requests
+import re # Importa a biblioteca de expressões regulares
 
 def hash_password(password):
     """Gera o hash de uma senha para armazenamento seguro."""
@@ -61,18 +62,13 @@ def get_service_details_for_execution(conn, execucao_id):
     return pd.read_sql(query, conn, params=(execucao_id,))
 
 def consultar_placa_comercial(placa: str):
-    """
-    Consulta a API comercial (API Placas) para obter dados do veículo.
-    """
+    """Consulta a API comercial (API Placas) para obter dados do veículo."""
     if not placa:
         return False, "A placa não pode estar em branco."
-
     token = st.secrets.get("PLACA_API_TOKEN")
     if not token:
         return False, "Token da API de Placas não encontrado nos Secrets."
-
     url = f"https://wdapi2.com.br/consulta/{placa}/{token}"
-
     try:
         response = requests.get(url, timeout=15)
         if response.status_code == 200:
@@ -82,12 +78,7 @@ def consultar_placa_comercial(placa: str):
                 fipe_dados = sorted(data['fipe']['dados'], key=lambda x: x.get('score', 0), reverse=True)
                 if fipe_dados:
                     modelo_veiculo = fipe_dados[0].get('texto_modelo', modelo_veiculo)
-            
-            return True, {
-                'modelo': modelo_veiculo,
-                'anoModelo': data.get('anoModelo'),
-                # Adicione outros campos se precisar no futuro
-            }
+            return True, {'modelo': modelo_veiculo, 'anoModelo': data.get('anoModelo')}
         else:
             error_message = response.json().get("message", f"Erro na API (Código: {response.status_code}).")
             return False, error_message
@@ -95,3 +86,26 @@ def consultar_placa_comercial(placa: str):
         return False, "A consulta demorou muito para responder (Timeout)."
     except Exception as e:
         return False, f"Ocorreu um erro inesperado: {str(e)}"
+
+# --- FUNÇÕES QUE ESTAVAM FALTANDO ---
+def formatar_telefone(numero: str) -> str:
+    """Formata um número de telefone no padrão (XX)XXXXX-XXXX."""
+    if not numero:
+        return ""
+    numeros = re.sub(r'\D', '', numero)
+    if len(numeros) == 11:
+        return f"({numeros[:2]}){numeros[2:7]}-{numeros[7:]}"
+    elif len(numeros) == 10:
+        return f"({numeros[:2]}){numeros[2:6]}-{numeros[6:]}"
+    else:
+        return numero
+
+def formatar_placa(placa: str) -> str:
+    """Formata uma placa no padrão antigo (AAA-1234). Placas Mercosul não são alteradas."""
+    if not placa:
+        return ""
+    placa_limpa = re.sub(r'[^A-Z0-9]', '', placa.upper())
+    if len(placa_limpa) == 7 and placa_limpa[4].isdigit():
+        return f"{placa_limpa[:3]}-{placa_limpa[3:]}"
+    else:
+        return placa_limpa
