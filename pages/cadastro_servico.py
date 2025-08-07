@@ -32,11 +32,16 @@ def app():
     with col_botao:
         if st.button("🔎 Buscar Dados da Placa", use_container_width=True, help="Consulta a API para agilizar o cadastro de veículos novos."):
             if placa_input:
+                # Sincroniza o state antes da consulta para garantir que a página recarregue corretamente
+                state["placa_input"] = placa_input
+                
                 with st.spinner("Consultando, por favor aguarde..."):
                     sucesso, resultado = consultar_placa_comercial(placa_input)
                     if sucesso:
                         st.session_state.modelo_encontrado = resultado.get('modelo', '')
                         st.toast(f"Modelo encontrado: {st.session_state.modelo_encontrado}", icon="✅")
+                        # --- MUDANÇA PRINCIPAL: Forçar o recarregamento da página ---
+                        st.rerun()
                     else:
                         st.session_state.modelo_encontrado = ''
                         st.error(resultado)
