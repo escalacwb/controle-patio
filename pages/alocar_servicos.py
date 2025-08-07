@@ -17,19 +17,31 @@ def alocar_servicos():
         return
 
     try:
+        # --- MUDANÇA: SUBSTITUIÇÃO DA QUERY LENTA PELA QUERY OTIMIZADA ---
         query_veiculos_pendentes = """
-            SELECT v.id, v.placa, v.empresa FROM veiculos v WHERE
-                EXISTS (
-                    SELECT 1 FROM servicos_solicitados_borracharia ssb WHERE ssb.veiculo_id = v.id AND ssb.status = 'pendente' UNION ALL
-                    SELECT 1 FROM servicos_solicitados_alinhamento ssa WHERE ssa.veiculo_id = v.id AND ssa.status = 'pendente' UNION ALL
-                    SELECT 1 FROM servicos_solicitados_manutencao ssm WHERE ssm.veiculo_id = v.id AND ssm.status = 'pendente'
-                ) AND NOT EXISTS (
-                    SELECT 1 FROM servicos_solicitados_borracharia ssb_a WHERE ssb_a.veiculo_id = v.id AND ssb_a.status = 'em_andamento' UNION ALL
-                    SELECT 1 FROM servicos_solicitados_alinhamento ssa_a WHERE ssa_a.veiculo_id = v.id AND ssa_a.status = 'em_andamento' UNION ALL
-                    SELECT 1 FROM servicos_solicitados_manutencao ssm_a WHERE ssm_a.veiculo_id = v.id AND ssm_a.status = 'em_andamento'
-                ) ORDER BY v.placa;
+            WITH status_por_veiculo AS (
+                SELECT
+                    veiculo_id,
+                    COUNT(*) FILTER (WHERE status = 'pendente') AS pendentes,
+                    COUNT(*) FILTER (WHERE status = 'em_andamento') AS em_andamento
+                FROM (
+                    SELECT veiculo_id, status FROM servicos_solicitados_borracharia WHERE status IN ('pendente', 'em_andamento')
+                    UNION ALL
+                    SELECT veiculo_id, status FROM servicos_solicitados_alinhamento WHERE status IN ('pendente', 'em_andamento')
+                    UNION ALL
+                    SELECT veiculo_id, status FROM servicos_solicitados_manutencao WHERE status IN ('pendente', 'em_andamento')
+                ) AS todos_servicos
+                GROUP BY veiculo_id
+            )
+            SELECT v.id, v.placa, v.empresa
+            FROM veiculos v
+            JOIN status_por_veiculo sv ON v.id = sv.veiculo_id
+            WHERE sv.pendentes > 0 AND sv.em_andamento = 0
+            ORDER BY v.placa;
         """
         veiculos_df = pd.read_sql(query_veiculos_pendentes, conn)
+        
+        # Estas consultas são rápidas e não precisam de alteração
         funcionarios_df = pd.read_sql("SELECT id, nome FROM funcionarios ORDER BY nome", conn)
         boxes_df = pd.read_sql("SELECT id FROM boxes WHERE ocupado = FALSE ORDER BY id", conn)
 
@@ -93,7 +105,7 @@ def alocar_servicos():
                                 
                                 usuario_alocacao_id = st.session_state.get('user_id')
 
-                                # --- MUDANÇA 1: BUSCAR OS DADOS DO MOTORISTA DO VEÍCULO ---
+                                # Busca os dados do motorista para salvar no histórico
                                 cursor.execute(
                                     "SELECT nome_motorista, contato_motorista FROM veiculos WHERE id = %s",
                                     (veiculo_id_int,)
@@ -102,7 +114,7 @@ def alocar_servicos():
                                 nome_motorista_atual = motorista_info[0] if motorista_info else None
                                 contato_motorista_atual = motorista_info[1] if motorista_info else None
 
-                                # --- MUDANÇA 2: INSERIR OS DADOS DO MOTORISTA NO REGISTRO HISTÓRICO (EXECUCAO_SERVICO) ---
+                                # Insere o registro de execução com os dados do motorista
                                 insert_exec_query = """
                                     INSERT INTO execucao_servico 
                                     (veiculo_id, box_id, funcionario_id, quilometragem, status, inicio_execucao, usuario_alocacao_id, nome_motorista, contato_motorista) 
@@ -128,6 +140,7 @@ def alocar_servicos():
                             st.error(f"❌ Erro Crítico ao alocar serviços: {e}")
     except Exception as e:
         st.error(f"❌ Erro ao carregar dados da página: {e}")
+        st.exception(e)
     finally:
         release_connection(conn)
     
