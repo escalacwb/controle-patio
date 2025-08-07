@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
 from datetime import date, timedelta
-from urllib.parse import quote_plus # Para formatar a mensagem para a URL
-import re # Para limpar o número de telefone
+from urllib.parse import quote_plus
+import re
 
 def app():
     st.title("📝 Controle de Feedback de Serviços")
@@ -43,7 +43,6 @@ def app():
     )
     st.markdown("---")
 
-
     # --- BUSCA E EXIBIÇÃO DOS DADOS ---
     conn = get_connection()
     if not conn:
@@ -51,7 +50,6 @@ def app():
         st.stop()
 
     try:
-        # Query agora também busca a quilometragem para usar na mensagem
         query = """
             WITH servicos_agrupados AS (
                 SELECT 
@@ -96,9 +94,7 @@ def app():
         for _, row in df_feedback.iterrows():
             with st.container(border=True):
                 
-                # --- MUDANÇA: Lógica para criar a mensagem e o link do WhatsApp ---
-                
-                # 1. Coletar e formatar os dados
+                # --- Lógica para criar a mensagem e o link do WhatsApp ---
                 nome_contato = row['nome_motorista'] or "Cliente"
                 data_servico = pd.to_datetime(row['fim_execucao']).strftime('%d/%m/%Y')
                 modelo_caminhao = row['modelo']
@@ -106,7 +102,6 @@ def app():
                 km_caminhao = f"{row['quilometragem']:,}".replace(',', '.')
                 servicos_executados = row['lista_servicos'] or "Não especificado"
                 
-                # 2. Montar a mensagem crua
                 mensagem_whatsapp = f"""Olá, {nome_contato}! Tudo bem?
 
 Aqui é da Capital Truck Center. No dia {data_servico}, realizamos serviços no seu caminhão {modelo_caminhao}, placa {placa_caminhao}, que estava com {km_caminhao} km. Os serviços executados foram: {servicos_executados}.
@@ -115,19 +110,12 @@ Estamos entrando em contato para saber se ficou satisfeito com o serviço realiz
 
 Um grande abraço da equipe Capital Truck Center! 🚛🔧"""
 
-                # 3. Limpar o número de telefone e formatar para o link
                 numero_limpo = ""
                 if row['contato_motorista'] and isinstance(row['contato_motorista'], str):
-                    # Remove tudo que não for dígito
                     numero_limpo = "55" + re.sub(r'\D', '', row['contato_motorista'])
 
-                # 4. Codificar a mensagem para a URL
                 mensagem_codificada = quote_plus(mensagem_whatsapp)
-                
-                # 5. Criar o link final
                 link_whatsapp = f"https://wa.me/{numero_limpo}?text={mensagem_codificada}"
-
-                # --- FIM DA LÓGICA DO WHATSAPP ---
 
                 # Layout do card
                 col1, col2 = st.columns([0.7, 0.3])
@@ -138,9 +126,14 @@ Um grande abraço da equipe Capital Truck Center! 🚛🔧"""
                     st.caption(f"Data de Conclusão: {data_servico}")
                 
                 with col2:
-                    # Exibe o botão do WhatsApp apenas se houver um número de contato válido
-                    if len(numero_limpo) > 11: # 55 + DDD + número
-                        st.link_button("📲 Enviar WhatsApp", url=link_whatsapp, use_container_width=True)
+                    if len(numero_limpo) > 11:
+                        # --- MUDANÇA: Adicionada uma 'key' única ao st.link_button ---
+                        st.link_button(
+                            "📲 Enviar WhatsApp", 
+                            url=link_whatsapp, 
+                            use_container_width=True,
+                            key=f"whatsapp_{row['execucao_id']}"
+                        )
                     else:
                         st.button("📲 Contato Inválido", use_container_width=True, disabled=True)
                     
