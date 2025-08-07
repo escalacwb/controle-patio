@@ -132,10 +132,10 @@ Um grande abraço da equipe Capital Truck Center! 🚛🔧"""
                             "📲 Enviar WhatsApp", 
                             url=link_whatsapp, 
                             use_container_width=True,
-                            key=f"whatsapp_{row['execucao_id']}"
+                            key=f"whatsapp_{row['execucao_id']}" # Chave única
                         )
                     else:
-                        st.button("📲 Contato Inválido", use_container_width=True, disabled=True)
+                        st.button("📲 Contato Inválido", use_container_width=True, disabled=True, key=f"whatsapp_disabled_{row['execucao_id']}") # Chave única também para o botão desabilitado
                     
                     st.button(
                         "✅ Feedback Realizado", 
