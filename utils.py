@@ -44,10 +44,22 @@ def get_catalogo_servicos():
     return catalogo
 
 def get_service_details_for_execution(conn, execucao_id):
-    # ... (esta função permanece a mesma)
-    pass # Removido para brevidade, mantenha o código original aqui
+    """Busca os detalhes dos serviços para uma execução específica, usando o execucao_id."""
+    query = """
+        SELECT s.area, s.tipo, s.quantidade, s.status, f.nome as funcionario_nome
+        FROM (
+            SELECT execucao_id, 'Borracharia' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_borracharia
+            UNION ALL
+            SELECT execucao_id, 'Alinhamento' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_alinhamento
+            UNION ALL
+            SELECT execucao_id, 'Manutenção Mecânica' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_manutencao
+        ) s
+        LEFT JOIN funcionarios f ON s.funcionario_id = f.id
+        WHERE s.execucao_id = %s
+        ORDER BY s.area, s.tipo;
+    """
+    return pd.read_sql(query, conn, params=(execucao_id,))
 
-# --- MUDANÇA: NOVA FUNÇÃO PARA A API COMERCIAL ---
 def consultar_placa_comercial(placa: str):
     """
     Consulta a API comercial (API Placas) para obter dados do veículo.
@@ -55,43 +67,30 @@ def consultar_placa_comercial(placa: str):
     if not placa:
         return False, "A placa não pode estar em branco."
 
-    # Puxa o token dos Secrets do Streamlit de forma segura
     token = st.secrets.get("PLACA_API_TOKEN")
     if not token:
         return False, "Token da API de Placas não encontrado nos Secrets."
 
-    # Monta a URL conforme a documentação
     url = f"https://wdapi2.com.br/consulta/{placa}/{token}"
 
     try:
         response = requests.get(url, timeout=15)
-
         if response.status_code == 200:
             data = response.json()
-            
-            # Lógica para pegar o melhor nome de modelo disponível
             modelo_veiculo = data.get('marcaModelo', data.get('MODELO', 'Não encontrado'))
             if data.get('fipe') and data['fipe'].get('dados'):
-                # Se houver dados da FIPE, tenta pegar o modelo mais completo
                 fipe_dados = sorted(data['fipe']['dados'], key=lambda x: x.get('score', 0), reverse=True)
                 if fipe_dados:
                     modelo_veiculo = fipe_dados[0].get('texto_modelo', modelo_veiculo)
             
             return True, {
                 'modelo': modelo_veiculo,
-                'cor': data.get('cor'),
-                'ano': data.get('ano'),
                 'anoModelo': data.get('anoModelo'),
-                'placa': data.get('placa'),
-                'municipio': data.get('municipio'),
-                'uf': data.get('uf'),
-                'situacao': data.get('situacao'),
+                # Adicione outros campos se precisar no futuro
             }
         else:
-            # Usa a mensagem de erro da própria API
             error_message = response.json().get("message", f"Erro na API (Código: {response.status_code}).")
             return False, error_message
-
     except requests.exceptions.Timeout:
         return False, "A consulta demorou muito para responder (Timeout)."
     except Exception as e:

@@ -11,151 +11,168 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
-    if 'servicos_para_adicionar' not in st.session_state:
-        st.session_state.servicos_para_adicionar = []
+    # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
+    # Dicionário principal para o fluxo de busca
     if "cadastro_servico_state" not in st.session_state:
         st.session_state.cadastro_servico_state = { "placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0 }
     state = st.session_state.cadastro_servico_state
+
+    # Lista de serviços a serem adicionados ("carrinho de compras")
+    if 'servicos_para_adicionar' not in st.session_state:
+        st.session_state.servicos_para_adicionar = []
     
     st.markdown("---")
     st.header("1️⃣ Identificação do Veículo")
 
+    # --- CAMPO DE PLACA E BOTÃO DE BUSCA NA API ---
     col_placa, col_botao = st.columns([0.7, 0.3])
     with col_placa:
-        placa_input = st.text_input(
-            "Digite a placa do veículo", 
-            value=state["placa_input"], 
-            key="placa_input_cadastro_servico", 
-            label_visibility="collapsed"
-        ).upper()
+        placa_input = st.text_input("Digite a placa do veículo", value=state["placa_input"], key="placa_input_cadastro_servico", label_visibility="collapsed").upper()
     
     with col_botao:
-        if st.button("🔎 Buscar Dados da Placa", use_container_width=True, help="Consulta a API para agilizar o cadastro de veículos novos."):
+        if st.button("🔎 Buscar Dados da Placa", use_container_width=True):
             if placa_input:
-                # Sincroniza o state antes da consulta para garantir que a página recarregue corretamente
-                state["placa_input"] = placa_input
-                
-                with st.spinner("Consultando, por favor aguarde..."):
+                with st.spinner("Consultando API..."):
                     sucesso, resultado = consultar_placa_comercial(placa_input)
                     if sucesso:
-                        st.session_state.modelo_encontrado = resultado.get('modelo', '')
-                        st.toast(f"Modelo encontrado: {st.session_state.modelo_encontrado}", icon="✅")
-                        # --- MUDANÇA PRINCIPAL: Forçar o recarregamento da página ---
-                        st.rerun()
+                        # Guarda os dados da API em um estado temporário para confirmação
+                        st.session_state.api_vehicle_data = resultado
                     else:
-                        st.session_state.modelo_encontrado = ''
                         st.error(resultado)
             else:
                 st.warning("Digite uma placa para consultar.")
     
+    # --- LÓGICA DE LIMPEZA AO MUDAR DE PLACA ---
     if placa_input != state["placa_input"]:
         state["placa_input"] = placa_input
         state["veiculo_id"], state["veiculo_info"] = None, None
-        st.session_state.servicos_para_adicionar = []
-        if 'show_edit_form' in st.session_state:
-            del st.session_state['show_edit_form']
-        if 'modelo_encontrado' in st.session_state:
-             del st.session_state['modelo_encontrado']
+        # Limpa todos os estados temporários
+        for key in ['show_edit_form', 'api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'servicos_para_adicionar']:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
 
-    if state["placa_input"] and state["veiculo_id"] is None:
-        conn = get_connection()
-        if conn:
-            try:
-                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                    query = "SELECT id, empresa, modelo, nome_motorista, contato_motorista FROM veiculos WHERE placa = %s"
-                    cursor.execute(query, (state["placa_input"],))
-                    resultado = cursor.fetchone()
-                    if resultado:
-                        state["veiculo_id"], state["veiculo_info"] = resultado["id"], resultado
-                    else:
-                        st.warning("Veículo não encontrado em seu banco. Cadastre-o abaixo.")
-            except Exception as e:
-                st.error(f"Erro ao buscar veículo: {e}")
-            finally:
-                release_connection(conn)
+    # --- FLUXO DE CONFIRMAÇÃO DOS DADOS DA API ---
+    if 'api_vehicle_data' in st.session_state and st.session_state.api_vehicle_data:
+        api_data = st.session_state.api_vehicle_data
+        with st.container(border=True):
+            st.subheader("Dados Encontrados na API")
+            st.markdown(f"**Marca/Modelo:** `{api_data.get('modelo', 'N/A')}`")
+            st.markdown(f"**Ano do Modelo:** `{api_data.get('anoModelo', 'N/A')}`")
+            
+            confirm_col, cancel_col = st.columns(2)
+            with confirm_col:
+                if st.button("✅ Aceitar Dados", use_container_width=True, type="primary"):
+                    st.session_state.modelo_aceito = api_data.get('modelo')
+                    st.session_state.ano_aceito = api_data.get('anoModelo')
+                    del st.session_state.api_vehicle_data 
+                    st.rerun()
+            with cancel_col:
+                if st.button("❌ Cancelar", use_container_width=True):
+                    del st.session_state.api_vehicle_data
+                    st.rerun()
 
-    if state["veiculo_id"]:
-        col1, col2 = st.columns([0.7, 0.3])
-        with col1:
-            st.success(
-                f"Veículo: **{state['veiculo_info']['modelo']}** | "
-                f"Empresa: **{state['veiculo_info']['empresa']}**\n\n"
-                f"Motorista: **{state['veiculo_info']['nome_motorista'] or 'Não informado'}** | "
-                f"Contato: **{state['veiculo_info']['contato_motorista'] or 'Não informado'}**"
-            )
-        with col2:
-            if st.button("🔄 Alterar Dados", use_container_width=True):
-                st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
-                st.rerun()
+    # --- FLUXO PRINCIPAL: BUSCA NO BANCO OU MOSTRA CADASTRO ---
+    # Só executa se não estivermos no meio de uma confirmação da API
+    if state["placa_input"] and not st.session_state.get('api_vehicle_data'):
+        # Tenta buscar o veículo no banco de dados local
+        if state["veiculo_id"] is None:
+            conn = get_connection()
+            if conn:
+                try:
+                    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                        query = "SELECT id, empresa, modelo, ano_modelo, nome_motorista, contato_motorista FROM veiculos WHERE placa = %s"
+                        cursor.execute(query, (state["placa_input"],))
+                        resultado = cursor.fetchone()
+                        if resultado:
+                            state["veiculo_id"], state["veiculo_info"] = resultado["id"], resultado
+                        else:
+                            st.info("Veículo não encontrado em seu banco. Cadastre-o abaixo.")
+                finally:
+                    release_connection(conn)
 
-        if st.session_state.get('show_edit_form', False):
-            with st.form("form_edit_veiculo"):
-                st.info("Altere os dados do veículo e salve.")
-                nova_empresa = st.text_input("Empresa", value=state['veiculo_info']['empresa'])
-                novo_motorista = st.text_input("Nome do Motorista", value=state['veiculo_info']['nome_motorista'])
-                novo_contato = st.text_input("Contato do Motorista", value=state['veiculo_info']['contato_motorista'])
-                submitted = st.form_submit_button("✅ Salvar Alterações")
-                if submitted:
-                    conn = get_connection()
-                    if conn:
-                        try:
-                            with conn.cursor() as cursor:
-                                query = "UPDATE veiculos SET empresa = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s"
-                                cursor.execute(query, (nova_empresa, novo_motorista, novo_contato, state['veiculo_id']))
-                                conn.commit()
-                            
-                            state['veiculo_info']['empresa'] = nova_empresa
-                            state['veiculo_info']['nome_motorista'] = novo_motorista
-                            state['veiculo_info']['contato_motorista'] = novo_contato
-                            
-                            st.session_state.show_edit_form = False
-                            st.success("Dados do veículo atualizados com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            conn.rollback()
-                            st.error(f"Erro ao atualizar os dados: {e}")
-                        finally:
-                            release_connection(conn)
-    
-    elif state["placa_input"]:
-        with st.expander("Cadastrar Novo Veículo", expanded=True):
-            with st.form("form_novo_veiculo_rapido"):
-                empresa = st.text_input("Empresa *")
-                modelo_default = st.session_state.get('modelo_encontrado', '')
-                modelo = st.text_input("Modelo do Veículo *", value=modelo_default)
-                nome_motorista = st.text_input("Nome do Motorista")
-                contato_motorista = st.text_input("Contato do Motorista")
+        # SE O VEÍCULO EXISTE, exibe os dados e o botão de edição
+        if state["veiculo_id"]:
+            col1, col2 = st.columns([0.7, 0.3])
+            with col1:
+                st.success(
+                    f"Veículo: **{state['veiculo_info']['modelo']}** | Ano: **{state['veiculo_info']['ano_modelo'] or 'N/A'}**\n\n"
+                    f"Empresa: **{state['veiculo_info']['empresa']}**\n\n"
+                    f"Motorista: **{state['veiculo_info']['nome_motorista'] or 'Não informado'}** | "
+                    f"Contato: **{state['veiculo_info']['contato_motorista'] or 'Não informado'}**"
+                )
+            with col2:
+                if st.button("🔄 Alterar Dados", use_container_width=True):
+                    st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
+                    st.rerun()
 
-                if st.form_submit_button("Cadastrar e Continuar"):
-                    if not all([empresa, modelo]):
-                        st.warning("Empresa e Modelo são obrigatórios.")
-                    else:
+            if st.session_state.get('show_edit_form', False):
+                with st.form("form_edit_veiculo"):
+                    st.info("Altere os dados do veículo e salve.")
+                    nova_empresa = st.text_input("Empresa", value=state['veiculo_info']['empresa'])
+                    novo_modelo = st.text_input("Modelo", value=state['veiculo_info']['modelo'])
+                    novo_ano = st.number_input("Ano do Modelo", min_value=1950, max_value=datetime.now().year + 1, value=int(state['veiculo_info']['ano_modelo'] or 0), step=1)
+                    novo_motorista = st.text_input("Nome do Motorista", value=state['veiculo_info']['nome_motorista'])
+                    novo_contato = st.text_input("Contato do Motorista", value=state['veiculo_info']['contato_motorista'])
+                    if st.form_submit_button("✅ Salvar Alterações"):
                         conn = get_connection()
                         if conn:
                             try:
                                 with conn.cursor() as cursor:
-                                    query = """
-                                        INSERT INTO veiculos (placa, empresa, modelo, nome_motorista, contato_motorista, data_entrada) 
-                                        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
-                                    """
-                                    cursor.execute(query, (state["placa_input"], empresa, modelo, nome_motorista, contato_motorista, datetime.now(MS_TZ)))
-                                    new_id = cursor.fetchone()[0]
+                                    query = "UPDATE veiculos SET empresa = %s, modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s"
+                                    cursor.execute(query, (nova_empresa, novo_modelo, novo_ano if novo_ano > 0 else None, novo_motorista, novo_contato, state['veiculo_id']))
                                     conn.commit()
-                                    
-                                    state["veiculo_id"] = new_id
-                                    state["veiculo_info"] = {
-                                        "id": new_id, "modelo": modelo, "empresa": empresa,
-                                        "nome_motorista": nome_motorista, "contato_motorista": contato_motorista
-                                    }
-                                    st.success("🚚 Veículo cadastrado com sucesso!")
-                                    st.rerun()
-                            except Exception as e:
-                                conn.rollback()
-                                st.error(f"Erro ao cadastrar veículo: {e}")
+                                
+                                # Atualiza o estado da sessão para refletir na tela
+                                state['veiculo_info'].update({
+                                    'empresa': nova_empresa, 'modelo': novo_modelo, 'ano_modelo': novo_ano,
+                                    'nome_motorista': novo_motorista, 'contato_motorista': novo_contato
+                                })
+                                st.session_state.show_edit_form = False
+                                st.success("Dados do veículo atualizados!")
+                                st.rerun()
                             finally:
                                 release_connection(conn)
+        
+        # SE O VEÍCULO NÃO EXISTE, exibe o formulário de cadastro
+        else:
+            with st.expander("Cadastrar Novo Veículo", expanded=True):
+                with st.form("form_novo_veiculo_rapido"):
+                    empresa = st.text_input("Empresa *")
+                    
+                    modelo_aceito = st.session_state.get('modelo_aceito', '')
+                    ano_aceito = st.session_state.get('ano_aceito', 0)
+                    
+                    modelo = st.text_input("Modelo do Veículo *", value=modelo_aceito)
+                    ano_modelo = st.number_input("Ano do Modelo", min_value=1950, max_value=datetime.now().year + 2, value=int(ano_aceito if ano_aceito else 0), step=1)
+                    
+                    nome_motorista = st.text_input("Nome do Motorista")
+                    contato_motorista = st.text_input("Contato do Motorista")
 
+                    if st.form_submit_button("Cadastrar e Continuar"):
+                        if not all([empresa, modelo]):
+                            st.warning("Empresa e Modelo são obrigatórios.")
+                        else:
+                            conn = get_connection()
+                            if conn:
+                                try:
+                                    with conn.cursor() as cursor:
+                                        query = """
+                                            INSERT INTO veiculos (placa, empresa, modelo, ano_modelo, nome_motorista, contato_motorista, data_entrada) 
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                                        """
+                                        cursor.execute(query, (state["placa_input"], empresa, modelo, ano_modelo if ano_modelo > 0 else None, nome_motorista, contato_motorista, datetime.now(MS_TZ)))
+                                        new_id = cursor.fetchone()[0]
+                                        conn.commit()
+                                        
+                                        for key in ['modelo_aceito', 'ano_aceito']:
+                                            if key in st.session_state: del st.session_state[key]
+                                        st.success("🚚 Veículo cadastrado com sucesso!")
+                                        st.rerun()
+                                finally:
+                                    release_connection(conn)
+
+    # --- SEÇÃO 2: SELEÇÃO DE SERVIÇOS ---
     if state["veiculo_id"]:
         st.markdown("---")
         st.header("2️⃣ Seleção de Serviços")
@@ -167,7 +184,6 @@ def app():
         def area_de_servico(nome_area, chave_area):
             st.subheader(nome_area)
             servicos_disponiveis = servicos_do_banco.get(chave_area, [])
-            
             col1, col2, col3 = st.columns([0.7, 0.15, 0.15])
             with col1:
                 servico_selecionado = st.selectbox(f"Selecione o serviço de {nome_area}", options=[""] + servicos_disponiveis, key=f"select_{chave_area}", label_visibility="collapsed")
@@ -176,8 +192,7 @@ def app():
             with col3:
                 if st.button("➕ Adicionar", key=f"add_{chave_area}", use_container_width=True):
                     if servico_selecionado:
-                        novo_servico = {"area": nome_area, "tipo": servico_selecionado, "qtd": quantidade}
-                        st.session_state.servicos_para_adicionar.append(novo_servico)
+                        st.session_state.servicos_para_adicionar.append({"area": nome_area, "tipo": servico_selecionado, "qtd": quantidade})
                         st.rerun()
                     else:
                         st.warning("Por favor, selecione um serviço para adicionar.")
@@ -209,32 +224,31 @@ def app():
                 st.error("❌ A quilometragem é obrigatória e deve ser maior que zero.")
             else:
                 conn = get_connection()
-                if not conn: return
-                sucesso = True
-                try:
-                    with conn.cursor() as cursor:
-                        table_map = {"Borracharia": "servicos_solicitados_borracharia", "Alinhamento": "servicos_solicitados_alinhamento", "Mecânica": "servicos_solicitados_manutencao"}
-                        for s in servicos_a_cadastrar:
-                            table_name = table_map.get(s['area'])
-                            query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
-                            cursor.execute(query, (state["veiculo_id"], s['tipo'], s['qtd'], observacao_geral, state["quilometragem"], datetime.now(MS_TZ), datetime.now(MS_TZ)))
-                        conn.commit()
-                except Exception as e:
-                    conn.rollback()
-                    st.error(f"❌ Erro ao salvar serviços: {e}")
-                    sucesso = False
-                finally:
-                    release_connection(conn)
-                if sucesso:
-                    st.success("✅ Serviços cadastrados com sucesso!")
-                    st.session_state.servicos_para_adicionar = []
-                    st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
-                    st.balloons()
-                    st.rerun()
+                if conn:
+                    try:
+                        with conn.cursor() as cursor:
+                            table_map = {"Borracharia": "servicos_solicitados_borracharia", "Alinhamento": "servicos_solicitados_alinhamento", "Mecânica": "servicos_solicitados_manutencao"}
+                            for s in servicos_a_cadastrar:
+                                table_name = table_map.get(s['area'])
+                                query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
+                                cursor.execute(query, (state["veiculo_id"], s['tipo'], s['qtd'], observacao_geral, state["quilometragem"], datetime.now(MS_TZ), datetime.now(MS_TZ)))
+                            conn.commit()
+                            st.success("✅ Serviços cadastrados com sucesso!")
+                            st.session_state.servicos_para_adicionar = []
+                            st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
+                            st.balloons()
+                            st.rerun()
+                    except Exception as e:
+                        conn.rollback()
+                        st.error(f"❌ Erro ao salvar serviços: {e}")
+                    finally:
+                        release_connection(conn)
 
-    if st.button("Limpar tela e iniciar novo cadastro"):
-        st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
-        st.session_state.servicos_para_adicionar = []
-        if 'modelo_encontrado' in st.session_state:
-             del st.session_state['modelo_encontrado']
-        st.rerun()
+    # Botão de limpar a tela (só aparece se houver uma placa digitada)
+    if state["placa_input"]:
+        if st.button("Limpar tela e iniciar novo cadastro"):
+            # Limpa todos os estados da sessão relevantes para esta página
+            for key in ['cadastro_servico_state', 'servicos_para_adicionar', 'api_vehicle_data', 'modelo_aceito', 'ano_aceito']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
