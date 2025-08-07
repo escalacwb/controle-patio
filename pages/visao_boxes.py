@@ -21,14 +21,14 @@ def visao_boxes():
     try:
         df_boxes = get_estado_atual_boxes(conn)
         
-        # --- MUDANÇA: Corrigida a condição de verificação ---
-        # A verificação 'if 'id' in df_boxes.columns' foi removida pois era a causa do bug.
-        # Agora, simplesmente verificamos se o dataframe não está vazio.
         if not df_boxes.empty:
             cols = st.columns(len(df_boxes))
-            for index, box_data in df_boxes.iterrows():
-                # O 'index' aqui já é o ID do box, pois definimos 'index_col' na query
-                with cols[index]:
+            
+            # --- MUDANÇA: Usar enumerate para obter o índice de posição correto (0, 1, 2...) ---
+            for i, (box_id, box_data) in enumerate(df_boxes.iterrows()):
+                # 'i' agora é a posição correta na lista de colunas (0, 1, 2...)
+                # 'box_id' é o ID real do box vindo do banco (1, 2, 3...)
+                with cols[i]:
                     render_box(conn, box_data, catalogo_servicos)
         else:
             st.info("Nenhum box em operação no momento.")
@@ -52,11 +52,10 @@ def get_estado_atual_boxes(conn):
         WHERE b.id > 0
         ORDER BY b.id;
     """
-    # A coluna 'id' do box é usada como índice do DataFrame para facilitar a iteração
     return pd.read_sql(query, conn, index_col='id')
 
 def render_box(conn, box_data, catalogo_servicos):
-    box_id = int(box_data.name) # O .name de uma linha (Series) do pandas é o seu índice
+    box_id = int(box_data.name) 
     execucao_id = box_data['execucao_id']
 
     if pd.isna(execucao_id):
@@ -137,8 +136,8 @@ def finalizar_execucao(conn, box_id, execucao_id):
     if not box_state: return
     try:
         with conn.cursor() as cursor:
-            # (Lógica de finalização e notificação permanece a mesma)
-            # ...
+            # (A lógica de finalização e notificação permanece a mesma)
+            pass
             
             if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
             st.rerun()
