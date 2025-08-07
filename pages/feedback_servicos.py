@@ -2,45 +2,43 @@ import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
 from datetime import date, timedelta
+from urllib.parse import quote_plus # Para formatar a mensagem para a URL
+import re # Para limpar o número de telefone
 
 def app():
     st.title("📝 Controle de Feedback de Serviços")
     st.markdown("Acompanhe e registre o feedback dos serviços concluídos há 7 dias ou mais.")
 
     # --- LÓGICA DO BOTÃO DE FEEDBACK ---
-    # Verifica se um botão de feedback foi pressionado
     for key in st.session_state:
-        if key.startswith("feedback_ok_"):
-            if st.session_state[key]: # Se o botão foi pressionado
-                execucao_id = int(key.split("_")[2])
-                conn = get_connection()
-                if conn:
-                    try:
-                        with conn.cursor() as cursor:
-                            cursor.execute(
-                                "UPDATE execucao_servico SET data_feedback = NOW() WHERE id = %s",
-                                (execucao_id,)
-                            )
-                            conn.commit()
-                            st.toast(f"Feedback para serviço {execucao_id} registrado com sucesso!", icon="✅")
-                            # Limpa o estado do botão para evitar re-execução
-                            st.session_state[key] = False
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao registrar feedback: {e}")
-                    finally:
-                        release_connection(conn)
+        if key.startswith("feedback_ok_") and st.session_state[key]:
+            execucao_id = int(key.split("_")[2])
+            conn = get_connection()
+            if conn:
+                try:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE execucao_servico SET data_feedback = NOW() WHERE id = %s",
+                            (execucao_id,)
+                        )
+                        conn.commit()
+                        st.toast(f"Feedback para serviço {execucao_id} registrado com sucesso!", icon="✅")
+                    st.session_state[key] = False
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao registrar feedback: {e}")
+                finally:
+                    release_connection(conn)
 
     # --- FILTRO DE DATA ---
     st.markdown("---")
     st.subheader("Filtro de Período")
     today = date.today()
     
-    # O filtro de data define a partir de qual data os serviços concluídos devem ser mostrados.
     start_date = st.date_input(
         "Mostrar serviços concluídos a partir de:",
-        value=today - timedelta(days=30), # Padrão para os últimos 30 dias
-        max_value=today - timedelta(days=7), # Não permite selecionar datas muito recentes
+        value=today - timedelta(days=30),
+        max_value=today - timedelta(days=7),
         help="A lista mostrará apenas os serviços concluídos entre esta data e 7 dias atrás."
     )
     st.markdown("---")
@@ -53,24 +51,25 @@ def app():
         st.stop()
 
     try:
-        # Query para buscar os serviços que precisam de feedback
+        # Query agora também busca a quilometragem para usar na mensagem
         query = """
             WITH servicos_agrupados AS (
                 SELECT 
                     execucao_id, 
-                    STRING_AGG(tipo || ' (Qtd: ' || quantidade || ')', '; ') as lista_servicos
+                    STRING_AGG(tipo, '; ') as lista_servicos
                 FROM (
-                    SELECT execucao_id, tipo, quantidade FROM servicos_solicitados_borracharia
+                    SELECT execucao_id, tipo FROM servicos_solicitados_borracharia WHERE status = 'finalizado'
                     UNION ALL
-                    SELECT execucao_id, tipo, quantidade FROM servicos_solicitados_alinhamento
+                    SELECT execucao_id, tipo FROM servicos_solicitados_alinhamento WHERE status = 'finalizado'
                     UNION ALL
-                    SELECT execucao_id, tipo, quantidade FROM servicos_solicitados_manutencao
+                    SELECT execucao_id, tipo FROM servicos_solicitados_manutencao WHERE status = 'finalizado'
                 ) s
                 GROUP BY execucao_id
             )
             SELECT
                 es.id as execucao_id,
                 es.fim_execucao,
+                es.quilometragem,
                 v.placa,
                 v.modelo,
                 es.nome_motorista,
@@ -94,23 +93,62 @@ def app():
         
         st.subheader(f"Encontrados: {len(df_feedback)} serviços pendentes de feedback")
 
-        # Exibe cada serviço como um "card"
         for _, row in df_feedback.iterrows():
             with st.container(border=True):
+                
+                # --- MUDANÇA: Lógica para criar a mensagem e o link do WhatsApp ---
+                
+                # 1. Coletar e formatar os dados
+                nome_contato = row['nome_motorista'] or "Cliente"
+                data_servico = pd.to_datetime(row['fim_execucao']).strftime('%d/%m/%Y')
+                modelo_caminhao = row['modelo']
+                placa_caminhao = row['placa']
+                km_caminhao = f"{row['quilometragem']:,}".replace(',', '.')
+                servicos_executados = row['lista_servicos'] or "Não especificado"
+                
+                # 2. Montar a mensagem crua
+                mensagem_whatsapp = f"""Olá, {nome_contato}! Tudo bem?
+
+Aqui é da Capital Truck Center. No dia {data_servico}, realizamos serviços no seu caminhão {modelo_caminhao}, placa {placa_caminhao}, que estava com {km_caminhao} km. Os serviços executados foram: {servicos_executados}.
+
+Estamos entrando em contato para saber se ficou satisfeito com o serviço realizado e se tudo está funcionando bem. Caso tenha alguma sugestão, observação ou crítica para nos ajudar a melhorar nosso atendimento, ficaremos muito gratos. Nosso número de contato é (67) 98417-3800.
+
+Um grande abraço da equipe Capital Truck Center! 🚛🔧"""
+
+                # 3. Limpar o número de telefone e formatar para o link
+                numero_limpo = ""
+                if row['contato_motorista'] and isinstance(row['contato_motorista'], str):
+                    # Remove tudo que não for dígito
+                    numero_limpo = "55" + re.sub(r'\D', '', row['contato_motorista'])
+
+                # 4. Codificar a mensagem para a URL
+                mensagem_codificada = quote_plus(mensagem_whatsapp)
+                
+                # 5. Criar o link final
+                link_whatsapp = f"https://wa.me/{numero_limpo}?text={mensagem_codificada}"
+
+                # --- FIM DA LÓGICA DO WHATSAPP ---
+
+                # Layout do card
                 col1, col2 = st.columns([0.7, 0.3])
                 with col1:
                     st.markdown(f"**Veículo:** `{row['placa']}` - {row['modelo']}")
                     st.markdown(f"**Motorista:** {row['nome_motorista'] or 'Não informado'} | **Contato:** {row['contato_motorista'] or 'N/A'}")
                     st.markdown(f"**Serviços:** *{row['lista_servicos']}*")
-                    st.caption(f"Data de Conclusão: {pd.to_datetime(row['fim_execucao']).strftime('%d/%m/%Y')}")
+                    st.caption(f"Data de Conclusão: {data_servico}")
                 
                 with col2:
+                    # Exibe o botão do WhatsApp apenas se houver um número de contato válido
+                    if len(numero_limpo) > 11: # 55 + DDD + número
+                        st.link_button("📲 Enviar WhatsApp", url=link_whatsapp, use_container_width=True)
+                    else:
+                        st.button("📲 Contato Inválido", use_container_width=True, disabled=True)
+                    
                     st.button(
                         "✅ Feedback Realizado", 
                         key=f"feedback_ok_{row['execucao_id']}",
                         use_container_width=True
                     )
-
     except Exception as e:
         st.error(f"Ocorreu um erro ao buscar os dados: {e}")
     finally:
