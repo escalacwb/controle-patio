@@ -13,20 +13,14 @@ def processar_historico_veiculo(group, intervalo_revisao_km):
     está elegível para um contato proativo de revisão.
     """
     # 1. Limpeza e Validação dos Dados
-    
-    # Remove serviços com KM zerada ou nula e ordena pela data
     group = group.dropna(subset=['quilometragem'])
     group = group[group['quilometragem'] > 0]
     group = group.sort_values('fim_execucao').reset_index(drop=True)
-
-    # Remove registros duplicados na mesma quilometragem, mantendo o mais recente
     group = group.drop_duplicates(subset=['quilometragem'], keep='last')
 
-    # Regra: Precisa de pelo menos 3 visitas válidas
     if len(group) < 3:
         return None
 
-    # Regra: A quilometragem deve ser sempre crescente
     if not group['quilometragem'].is_monotonic_increasing:
         return None
 
@@ -37,7 +31,6 @@ def processar_historico_veiculo(group, intervalo_revisao_km):
     delta_km = ultima_visita['quilometragem'] - primeira_visita['quilometragem']
     delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
 
-    # Evita divisão por zero se as visitas foram no mesmo dia
     if delta_dias <= 0:
         return None
         
@@ -52,7 +45,6 @@ def processar_historico_veiculo(group, intervalo_revisao_km):
     
     # 4. Verifica se a KM estimada ultrapassou a meta de revisão
     if km_atual_estimada >= proxima_revisao_km:
-        # Retorna um DataFrame com as informações relevantes
         return pd.Series({
             'placa': ultima_visita['placa'],
             'empresa': ultima_visita['empresa'],
@@ -62,6 +54,7 @@ def processar_historico_veiculo(group, intervalo_revisao_km):
             'km_ultima_visita': int(ultima_visita['quilometragem']),
             'data_ultima_visita': ultima_visita['fim_execucao'].strftime('%d/%m/%Y'),
             'km_atual_estimada': int(km_atual_estimada),
+            'proxima_revisao_km': int(proxima_revisao_km),
             'media_km_diaria': round(media_km_diaria)
         })
     
@@ -73,7 +66,8 @@ def app():
     st.markdown("---")
 
     # --- CAMPO DE CONFIGURAÇÃO ---
-    intervalo_km = st.number_input(
+    # --- MUDANÇA: Renomeando a variável para 'intervalo_revisao_km' para consistência ---
+    intervalo_revisao_km = st.number_input(
         "Avisar a cada (KM)", 
         min_value=1000, 
         max_value=100000, 
@@ -90,15 +84,14 @@ def app():
 
     try:
         with st.spinner("Analisando histórico e calculando previsões... Isso pode levar um momento."):
-            # Query para buscar todo o histórico necessário de uma só vez
             query = """
                 SELECT
                     es.veiculo_id,
                     v.placa,
                     v.empresa,
                     v.modelo,
-                    v.nome_motorista, -- Motorista atual (para contato)
-                    v.contato_motorista, -- Contato atual
+                    v.nome_motorista,
+                    v.contato_motorista,
                     es.fim_execucao,
                     es.quilometragem
                 FROM execucao_servico es
