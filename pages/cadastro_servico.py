@@ -3,7 +3,7 @@ from database import get_connection, release_connection
 import psycopg2.extras
 from datetime import datetime
 import pytz
-from utils import get_catalogo_servicos
+from utils import get_catalogo_servicos, consultar_placa_sinesp
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
@@ -11,6 +11,7 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
+    # Inicializações do estado da sessão
     if 'servicos_para_adicionar' not in st.session_state:
         st.session_state.servicos_para_adicionar = []
 
@@ -21,12 +22,40 @@ def app():
     st.markdown("---")
 
     st.header("1️⃣ Identificação do Veículo")
-    placa_input = st.text_input("Digite a placa do veículo", value=state["placa_input"], key="placa_input_cadastro_servico").upper()
+
+    # --- Layout com campo de placa e botão de busca SINESP ---
+    col_placa, col_botao = st.columns([0.7, 0.3])
+    with col_placa:
+        placa_input = st.text_input(
+            "Digite a placa do veículo", 
+            value=state["placa_input"], 
+            key="placa_input_cadastro_servico", 
+            label_visibility="collapsed"
+        ).upper()
+    
+    with col_botao:
+        if st.button("🔎 Buscar Placa SINESP", use_container_width=True, help="Consulta dados públicos do veículo. Use para cadastrar veículos novos mais rápido."):
+            if placa_input:
+                with st.spinner("Consultando SINESP, por favor aguarde..."):
+                    sucesso, resultado = consultar_placa_sinesp(placa_input)
+                    if sucesso:
+                        st.session_state.modelo_encontrado_sinesp = resultado.get('modelo', '')
+                        st.toast(f"Modelo encontrado: {st.session_state.modelo_encontrado_sinesp}", icon="✅")
+                    else:
+                        st.session_state.modelo_encontrado_sinesp = ''
+                        st.error(resultado)
+            else:
+                st.warning("Digite uma placa para consultar.")
+    
+    # Lógica principal de busca no banco de dados local
     if placa_input != state["placa_input"]:
-        state["placa_input"], state["veiculo_id"], state["veiculo_info"] = placa_input, None, None
+        state["placa_input"] = placa_input
+        state["veiculo_id"], state["veiculo_info"] = None, None
         st.session_state.servicos_para_adicionar = []
         if 'show_edit_form' in st.session_state:
             del st.session_state['show_edit_form']
+        if 'modelo_encontrado_sinesp' in st.session_state:
+             del st.session_state['modelo_encontrado_sinesp']
         st.rerun()
 
     if state["placa_input"] and state["veiculo_id"] is None:
@@ -40,12 +69,13 @@ def app():
                     if resultado:
                         state["veiculo_id"], state["veiculo_info"] = resultado["id"], resultado
                     else:
-                        st.warning("Veículo não encontrado. Cadastre-o abaixo.")
+                        st.warning("Veículo não encontrado em seu banco. Cadastre-o abaixo.")
             except Exception as e:
                 st.error(f"Erro ao buscar veículo: {e}")
             finally:
                 release_connection(conn)
 
+    # Bloco para exibir/editar um veículo que já existe no seu banco
     if state["veiculo_id"]:
         col1, col2 = st.columns([0.7, 0.3])
         with col1:
@@ -63,13 +93,10 @@ def app():
         if st.session_state.get('show_edit_form', False):
             with st.form("form_edit_veiculo"):
                 st.info("Altere os dados do veículo e salve.")
-                
                 nova_empresa = st.text_input("Empresa", value=state['veiculo_info']['empresa'])
                 novo_motorista = st.text_input("Nome do Motorista", value=state['veiculo_info']['nome_motorista'])
                 novo_contato = st.text_input("Contato do Motorista", value=state['veiculo_info']['contato_motorista'])
-                
                 submitted = st.form_submit_button("✅ Salvar Alterações")
-                
                 if submitted:
                     conn = get_connection()
                     if conn:
@@ -86,18 +113,22 @@ def app():
                             st.session_state.show_edit_form = False
                             st.success("Dados do veículo atualizados com sucesso!")
                             st.rerun()
-                                
                         except Exception as e:
                             conn.rollback()
                             st.error(f"Erro ao atualizar os dados: {e}")
                         finally:
                             release_connection(conn)
     
+    # Bloco para cadastrar um novo veículo
     elif state["placa_input"]:
         with st.expander("Cadastrar Novo Veículo", expanded=True):
             with st.form("form_novo_veiculo_rapido"):
-                empresa = st.text_input("Empresa")
-                modelo = st.text_input("Modelo do Veículo")
+                empresa = st.text_input("Empresa *")
+                
+                # Preenche o campo 'modelo' com o valor da consulta SINESP, se existir
+                modelo_default = st.session_state.get('modelo_encontrado_sinesp', '')
+                modelo = st.text_input("Modelo do Veículo *", value=modelo_default)
+                
                 nome_motorista = st.text_input("Nome do Motorista")
                 contato_motorista = st.text_input("Contato do Motorista")
 
@@ -117,8 +148,12 @@ def app():
                                     new_id = cursor.fetchone()[0]
                                     conn.commit()
                                     
+                                    # Atualiza o state com os dados completos para continuar o fluxo
                                     state["veiculo_id"] = new_id
-                                    state["veiculo_info"] = {"modelo": modelo, "empresa": empresa, "nome_motorista": nome_motorista, "contato_motorista": contato_motorista}
+                                    state["veiculo_info"] = {
+                                        "id": new_id, "modelo": modelo, "empresa": empresa,
+                                        "nome_motorista": nome_motorista, "contato_motorista": contato_motorista
+                                    }
                                     st.success("🚚 Veículo cadastrado com sucesso!")
                                     st.rerun()
                             except Exception as e:
@@ -127,6 +162,7 @@ def app():
                             finally:
                                 release_connection(conn)
 
+    # Bloco para seleção de serviços (só aparece se um veículo estiver selecionado)
     if state["veiculo_id"]:
         st.markdown("---")
         st.header("2️⃣ Seleção de Serviços")
@@ -203,7 +239,10 @@ def app():
                     st.balloons()
                     st.rerun()
 
+    # Botão de limpar a tela
     if st.button("Limpar tela e iniciar novo cadastro"):
         st.session_state.cadastro_servico_state = {"placa_input": "", "veiculo_id": None, "veiculo_info": None, "quilometragem": 0}
         st.session_state.servicos_para_adicionar = []
+        if 'modelo_encontrado_sinesp' in st.session_state:
+             del st.session_state['modelo_encontrado_sinesp']
         st.rerun()
