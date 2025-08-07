@@ -11,7 +11,7 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
-    # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
+    # Inicialização do estado da sessão
     if "cadastro_servico_state" not in st.session_state:
         st.session_state.cadastro_servico_state = {
             "placa_input": "", "veiculo_id": None, "veiculo_info": None,
@@ -37,10 +37,9 @@ def app():
                 del st.session_state[key]
         st.rerun()
 
-    # --- LÓGICA PRINCIPAL EXECUTADA APÓS O BOTÃO SER PRESSIONADO ---
     if state.get("search_triggered"):
         # Busca no banco de dados local (só roda uma vez por busca)
-        if state.get("veiculo_info") is None and state.get("placa_input"):
+        if state.get("veiculo_info") is None and not state.get("veiculo_id"):
             conn = get_connection()
             if conn:
                 try:
@@ -100,7 +99,7 @@ def app():
                             finally:
                                 release_connection(conn)
             
-            # --- SEÇÃO DE SELEÇÃO DE SERVIÇOS (AGORA DENTRO DO BLOCO CORRETO) ---
+            # --- SEÇÃO DE SELEÇÃO DE SERVIÇOS ---
             st.markdown("---")
             st.header("2️⃣ Seleção de Serviços")
             km_value = state.get("quilometragem") if state.get("quilometragem") else None
@@ -149,10 +148,26 @@ def app():
                 elif not state["quilometragem"] or state["quilometragem"] <= 0:
                     st.error("❌ A quilometragem é obrigatória e deve ser maior que zero.")
                 else:
-                    # Lógica de salvar no banco
-                    pass # Mantenha sua lógica de salvar aqui
+                    conn = get_connection()
+                    if conn:
+                        try:
+                            with conn.cursor() as cursor:
+                                table_map = {"Borracharia": "servicos_solicitados_borracharia", "Alinhamento": "servicos_solicitados_alinhamento", "Mecânica": "servicos_solicitados_manutencao"}
+                                for s in st.session_state.servicos_para_adicionar:
+                                    table_name = table_map.get(s['area'])
+                                    query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
+                                    cursor.execute(query, (state["veiculo_id"], s['tipo'], s['qtd'], observacao_geral, state["quilometragem"], datetime.now(MS_TZ), datetime.now(MS_TZ)))
+                                conn.commit()
+                                st.success("✅ Serviços cadastrados com sucesso!")
+                                st.session_state.servicos_para_adicionar = []
+                                state["search_triggered"] = False
+                                state["placa_input"] = ""
+                                st.balloons()
+                                st.rerun()
+                        finally:
+                            release_connection(conn)
 
-        # --- FLUXO 2: VEÍCULO NÃO FOI ENCONTRADO NO BANCO ---
+        # --- FLUXO 2: VEÍCULO NÃO ENCONTRADO ---
         else:
             st.warning("Veículo não encontrado no seu banco de dados.")
             if st.button("🔎 Buscar Dados Externos (API)", use_container_width=True):
@@ -162,7 +177,7 @@ def app():
                     else: st.error(resultado)
                 st.rerun()
 
-            if 'api_vehicle_data' in st.session_state and st.session_state.api_vehicle_data:
+            if 'api_vehicle_data' in st.session_state:
                 api_data = st.session_state.api_vehicle_data
                 with st.container(border=True):
                     st.subheader("Dados Encontrados na API")
@@ -180,16 +195,16 @@ def app():
                         if st.button("❌ Cancelar", use_container_width=True):
                             del st.session_state.api_vehicle_data
                             st.rerun()
-            
+
             if not st.session_state.get('api_vehicle_data'):
-                with st.expander("Cadastrar Novo Veículo Manualmente", expanded=True):
+                with st.expander("Cadastrar Novo Veículo", expanded=True):
                     with st.form("form_novo_veiculo_rapido"):
                         empresa = st.text_input("Empresa *")
                         modelo_aceito = st.session_state.get('modelo_aceito', '')
                         ano_aceito_str = st.session_state.get('ano_aceito', '')
                         modelo = st.text_input("Modelo do Veículo *", value=modelo_aceito)
                         try:
-                            default_year = int(ano_aceito_str)
+                            default_year = int(ano_aceito_str) if ano_aceito_str else datetime.now().year
                         except (ValueError, TypeError):
                             default_year = datetime.now().year
                         
@@ -197,15 +212,45 @@ def app():
                         nome_motorista = st.text_input("Nome do Motorista")
                         contato_motorista = st.text_input("Contato do Motorista")
 
+                        # --- LÓGICA DE SALVAR RESTAURADA E CORRIGIDA ---
                         if st.form_submit_button("Cadastrar e Continuar"):
-                             # Lógica para salvar novo veículo no banco
-                            pass
-                            
-    # Botão para limpar a tela e começar de novo
-    if state["placa_input"]:
+                            if not all([empresa, modelo]):
+                                st.warning("Empresa e Modelo são obrigatórios.")
+                            else:
+                                placa_formatada = formatar_placa(state["placa_input"])
+                                contato_formatado = formatar_telefone(contato_motorista)
+                                conn = get_connection()
+                                if conn:
+                                    try:
+                                        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                                            query = """
+                                                INSERT INTO veiculos (placa, empresa, modelo, ano_modelo, nome_motorista, contato_motorista, data_entrada) 
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                                RETURNING id, empresa, modelo, ano_modelo, nome_motorista, contato_motorista;
+                                            """
+                                            cursor.execute(query, (placa_formatada, empresa, modelo, ano_modelo if ano_modelo > 1950 else None, nome_motorista, contato_formatado, datetime.now(MS_TZ)))
+                                            novo_veiculo_info = cursor.fetchone()
+                                            conn.commit()
+                                            
+                                            st.success("🚚 Veículo cadastrado com sucesso!")
+                                            
+                                            # Limpa estados temporários da API
+                                            for key in ['modelo_aceito', 'ano_aceito']:
+                                                if key in st.session_state: del st.session_state[key]
+                                            
+                                            # ATUALIZA O ESTADO para prosseguir para a seleção de serviços
+                                            state['veiculo_id'] = novo_veiculo_info['id']
+                                            state['veiculo_info'] = novo_veiculo_info
+                                            
+                                            st.rerun()
+                                    finally:
+                                        release_connection(conn)
+
+    # Botão para limpar a tela
+    if state.get("placa_input"):
         if st.button("Limpar e Iniciar Nova Busca"):
-            # Limpa todos os estados da sessão
-            for key in list(st.session_state.keys()):
-                if key in ['cadastro_servico_state', 'servicos_para_adicionar', 'api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form']:
+            keys_to_delete = ['cadastro_servico_state', 'servicos_para_adicionar', 'api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form']
+            for key in keys_to_delete:
+                if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
