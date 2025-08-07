@@ -31,7 +31,7 @@ try:
 except locale.Error:
     st.warning("Não foi possível configurar a localidade para pt_BR.")
 
-@st.cache_data(ttl=3600)
+# --- MUDANÇA: A LINHA DE CACHE FOI REMOVIDA DESTA FUNÇÃO ---
 def get_catalogo_servicos():
     catalogo = {"borracharia": [], "alinhamento": [], "manutencao": []}
     conn = get_connection()
@@ -87,7 +87,6 @@ def consultar_placa_comercial(placa: str):
     except Exception as e:
         return False, f"Ocorreu um erro inesperado: {str(e)}"
 
-# --- FUNÇÕES QUE ESTAVAM FALTANDO ---
 def formatar_telefone(numero: str) -> str:
     """Formata um número de telefone no padrão (XX)XXXXX-XXXX."""
     if not numero:
@@ -104,7 +103,7 @@ def formatar_placa(placa: str) -> str:
     """Formata uma placa no padrão antigo (AAA-1234). Placas Mercosul não são alteradas."""
     if not placa:
         return ""
-    placa_limpa = re.sub(r'[^A-Z0-9]', '', placa.upper())
+    placa_limpa = re.sub(r'[^A-Z0--9]', '', placa.upper())
     if len(placa_limpa) == 7 and placa_limpa[4].isdigit():
         return f"{placa_limpa[:3]}-{placa_limpa[3:]}"
     else:
