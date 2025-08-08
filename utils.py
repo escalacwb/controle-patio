@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
 import locale
-import hashlib
 import requests
-import re # Importa a biblioteca de expressões regulares
 
-def hash_password(password):
-    """Gera o hash de uma senha para armazenamento seguro."""
-    return hashlib.sha256(password.encode()).hexdigest()
+# Importa TODAS as funções puras do novo arquivo
+from core_utils import *
+
+# FUNÇÕES QUE DEPENDEM DIRETAMENTE DO STREAMLIT
 
 def enviar_notificacao_telegram(mensagem, chat_id_destino):
     """Envia uma mensagem para um chat_id específico do Telegram."""
@@ -31,7 +30,7 @@ try:
 except locale.Error:
     st.warning("Não foi possível configurar a localidade para pt_BR.")
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=300) # Cache de 5 minutos
 def get_catalogo_servicos():
     catalogo = {"borracharia": [], "alinhamento": [], "manutencao": []}
     conn = get_connection()
@@ -43,23 +42,6 @@ def get_catalogo_servicos():
     finally:
         release_connection(conn)
     return catalogo
-
-def get_service_details_for_execution(conn, execucao_id):
-    """Busca os detalhes dos serviços para uma execução específica, usando o execucao_id."""
-    query = """
-        SELECT s.area, s.tipo, s.quantidade, s.status, f.nome as funcionario_nome
-        FROM (
-            SELECT execucao_id, 'Borracharia' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_borracharia
-            UNION ALL
-            SELECT execucao_id, 'Alinhamento' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_alinhamento
-            UNION ALL
-            SELECT execucao_id, 'Manutenção Mecânica' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_manutencao
-        ) s
-        LEFT JOIN funcionarios f ON s.funcionario_id = f.id
-        WHERE s.execucao_id = %s
-        ORDER BY s.area, s.tipo;
-    """
-    return pd.read_sql(query, conn, params=(execucao_id,))
 
 def consultar_placa_comercial(placa: str):
     """Consulta a API comercial (API Placas) para obter dados do veículo."""
@@ -82,30 +64,5 @@ def consultar_placa_comercial(placa: str):
         else:
             error_message = response.json().get("message", f"Erro na API (Código: {response.status_code}).")
             return False, error_message
-    except requests.exceptions.Timeout:
-        return False, "A consulta demorou muito para responder (Timeout)."
     except Exception as e:
         return False, f"Ocorreu um erro inesperado: {str(e)}"
-
-# --- FUNÇÕES QUE ESTAVAM FALTANDO ---
-def formatar_telefone(numero: str) -> str:
-    """Formata um número de telefone no padrão (XX)XXXXX-XXXX."""
-    if not numero:
-        return ""
-    numeros = re.sub(r'\D', '', numero)
-    if len(numeros) == 11:
-        return f"({numeros[:2]}){numeros[2:7]}-{numeros[7:]}"
-    elif len(numeros) == 10:
-        return f"({numeros[:2]}){numeros[2:6]}-{numeros[6:]}"
-    else:
-        return numero
-
-def formatar_placa(placa: str) -> str:
-    """Formata uma placa no padrão antigo (AAA-1234). Placas Mercosul não são alteradas."""
-    if not placa:
-        return ""
-    placa_limpa = re.sub(r'[^A-Z0-9]', '', placa.upper())
-    if len(placa_limpa) == 7 and placa_limpa[4].isdigit():
-        return f"{placa_limpa[:3]}-{placa_limpa[3:]}"
-    else:
-        return placa_limpa
