@@ -1,13 +1,93 @@
-import re
+import streamlit as st
 import pandas as pd
+from database import get_connection, release_connection
+import locale
 import hashlib
-
-# FUNÇÕES PURAS QUE NÃO DEPENDEM DO STREAMLIT
+import requests
+import re # Importa a biblioteca de expressões regulares
 
 def hash_password(password):
     """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
+def enviar_notificacao_telegram(mensagem, chat_id_destino):
+    """Envia uma mensagem para um chat_id específico do Telegram."""
+    try:
+        token = st.secrets.get("TELEGRAM_TOKEN")
+        if not token or not chat_id_destino:
+            return False, "Credenciais do Telegram incompletas."
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        params = {"chat_id": chat_id_destino, "text": mensagem, "parse_mode": "Markdown"}
+        response = requests.post(url, json=params)
+        if response.status_code == 200:
+            return True, "Notificação enviada com sucesso!"
+        else:
+            return False, f"Erro retornado pelo Telegram (código {response.status_code}): {response.text}"
+    except Exception as e:
+        return False, f"Ocorreu uma exceção no Python ao tentar enviar: {str(e)}"
+
+try:
+    locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+except locale.Error:
+    st.warning("Não foi possível configurar a localidade para pt_BR.")
+
+@st.cache_data(ttl=3600)
+def get_catalogo_servicos():
+    catalogo = {"borracharia": [], "alinhamento": [], "manutencao": []}
+    conn = get_connection()
+    if not conn: return catalogo
+    try:
+        catalogo["borracharia"] = pd.read_sql("SELECT nome FROM servicos_borracharia ORDER BY nome", conn)['nome'].tolist()
+        catalogo["alinhamento"] = pd.read_sql("SELECT nome FROM servicos_alinhamento ORDER BY nome", conn)['nome'].tolist()
+        catalogo["manutencao"] = pd.read_sql("SELECT nome FROM servicos_manutencao ORDER BY nome", conn)['nome'].tolist()
+    finally:
+        release_connection(conn)
+    return catalogo
+
+def get_service_details_for_execution(conn, execucao_id):
+    """Busca os detalhes dos serviços para uma execução específica, usando o execucao_id."""
+    query = """
+        SELECT s.area, s.tipo, s.quantidade, s.status, f.nome as funcionario_nome
+        FROM (
+            SELECT execucao_id, 'Borracharia' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_borracharia
+            UNION ALL
+            SELECT execucao_id, 'Alinhamento' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_alinhamento
+            UNION ALL
+            SELECT execucao_id, 'Manutenção Mecânica' as area, tipo, quantidade, status, funcionario_id FROM servicos_solicitados_manutencao
+        ) s
+        LEFT JOIN funcionarios f ON s.funcionario_id = f.id
+        WHERE s.execucao_id = %s
+        ORDER BY s.area, s.tipo;
+    """
+    return pd.read_sql(query, conn, params=(execucao_id,))
+
+def consultar_placa_comercial(placa: str):
+    """Consulta a API comercial (API Placas) para obter dados do veículo."""
+    if not placa:
+        return False, "A placa não pode estar em branco."
+    token = st.secrets.get("PLACA_API_TOKEN")
+    if not token:
+        return False, "Token da API de Placas não encontrado nos Secrets."
+    url = f"https://wdapi2.com.br/consulta/{placa}/{token}"
+    try:
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            modelo_veiculo = data.get('marcaModelo', data.get('MODELO', 'Não encontrado'))
+            if data.get('fipe') and data['fipe'].get('dados'):
+                fipe_dados = sorted(data['fipe']['dados'], key=lambda x: x.get('score', 0), reverse=True)
+                if fipe_dados:
+                    modelo_veiculo = fipe_dados[0].get('texto_modelo', modelo_veiculo)
+            return True, {'modelo': modelo_veiculo, 'anoModelo': data.get('anoModelo')}
+        else:
+            error_message = response.json().get("message", f"Erro na API (Código: {response.status_code}).")
+            return False, error_message
+    except requests.exceptions.Timeout:
+        return False, "A consulta demorou muito para responder (Timeout)."
+    except Exception as e:
+        return False, f"Ocorreu um erro inesperado: {str(e)}"
+
+# --- FUNÇÕES QUE ESTAVAM FALTANDO ---
 def formatar_telefone(numero: str) -> str:
     """Formata um número de telefone no padrão (XX)XXXXX-XXXX."""
     if not numero:
@@ -29,55 +109,3 @@ def formatar_placa(placa: str) -> str:
         return f"{placa_limpa[:3]}-{placa_limpa[3:]}"
     else:
         return placa_limpa
-
-def recalcular_media_veiculo(conn, veiculo_id):
-    """
-    Busca todo o histórico de um veículo, recalcula sua média de KM/dia
-    e a salva na tabela 'veiculos'.
-    """
-    query = """
-        SELECT fim_execucao, quilometragem
-        FROM execucao_servico
-        WHERE veiculo_id = %s AND status = 'finalizado' 
-              AND quilometragem IS NOT NULL AND quilometragem > 0
-        ORDER BY fim_execucao;
-    """
-    df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
-
-    df_veiculo = df_veiculo.drop_duplicates(subset=['quilometragem'], keep='last')
-    
-    last_valid_km = -1
-    valid_indices = []
-    for index, row in df_veiculo.iterrows():
-        if row['quilometragem'] > last_valid_km:
-            valid_indices.append(index)
-            last_valid_km = row['quilometragem']
-    
-    valid_group = df_veiculo.loc[valid_indices]
-
-    if len(valid_group) < 2:
-        media_km_diaria = None
-    else:
-        primeira_visita = valid_group.iloc[0]
-        ultima_visita = valid_group.iloc[-1]
-        delta_km = ultima_visita['quilometragem'] - primeira_visita['quilometragem']
-        delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
-
-        if delta_dias > 0:
-            # --- MUDANÇA: Converte o resultado para um float padrão do Python ---
-            media_km_diaria = float(delta_km / delta_dias)
-        else:
-            media_km_diaria = None
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "UPDATE veiculos SET media_km_diaria = %s WHERE id = %s",
-                (media_km_diaria, veiculo_id)
-            )
-        conn.commit()
-        return True
-    except Exception as e:
-        conn.rollback()
-        print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
-        return False
