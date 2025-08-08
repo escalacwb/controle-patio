@@ -1,7 +1,10 @@
 import streamlit as st
 from psycopg2 import pool
+import psycopg2 # Adicionado para a nova função de conexão direta
 import os
 from dotenv import load_dotenv
+
+# --- FUNÇÕES PARA O APLICATIVO STREAMLIT (NÃO MUDAM) ---
 
 def get_db_url():
     """
@@ -42,3 +45,25 @@ def release_connection(conn):
     connection_pool = init_connection_pool()
     if connection_pool and conn:
         connection_pool.putconn(conn)
+
+# --- MUDANÇA: NOVA FUNÇÃO PARA SCRIPTS INDEPENDENTES ---
+
+def get_script_connection():
+    """
+    Cria uma conexão DIRETA com o banco de dados para scripts.
+    Lê a URL exclusivamente do arquivo .env e não usa cache do Streamlit.
+    """
+    load_dotenv() # Garante que o arquivo .env seja lido
+    db_url = os.getenv("DB_URL")
+    
+    if not db_url:
+        print("ERRO CRÍTICO: A variável DB_URL não foi encontrada no seu arquivo .env")
+        return None
+        
+    try:
+        # Cria uma conexão simples, sem pool
+        conn = psycopg2.connect(db_url)
+        return conn
+    except Exception as e:
+        print(f"ERRO CRÍTICO: Falha ao conectar ao banco de dados: {e}")
+        return None

@@ -25,16 +25,21 @@ def app():
 
     try:
         with st.spinner("Buscando veículos e fazendo previsões..."):
-            # Query agora é muito mais rápida: busca a média pré-calculada e a última visita
+            # --- CONSULTA OTIMIZADA: Lê a média pré-calculada e busca apenas a última visita de cada veículo ---
             query = """
-                WITH ultima_visita AS (
-                    SELECT 
+                WITH ranked_visits AS (
+                    SELECT
                         veiculo_id,
-                        MAX(fim_execucao) as data_ultima_visita,
-                        MAX(quilometragem) as km_ultima_visita
+                        fim_execucao,
+                        quilometragem,
+                        ROW_NUMBER() OVER(PARTITION BY veiculo_id ORDER BY fim_execucao DESC) as rn
                     FROM execucao_servico
-                    WHERE status = 'finalizado'
-                    GROUP BY veiculo_id
+                    WHERE status = 'finalizado' AND quilometragem IS NOT NULL
+                ),
+                ultima_visita AS (
+                    SELECT veiculo_id, fim_execucao as data_ultima_visita, quilometragem as km_ultima_visita
+                    FROM ranked_visits
+                    WHERE rn = 1
                 )
                 SELECT
                     v.placa, v.empresa, v.modelo,
@@ -49,21 +54,21 @@ def app():
             df = pd.read_sql(query, conn)
 
         if df.empty:
-            st.info("Não há veículos com média de KM calculada. Finalize novos serviços ou execute o script de cálculo do histórico.")
+            st.info("Não há veículos com média de KM calculada para exibir. Finalize novos serviços ou execute o script de cálculo do histórico.")
             st.stop()
 
-        # O cálculo em Python é feito sobre um conjunto de dados já pequeno e rápido
+        # O cálculo final em Python agora é feito sobre um conjunto de dados já filtrado e é muito rápido
         df['dias_desde_ultima_visita'] = (pd.Timestamp.now(tz=MS_TZ) - pd.to_datetime(df['data_ultima_visita'], utc=True).dt.tz_convert(MS_TZ)).dt.days
         df['km_atual_estimada'] = df['km_ultima_visita'] + (df['dias_desde_ultima_visita'] * df['media_km_diaria'])
         
-        veiculos_para_contatar = df[df['km_atual_estimada'] >= (df['km_ultima_visita'] + intervalo_revisao_km)]
+        veiculos_para_contatar = df[df['km_atual_estimada'] >= (df['km_ultima_visita'] + intervalo_revisao_km)].copy()
 
         st.subheader(f"Veículos Sugeridos para Contato ({len(veiculos_para_contatar)}):")
 
         if veiculos_para_contatar.empty:
             st.success("🎉 Nenhum veículo atendeu aos critérios para o contato proativo no momento.")
         else:
-            veiculos_para_contatar = veiculos_para_contatar.sort_values(by='km_atual_estimada', ascending=False)
+            veiculos_para_contatar.sort_values(by='km_atual_estimada', ascending=False, inplace=True)
             for _, veiculo in veiculos_para_contatar.iterrows():
                 with st.container(border=True):
                     col1, col2 = st.columns([0.7, 0.3])
@@ -77,5 +82,6 @@ def app():
     
     except Exception as e:
         st.error(f"Ocorreu um erro ao processar os dados: {e}")
+        st.exception(e) # Adiciona mais detalhes do erro para diagnóstico
     finally:
         release_connection(conn)

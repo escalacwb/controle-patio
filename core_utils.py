@@ -60,12 +60,16 @@ def recalcular_media_veiculo(conn, veiculo_id):
     else:
         primeira_visita = valid_group.iloc[0]
         ultima_visita = valid_group.iloc[-1]
-        delta_km = ultima_visita['quilometragem'] - primeira_visita['quilometragem']
+        
+        # --- MUDANÇA CRÍTICA: Garantir que os tipos são padrão do Python ---
+        # Converte os valores de quilometragem para int nativo do Python
+        delta_km = int(ultima_visita['quilometragem']) - int(primeira_visita['quilometragem'])
+        # A diferença de datas já retorna um int nativo
         delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
 
         if delta_dias > 0:
-            # --- MUDANÇA: Converte o resultado para um float padrão do Python ---
-            media_km_diaria = float(delta_km / delta_dias)
+            # O resultado da divisão de dois ints será um float padrão
+            media_km_diaria = delta_km / delta_dias
         else:
             media_km_diaria = None
 
@@ -79,5 +83,6 @@ def recalcular_media_veiculo(conn, veiculo_id):
         return True
     except Exception as e:
         conn.rollback()
+        # Imprime o erro para o log, mas não quebra a execução para os outros veículos
         print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
         return False
