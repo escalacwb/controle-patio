@@ -20,13 +20,16 @@ def visao_boxes():
         return
     try:
         df_boxes = get_estado_atual_boxes(conn)
+        
         if not df_boxes.empty:
             cols = st.columns(len(df_boxes))
+            
             for i, (box_id, box_data) in enumerate(df_boxes.iterrows()):
                 with cols[i]:
                     render_box(conn, box_data, catalogo_servicos)
         else:
             st.info("Nenhum box em operação no momento.")
+
     except Exception as e:
         st.error(f"❌ Erro Crítico ao carregar a visão dos boxes: {e}")
         st.exception(e)
@@ -124,24 +127,27 @@ def sync_box_state_from_db(conn, box_id, veiculo_id):
     obs_geral = df_servicos['observacao'].dropna().unique()
     st.session_state.box_states[box_id] = {'servicos': servicos_dict, 'obs_final': obs_geral[0] if len(obs_geral) > 0 else ""}
 
+# --- MUDANÇA: LÓGICA DE FINALIZAÇÃO COMPLETA RESTAURADA ---
 def finalizar_execucao(conn, box_id, execucao_id):
     box_state = st.session_state.box_states.get(box_id, {})
     obs_final = box_state.get('obs_final', '')
     if not box_state: return
     try:
-        with conn.cursor() as cursor:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             usuario_finalizacao_id = st.session_state.get('user_id')
             usuario_finalizacao_nome = st.session_state.get('user_name')
             
-            cursor.execute("SELECT veiculo_id, quilometragem FROM execucao_servico WHERE id = %s", (execucao_id,))
+            cursor.execute("SELECT veiculo_id, quilometragem, nome_motorista FROM execucao_servico WHERE id = %s", (execucao_id,))
             result = cursor.fetchone()
-            veiculo_id, quilometragem = result[0], result[1]
+            veiculo_id, quilometragem, nome_motorista = result['veiculo_id'], result['quilometragem'], result['nome_motorista']
 
             for servico in box_state.get('servicos', {}).values():
                 if servico['status'] == 'ativo_novo':
                     tabela = f"servicos_solicitados_{servico['area']}"
-                    query = f"INSERT INTO {tabela} (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao) SELECT veiculo_id, %s, %s, 'finalizado', box_id, id, %s, %s, %s FROM execucao_servico WHERE id = %s"
-                    cursor.execute(query, (servico['tipo'], servico['qtd_executada'], datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, execucao_id))
+                    query = f"""INSERT INTO {tabela} 
+                                (veiculo_id, tipo, quantidade, status, box_id, execucao_id, data_solicitacao, data_atualizacao, observacao_execucao, quilometragem) 
+                                VALUES (%s, %s, %s, 'finalizado', %s, %s, %s, %s, %s, %s)"""
+                    cursor.execute(query, (veiculo_id, servico['tipo'], servico['qtd_executada'], box_id, execucao_id, datetime.now(MS_TZ), datetime.now(MS_TZ), obs_final, quilometragem))
                 else:
                     status_final = 'cancelado' if servico['status'] == 'removido' else 'finalizado'
                     tabela = f"servicos_solicitados_{servico['area']}"
@@ -157,9 +163,36 @@ def finalizar_execucao(conn, box_id, execucao_id):
             with st.spinner("Atualizando média de KM do veículo..."):
                 recalcular_media_veiculo(conn, veiculo_id)
 
-            # Lógica de notificação do Telegram
-            # (sua lógica de notificação aqui)
+            # --- LÓGICA DE NOTIFICAÇÃO DO TELEGRAM ---
+            chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
+            chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
 
+            cursor.execute("SELECT v.placa, v.empresa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = %s", (execucao_id,))
+            info_execucao = cursor.fetchone()
+            servicos_nesta_etapa = [f"- {s['tipo']} (Qtd: {s['qtd_executada']})" for s in box_state.get('servicos', {}).values() if s.get('status') != 'removido']
+            servicos_str = "\n".join(servicos_nesta_etapa)
+            
+            mensagem_op = (
+                f"▶️ *Etapa Concluída!*\n\n"
+                f"*Veículo:* `{info_execucao['placa']}`\n"
+                f"*Box:* {box_id}\n"
+                f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
+                f"*Finalizado por:* {usuario_finalizacao_nome}"
+            )
+            if obs_final:
+                mensagem_op += f"\n\n*Observação:* _{obs_final}_"
+
+            if chat_id_operacional:
+                enviar_notificacao_telegram(mensagem_op, chat_id_operacional)
+
+            query_pendentes = "SELECT COUNT(*) FROM (SELECT 1 FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION ALL SELECT 1 FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND status = 'pendente' UNION ALL SELECT 1 FROM servicos_solicitados_manutencao WHERE veiculo_id = %s AND status = 'pendente') as pending_services;"
+            cursor.execute(query_pendentes, (veiculo_id, veiculo_id, veiculo_id))
+            servicos_pendentes_restantes = cursor.fetchone()[0]
+
+            if servicos_pendentes_restantes == 0 and chat_id_faturamento:
+                mensagem_fat = f"✅ *VEÍCULO LIBERADO PARA FATURAMENTO!*\n\n*Placa:* `{info_execucao['placa']}`\n*Empresa:* {info_execucao['empresa']}\n*Motorista:* {nome_motorista or 'N/A'}\n*KM:* {quilometragem}"
+                enviar_notificacao_telegram(mensagem_fat, chat_id_faturamento)
+            
             if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
             st.rerun()
 
