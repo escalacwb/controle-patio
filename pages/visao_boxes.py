@@ -24,6 +24,7 @@ def visao_boxes():
         
         if not df_boxes.empty:
             cols = st.columns(len(df_boxes))
+            
             for i, (box_id, box_data) in enumerate(df_boxes.iterrows()):
                 with cols[i]:
                     render_box(conn, box_data, catalogo_servicos)
@@ -127,7 +128,6 @@ def sync_box_state_from_db(conn, box_id, veiculo_id):
     obs_geral = df_servicos['observacao'].dropna().unique()
     st.session_state.box_states[box_id] = {'servicos': servicos_dict, 'obs_final': obs_geral[0] if len(obs_geral) > 0 else ""}
 
-# --- MUDANÇA: LÓGICA DE FINALIZAÇÃO E NOTIFICAÇÃO COMPLETAMENTE REFEITA ---
 def finalizar_execucao(conn, box_id, execucao_id):
     box_state = st.session_state.box_states.get(box_id, {})
     obs_final = box_state.get('obs_final', '')
@@ -141,7 +141,6 @@ def finalizar_execucao(conn, box_id, execucao_id):
             result = cursor.fetchone()
             veiculo_id, quilometragem, nome_motorista = result['veiculo_id'], result['quilometragem'], result['nome_motorista']
 
-            # Salva as alterações dos serviços no banco de dados
             for servico in box_state.get('servicos', {}).values():
                 if servico['status'] == 'ativo_novo':
                     tabela = f"servicos_solicitados_{servico['area']}"
@@ -158,44 +157,35 @@ def finalizar_execucao(conn, box_id, execucao_id):
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
             
-            recalcular_media_veiculo(conn, veiculo_id)
+            with st.spinner("Atualizando média de KM do veículo..."):
+                recalcular_media_veiculo(conn, veiculo_id)
 
-            # --- LÓGICA DE NOTIFICAÇÃO APRIMORADA ---
             chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
             chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
 
             cursor.execute("SELECT v.placa, v.empresa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = %s", (execucao_id,))
             info_execucao = cursor.fetchone()
             
-            # Mensagem para o grupo operacional (Alertas Pátio)
-            mensagem_op = (
-                f"▶️ *Etapa Concluída!*\n\n"
-                f"*Veículo:* `{info_execucao['placa']}`\n"
-                f"*Box:* {box_id}\n"
-                f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
-                f"*Finalizado por:* {usuario_finalizacao_nome}"
-            )
+            mensagem_op = (f"▶️ *Etapa Concluída!*\n\n*Veículo:* `{info_execucao['placa']}`\n*Box:* {box_id}\n*Mecânico:* {info_execucao['funcionario_nome']}\n*Finalizado por:* {usuario_finalizacao_nome}")
             if obs_final:
                 mensagem_op += f"\n\n*Observação:* _{obs_final}_"
 
-            # Verifica se ainda há serviços pendentes para este veículo
             query_pendentes = "SELECT COUNT(*) FROM (SELECT 1 FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION ALL SELECT 1 FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND status = 'pendente' UNION ALL SELECT 1 FROM servicos_solicitados_manutencao WHERE veiculo_id = %s AND status = 'pendente') as pending_services;"
             cursor.execute(query_pendentes, (veiculo_id, veiculo_id, veiculo_id))
             servicos_pendentes_restantes = cursor.fetchone()[0]
 
-            # Se for a última etapa, adiciona o aviso à mensagem operacional e envia a de faturamento
             if servicos_pendentes_restantes == 0:
                 mensagem_op += "\n\n✅ *TODOS OS SERVIÇOS CONCLUÍDOS. Encaminhar para faturamento.*"
                 
                 if chat_id_faturamento:
-                    # Busca o resumo completo de TODOS os serviços da visita para a mensagem de faturamento
+                    # --- MUDANÇA: CORREÇÃO DA QUERY PARA O RESUMO TOTAL ---
                     query_resumo_total = """
-                        SELECT serv.tipo, serv.quantidade, f.nome as funcionario_nome
+                        SELECT serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome
                         FROM execucao_servico es
                         LEFT JOIN (
-                            SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_borracharia UNION ALL
-                            SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_alinhamento UNION ALL
-                            SELECT execucao_id, tipo, quantidade, funcionario_id FROM servicos_solicitados_manutencao
+                            SELECT execucao_id, tipo, quantidade, funcionario_id, status FROM servicos_solicitados_borracharia UNION ALL
+                            SELECT execucao_id, tipo, quantidade, funcionario_id, status FROM servicos_solicitados_alinhamento UNION ALL
+                            SELECT execucao_id, tipo, quantidade, funcionario_id, status FROM servicos_solicitados_manutencao
                         ) serv ON es.id = serv.execucao_id
                         LEFT JOIN funcionarios f ON serv.funcionario_id = f.id
                         WHERE es.veiculo_id = %s AND es.quilometragem = %s AND serv.status = 'finalizado'
@@ -217,7 +207,6 @@ def finalizar_execucao(conn, box_id, execucao_id):
                     )
                     enviar_notificacao_telegram(mensagem_fat, chat_id_faturamento)
 
-            # Envia a mensagem operacional (com ou sem o aviso adicional)
             if chat_id_operacional:
                 enviar_notificacao_telegram(mensagem_op, chat_id_operacional)
             
