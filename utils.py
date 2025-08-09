@@ -13,7 +13,8 @@ def enviar_notificacao_telegram(mensagem, chat_id_destino):
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
         if not token or not chat_id_destino:
-            return False, "Credenciais do Telegram incompletas."
+            print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
+            return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         params = {"chat_id": chat_id_destino, "text": mensagem, "parse_mode": "Markdown"}
         response = requests.post(url, json=params)
@@ -27,7 +28,6 @@ def enviar_notificacao_telegram(mensagem, chat_id_destino):
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
 except locale.Error:
-    # Este aviso só aparecerá se o Streamlit estiver rodando
     if 'streamlit' in st.__name__:
         st.warning("Não foi possível configurar a localidade para pt_BR.")
 
@@ -113,3 +113,29 @@ def recalcular_media_veiculo(conn, veiculo_id):
         conn.rollback()
         print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
         return False
+
+# --- NOVA FUNÇÃO DE BUSCA INTELIGENTE DE CLIENTES ---
+def buscar_clientes_por_similaridade(termo_busca):
+    """
+    Busca clientes no banco com nomes ou nomes fantasia similares ao termo pesquisado.
+    """
+    if not termo_busca or len(termo_busca) < 3:
+        return []
+    
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    # Usa a função similarity() para encontrar nomes parecidos em ambas as colunas
+    query = """
+        SELECT id, nome_empresa 
+        FROM clientes 
+        WHERE similarity(nome_empresa, %(termo)s) > 0.2 OR similarity(nome_fantasia, %(termo)s) > 0.2
+        ORDER BY GREATEST(similarity(nome_empresa, %(termo)s), similarity(nome_fantasia, %(termo)s)) DESC, nome_empresa
+        LIMIT 10;
+    """
+    try:
+        df = pd.read_sql(query, conn, params={'termo': termo_busca})
+        return list(df.itertuples(index=False, name=None))
+    finally:
+        release_connection(conn)
