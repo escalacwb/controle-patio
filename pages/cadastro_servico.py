@@ -11,7 +11,6 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
-    # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
     if "cadastro_servico_state" not in st.session_state:
         st.session_state.cadastro_servico_state = {
             "placa_input": "", "veiculo_id": None, "veiculo_info": None,
@@ -77,7 +76,36 @@ def app():
                     
                     st.markdown("---")
                     st.info("Dados da Empresa (compartilhado por todos os veículos desta empresa)")
-                    nova_empresa = st.text_input("Empresa", value=state['veiculo_info']['empresa'])
+                    
+                    busca_empresa_edit = st.text_input("Digite para buscar/alterar a empresa", value=state['veiculo_info']['empresa'], help="Digite pelo menos 3 letras.")
+                    
+                    cliente_id_final = state['veiculo_info']['cliente_id']
+                    nome_empresa_final = busca_empresa_edit
+
+                    if len(busca_empresa_edit) >= 3:
+                        resultados_busca = buscar_clientes_por_similaridade(busca_empresa_edit)
+                        if resultados_busca:
+                            opcoes_cliente_edit = {}
+                            for id_c, nome_e, nome_f in resultados_busca:
+                                texto_exibicao = nome_e
+                                if nome_f and nome_f.strip() and nome_f.lower() != nome_e.lower():
+                                    texto_exibicao += f" (Fantasia: {nome_f})"
+                                opcoes_cliente_edit[texto_exibicao] = id_c
+                            
+                            opcoes_cliente_edit[f"Nenhum destes. Manter/criar '{busca_empresa_edit}' como nova."] = None
+                            
+                            cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente_edit.keys()), key="select_edit_empresa")
+                            
+                            cliente_id_selecionado_edit = opcoes_cliente_edit[cliente_selecionado_str]
+                            if cliente_id_selecionado_edit:
+                                cliente_id_final = cliente_id_selecionado_edit
+                                nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_final), busca_empresa_edit)
+                            else:
+                                if busca_empresa_edit.lower() != state['veiculo_info']['empresa'].lower():
+                                    cliente_id_final = None # Indica que um novo cliente será criado
+                                else:
+                                    cliente_id_final = state['veiculo_info']['cliente_id']
+                    
                     novo_responsavel = st.text_input("Nome do Responsável pela Frota", value=state['veiculo_info']['nome_responsavel'])
                     novo_contato_responsavel = st.text_input("Contato do Responsável", value=state['veiculo_info']['contato_responsavel'])
 
@@ -85,13 +113,18 @@ def app():
                         conn = get_connection()
                         if conn:
                             try:
-                                with conn.cursor() as cursor:
-                                    query_veiculo = "UPDATE veiculos SET empresa = %s, modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s"
-                                    cursor.execute(query_veiculo, (nova_empresa, novo_modelo, novo_ano if novo_ano > 0 else None, novo_motorista, formatar_telefone(novo_contato_motorista), state['veiculo_id']))
+                                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                                    if cliente_id_final is None and nome_empresa_final:
+                                        cursor.execute("INSERT INTO clientes (nome_empresa) VALUES (%s) RETURNING id", (nome_empresa_final,))
+                                        cliente_id_final = cursor.fetchone()['id']
+
+                                    query_veiculo = "UPDATE veiculos SET empresa = %s, modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s, cliente_id = %s WHERE id = %s"
+                                    cursor.execute(query_veiculo, (nome_empresa_final, novo_modelo, novo_ano if novo_ano > 0 else None, novo_motorista, formatar_telefone(novo_contato_motorista), cliente_id_final, state['veiculo_id']))
                                     
-                                    if state['veiculo_info']['cliente_id']:
+                                    if cliente_id_final:
                                         query_cliente = "UPDATE clientes SET nome_empresa = %s, nome_responsavel = %s, contato_responsavel = %s WHERE id = %s"
-                                        cursor.execute(query_cliente, (nova_empresa, novo_responsavel, formatar_telefone(novo_contato_responsavel), state['veiculo_info']['cliente_id']))
+                                        cursor.execute(query_cliente, (nome_empresa_final, novo_responsavel, formatar_telefone(novo_contato_responsavel), cliente_id_final))
+                                    
                                     conn.commit()
                                 st.success("Dados atualizados com sucesso!")
                                 st.session_state.show_edit_form = False
@@ -215,9 +248,7 @@ def app():
                                 cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente.keys()))
                                 cliente_id_selecionado = opcoes_cliente[cliente_selecionado_str]
                                 if cliente_id_selecionado:
-                                    # Encontra o nome original na lista de resultados para salvar no banco
-                                    nome_empresa_original = next((item[1] for item in resultados_busca if item[0] == cliente_id_selecionado), busca_empresa)
-                                    nome_empresa_final = nome_empresa_original
+                                    nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_selecionado), busca_empresa)
                             else:
                                 st.warning("Nenhuma empresa encontrada com nome similar. O nome digitado será usado para um novo cadastro de cliente.")
                         
