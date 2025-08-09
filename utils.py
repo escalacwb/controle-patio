@@ -7,16 +7,13 @@ import requests
 import re
 
 def hash_password(password):
-    """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def enviar_notificacao_telegram(mensagem, chat_id_destino):
-    """Envia uma mensagem para um chat_id específico do Telegram."""
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
         if not token or not chat_id_destino:
-            print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
-            return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
+            return False, "Credenciais do Telegram incompletas."
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         params = {"chat_id": chat_id_destino, "text": mensagem, "parse_mode": "Markdown"}
         response = requests.post(url, json=params)
@@ -30,6 +27,7 @@ def enviar_notificacao_telegram(mensagem, chat_id_destino):
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
 except locale.Error:
+    # Este aviso só aparecerá se o Streamlit estiver rodando
     if 'streamlit' in st.__name__:
         st.warning("Não foi possível configurar a localidade para pt_BR.")
 
@@ -115,27 +113,3 @@ def recalcular_media_veiculo(conn, veiculo_id):
         conn.rollback()
         print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
         return False
-
-def buscar_clientes_por_similaridade(termo_busca):
-    """
-    Busca clientes no banco com nomes similares ao termo pesquisado.
-    """
-    if not termo_busca or len(termo_busca) < 3:
-        return []
-    
-    conn = get_connection()
-    if not conn:
-        return []
-    
-    query = """
-        SELECT id, nome_empresa 
-        FROM clientes 
-        WHERE similarity(nome_empresa, %s) > 0.2
-        ORDER BY similarity(nome_empresa, %s) DESC, nome_empresa
-        LIMIT 10;
-    """
-    try:
-        df = pd.read_sql(query, conn, params=(termo_busca, termo_busca))
-        return list(df.itertuples(index=False, name=None))
-    finally:
-        release_connection(conn)
