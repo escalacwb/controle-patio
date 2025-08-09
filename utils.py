@@ -114,7 +114,6 @@ def recalcular_media_veiculo(conn, veiculo_id):
         print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
         return False
 
-# --- NOVA FUNÇÃO DE BUSCA INTELIGENTE DE CLIENTES ---
 def buscar_clientes_por_similaridade(termo_busca):
     """
     Busca clientes no banco com nomes ou nomes fantasia similares ao termo pesquisado.
@@ -126,7 +125,6 @@ def buscar_clientes_por_similaridade(termo_busca):
     if not conn:
         return []
     
-    # Usa a função similarity() para encontrar nomes parecidos em ambas as colunas
     query = """
         SELECT id, nome_empresa 
         FROM clientes 

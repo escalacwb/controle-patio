@@ -171,7 +171,6 @@ def app():
             if not st.session_state.get('api_vehicle_data'):
                 with st.expander("Cadastrar Novo Veículo", expanded=True):
                     with st.form("form_novo_veiculo_rapido"):
-                        
                         st.subheader("Vincular a uma Empresa Cliente")
                         busca_empresa = st.text_input("Digite para buscar a empresa", help="Digite pelo menos 3 letras.")
                         
