@@ -7,13 +7,16 @@ import requests
 import re
 
 def hash_password(password):
+    """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def enviar_notificacao_telegram(mensagem, chat_id_destino):
+    """Envia uma mensagem para um chat_id específico do Telegram."""
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
         if not token or not chat_id_destino:
-            return False, "Credenciais do Telegram incompletas."
+            print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
+            return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         params = {"chat_id": chat_id_destino, "text": mensagem, "parse_mode": "Markdown"}
         response = requests.post(url, json=params)
@@ -78,10 +81,41 @@ def formatar_placa(placa: str) -> str:
     return placa_limpa
 
 def recalcular_media_veiculo(conn, veiculo_id):
-    # (Sua função recalcular_media_veiculo aqui)
-    pass
+    query = """
+        SELECT fim_execucao, quilometragem
+        FROM execucao_servico
+        WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
+        ORDER BY fim_execucao;
+    """
+    df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
+    df_veiculo = df_veiculo.drop_duplicates(subset=['quilometragem'], keep='last')
+    
+    last_valid_km = -1
+    valid_indices = []
+    for index, row in df_veiculo.iterrows():
+        if row['quilometragem'] > last_valid_km:
+            valid_indices.append(index)
+            last_valid_km = row['quilometragem']
+    
+    valid_group = df_veiculo.loc[valid_indices]
+    media_km_diaria = None
+    if len(valid_group) >= 2:
+        primeira_visita = valid_group.iloc[0]
+        ultima_visita = valid_group.iloc[-1]
+        delta_km = int(ultima_visita['quilometragem']) - int(primeira_visita['quilometragem'])
+        delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
+        if delta_dias > 0:
+            media_km_diaria = float(delta_km / delta_dias)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE veiculos SET media_km_diaria = %s WHERE id = %s", (media_km_diaria, veiculo_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
+        return False
 
-# --- NOVA FUNÇÃO DE BUSCA INTELIGENTE DE CLIENTES ---
 def buscar_clientes_por_similaridade(termo_busca):
     """
     Busca clientes no banco com nomes similares ao termo pesquisado.
@@ -93,17 +127,15 @@ def buscar_clientes_por_similaridade(termo_busca):
     if not conn:
         return []
     
-    # Usa a função similarity() para encontrar nomes parecidos
     query = """
         SELECT id, nome_empresa 
         FROM clientes 
         WHERE similarity(nome_empresa, %s) > 0.2
-        ORDER BY similarity(nome_empresa, %s) DESC
+        ORDER BY similarity(nome_empresa, %s) DESC, nome_empresa
         LIMIT 10;
     """
     try:
         df = pd.read_sql(query, conn, params=(termo_busca, termo_busca))
-        # Converte o dataframe para uma lista de tuplas para ser mais leve
         return list(df.itertuples(index=False, name=None))
     finally:
         release_connection(conn)
