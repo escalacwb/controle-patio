@@ -7,9 +7,11 @@ import requests
 import re
 
 def hash_password(password):
+    """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def enviar_notificacao_telegram(mensagem, chat_id_destino):
+    """Envia uma mensagem para um chat_id específico do Telegram."""
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
         if not token or not chat_id_destino:

@@ -139,7 +139,29 @@ def app():
             
             st.markdown("---")
             if st.button("Registrar todos os serviços da lista", type="primary"):
-                # Lógica de registro de serviços...
+                if not st.session_state.servicos_para_adicionar:
+                    st.warning("⚠️ Nenhum serviço foi adicionado à lista.")
+                elif not state["quilometragem"] or state["quilometragem"] <= 0:
+                    st.error("❌ A quilometragem é obrigatória e deve ser maior que zero.")
+                else:
+                    conn = get_connection()
+                    if conn:
+                        try:
+                            with conn.cursor() as cursor:
+                                table_map = {"Borracharia": "servicos_solicitados_borracharia", "Alinhamento": "servicos_solicitados_alinhamento", "Mecânica": "servicos_solicitados_manutencao"}
+                                for s in st.session_state.servicos_para_adicionar:
+                                    table_name = table_map.get(s['area'])
+                                    query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
+                                    cursor.execute(query, (state["veiculo_id"], s['tipo'], s['qtd'], observacao_geral, state["quilometragem"], datetime.now(MS_TZ), datetime.now(MS_TZ)))
+                                conn.commit()
+                                st.success("✅ Serviços cadastrados com sucesso!")
+                                state["search_triggered"] = False
+                                state["placa_input"] = ""
+                                st.session_state.servicos_para_adicionar = []
+                                st.balloons()
+                                st.rerun()
+                        finally:
+                            release_connection(conn)
 
         else: # Se o veículo não foi encontrado no banco
             st.warning("Veículo não encontrado no seu banco de dados.")
@@ -183,7 +205,7 @@ def app():
                                 opcoes_cliente = {f"{nome} (ID: {id})": id for id, nome in resultados_busca}
                                 opcoes_cliente[f"Nenhum destes. Cadastrar '{busca_empresa}' como nova."] = None
                                 
-                                cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=opcoes_cliente.keys())
+                                cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente.keys()))
                                 cliente_id_selecionado = opcoes_cliente[cliente_selecionado_str]
                                 if cliente_id_selecionado:
                                     nome_empresa_final = cliente_selecionado_str.split(" (ID:")[0]
