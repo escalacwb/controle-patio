@@ -11,6 +11,7 @@ def app():
     st.title("📋 Cadastro Rápido de Serviços")
     st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
     
+    # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
     if "cadastro_servico_state" not in st.session_state:
         st.session_state.cadastro_servico_state = {
             "placa_input": "", "veiculo_id": None, "veiculo_info": None,
@@ -202,13 +203,21 @@ def app():
                         if len(busca_empresa) >= 3:
                             resultados_busca = buscar_clientes_por_similaridade(busca_empresa)
                             if resultados_busca:
-                                opcoes_cliente = {f"{nome} (ID: {id})": id for id, nome in resultados_busca}
+                                opcoes_cliente = {}
+                                for id_cliente, nome_empresa, nome_fantasia in resultados_busca:
+                                    texto_exibicao = nome_empresa
+                                    if nome_fantasia and nome_fantasia.strip() and nome_fantasia.lower() != nome_empresa.lower():
+                                        texto_exibicao += f" (Fantasia: {nome_fantasia})"
+                                    opcoes_cliente[texto_exibicao] = id_cliente
+                                
                                 opcoes_cliente[f"Nenhum destes. Cadastrar '{busca_empresa}' como nova."] = None
                                 
                                 cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente.keys()))
                                 cliente_id_selecionado = opcoes_cliente[cliente_selecionado_str]
                                 if cliente_id_selecionado:
-                                    nome_empresa_final = cliente_selecionado_str.split(" (ID:")[0]
+                                    # Encontra o nome original na lista de resultados para salvar no banco
+                                    nome_empresa_original = next((item[1] for item in resultados_busca if item[0] == cliente_id_selecionado), busca_empresa)
+                                    nome_empresa_final = nome_empresa_original
                             else:
                                 st.warning("Nenhuma empresa encontrada com nome similar. O nome digitado será usado para um novo cadastro de cliente.")
                         
