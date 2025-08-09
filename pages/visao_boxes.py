@@ -4,6 +4,7 @@ from database import get_connection, release_connection
 from datetime import datetime
 import pytz
 from utils import get_catalogo_servicos, enviar_notificacao_telegram, recalcular_media_veiculo
+import psycopg2.extras # --- MUDANÇA: Importação que estava faltando ---
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
@@ -127,7 +128,6 @@ def sync_box_state_from_db(conn, box_id, veiculo_id):
     obs_geral = df_servicos['observacao'].dropna().unique()
     st.session_state.box_states[box_id] = {'servicos': servicos_dict, 'obs_final': obs_geral[0] if len(obs_geral) > 0 else ""}
 
-# --- MUDANÇA: LÓGICA DE FINALIZAÇÃO COMPLETA RESTAURADA ---
 def finalizar_execucao(conn, box_id, execucao_id):
     box_state = st.session_state.box_states.get(box_id, {})
     obs_final = box_state.get('obs_final', '')
@@ -159,11 +159,9 @@ def finalizar_execucao(conn, box_id, execucao_id):
             conn.commit()
             st.success(f"Box {box_id} finalizado com sucesso!")
             
-            # Dispara o recálculo da média
             with st.spinner("Atualizando média de KM do veículo..."):
                 recalcular_media_veiculo(conn, veiculo_id)
 
-            # --- LÓGICA DE NOTIFICAÇÃO DO TELEGRAM ---
             chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
             chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
 
