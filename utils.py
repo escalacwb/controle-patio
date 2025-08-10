@@ -5,6 +5,7 @@ import locale
 import hashlib
 import requests
 import re
+import psycopg2.extras
 
 def hash_password(password):
     """Gera o hash de uma senha para armazenamento seguro."""
@@ -117,17 +118,9 @@ def recalcular_media_veiculo(conn, veiculo_id):
         return False
 
 def buscar_clientes_por_similaridade(termo_busca):
-    """
-    Busca clientes no banco com nomes ou nomes fantasia similares ao termo pesquisado.
-    """
-    if not termo_busca or len(termo_busca) < 3:
-        return []
-    
+    if not termo_busca or len(termo_busca) < 3: return []
     conn = get_connection()
-    if not conn:
-        return []
-    
-    # --- MUDANÇA: Query agora busca também o NOME FANTASIA ---
+    if not conn: return []
     query = """
         SELECT id, nome_empresa, nome_fantasia 
         FROM clientes 
@@ -138,5 +131,20 @@ def buscar_clientes_por_similaridade(termo_busca):
     try:
         df = pd.read_sql(query, conn, params={'termo': termo_busca})
         return list(df.itertuples(index=False, name=None))
+    finally:
+        release_connection(conn)
+
+# --- NOVA FUNÇÃO PARA BUSCAR DETALHES DE UM CLIENTE ---
+def get_cliente_details(cliente_id):
+    """Busca os detalhes de um cliente específico pelo ID."""
+    if not cliente_id:
+        return None
+    conn = get_connection()
+    if not conn:
+        return None
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("SELECT nome_responsavel, contato_responsavel FROM clientes WHERE id = %s", (cliente_id,))
+            return cursor.fetchone()
     finally:
         release_connection(conn)
