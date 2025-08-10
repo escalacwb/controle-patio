@@ -14,7 +14,8 @@ def app():
     if "cadastro_servico_state" not in st.session_state:
         st.session_state.cadastro_servico_state = {
             "placa_input": "", "veiculo_id": None, "veiculo_info": None,
-            "search_triggered": False, "quilometragem": 0
+            "search_triggered": False, "quilometragem": 0,
+            "busca_empresa_edit": "" # Adicionado para a busca de edição
         }
     state = st.session_state.cadastro_servico_state
 
@@ -31,7 +32,7 @@ def app():
         state["search_triggered"] = True
         state["veiculo_id"] = None
         state["veiculo_info"] = None
-        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'servicos_para_adicionar']:
+        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'servicos_para_adicionar', 'busca_empresa_edit']:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
@@ -63,9 +64,45 @@ def app():
             with col2:
                 if st.button("🔄 Alterar Dados", use_container_width=True):
                     st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
+                    if st.session_state.show_edit_form:
+                        st.session_state.busca_empresa_edit = state['veiculo_info']['empresa']
                     st.rerun()
 
             if st.session_state.get('show_edit_form', False):
+                st.info("Dados da Empresa (compartilhado por todos os veículos desta empresa)")
+                busca_empresa_edit = st.text_input("Digite para buscar/alterar a empresa", value=st.session_state.get("busca_empresa_edit", ""), help="Digite pelo menos 3 letras e pressione Enter para buscar.")
+                
+                if busca_empresa_edit != st.session_state.get("busca_empresa_edit"):
+                    st.session_state.busca_empresa_edit = busca_empresa_edit
+                    st.rerun()
+
+                cliente_id_final = state['veiculo_info']['cliente_id']
+                nome_empresa_final = st.session_state.busca_empresa_edit
+
+                if len(st.session_state.busca_empresa_edit) >= 3:
+                    resultados_busca = buscar_clientes_por_similaridade(st.session_state.busca_empresa_edit)
+                    if resultados_busca:
+                        opcoes_cliente_edit = {}
+                        for id_c, nome_e, nome_f in resultados_busca:
+                            texto_exibicao = nome_e
+                            if nome_f and nome_f.strip() and nome_f.lower() != nome_e.lower():
+                                texto_exibicao += f" (Fantasia: {nome_f})"
+                            opcoes_cliente_edit[texto_exibicao] = id_c
+                        
+                        opcoes_cliente_edit[f"Nenhum destes. Manter/criar '{st.session_state.busca_empresa_edit}' como nova."] = None
+                        
+                        cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente_edit.keys()), key="select_edit_empresa")
+                        
+                        cliente_id_selecionado_edit = opcoes_cliente_edit[cliente_selecionado_str]
+                        if cliente_id_selecionado_edit:
+                            cliente_id_final = cliente_id_selecionado_edit
+                            nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_final), st.session_state.busca_empresa_edit)
+                        else:
+                            if st.session_state.busca_empresa_edit.lower() != state['veiculo_info']['empresa'].lower():
+                                cliente_id_final = None
+                            else:
+                                cliente_id_final = state['veiculo_info']['cliente_id']
+
                 with st.form("form_edit_veiculo"):
                     st.info("Dados do Veículo (únicos para esta placa)")
                     novo_modelo = st.text_input("Modelo", value=state['veiculo_info']['modelo'])
@@ -75,38 +112,8 @@ def app():
                     novo_contato_motorista = st.text_input("Contato do Motorista", value=state['veiculo_info']['contato_motorista'])
                     
                     st.markdown("---")
-                    st.info("Dados da Empresa (compartilhado por todos os veículos desta empresa)")
-                    
-                    busca_empresa_edit = st.text_input("Digite para buscar/alterar a empresa", value=state['veiculo_info']['empresa'], help="Digite pelo menos 3 letras.")
-                    
-                    cliente_id_final = state['veiculo_info']['cliente_id']
-                    nome_empresa_final = busca_empresa_edit
-
-                    if len(busca_empresa_edit) >= 3:
-                        resultados_busca = buscar_clientes_por_similaridade(busca_empresa_edit)
-                        if resultados_busca:
-                            opcoes_cliente_edit = {}
-                            for id_c, nome_e, nome_f in resultados_busca:
-                                texto_exibicao = nome_e
-                                if nome_f and nome_f.strip() and nome_f.lower() != nome_e.lower():
-                                    texto_exibicao += f" (Fantasia: {nome_f})"
-                                opcoes_cliente_edit[texto_exibicao] = id_c
-                            
-                            opcoes_cliente_edit[f"Nenhum destes. Manter/criar '{busca_empresa_edit}' como nova."] = None
-                            
-                            cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente_edit.keys()), key="select_edit_empresa")
-                            
-                            cliente_id_selecionado_edit = opcoes_cliente_edit[cliente_selecionado_str]
-                            if cliente_id_selecionado_edit:
-                                cliente_id_final = cliente_id_selecionado_edit
-                                nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_final), busca_empresa_edit)
-                            else:
-                                if busca_empresa_edit.lower() != state['veiculo_info']['empresa'].lower():
-                                    cliente_id_final = None # Indica que um novo cliente será criado
-                                else:
-                                    cliente_id_final = state['veiculo_info']['cliente_id']
-                    
-                    novo_responsavel = st.text_input("Nome do Responsável pela Frota", value=state['veiculo_info']['nome_responsavel'])
+                    st.info("Complete os dados do Responsável pela Frota (se aplicável)")
+                    novo_responsavel = st.text_input("Nome do Responsável", value=state['veiculo_info']['nome_responsavel'])
                     novo_contato_responsavel = st.text_input("Contato do Responsável", value=state['veiculo_info']['contato_responsavel'])
 
                     if st.form_submit_button("✅ Salvar Alterações"):
