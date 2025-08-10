@@ -15,7 +15,7 @@ def app():
         st.session_state.cadastro_servico_state = {
             "placa_input": "", "veiculo_id": None, "veiculo_info": None,
             "search_triggered": False, "quilometragem": 0,
-            "busca_empresa_edit": ""
+            "busca_empresa_edit": "", "busca_empresa_novo": ""
         }
     state = st.session_state.cadastro_servico_state
 
@@ -32,7 +32,7 @@ def app():
         state["search_triggered"] = True
         state["veiculo_id"] = None
         state["veiculo_info"] = None
-        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form', 'servicos_para_adicionar', 'busca_empresa_edit']:
+        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form', 'servicos_para_adicionar', 'busca_empresa_edit', 'busca_empresa_novo']:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
@@ -53,7 +53,6 @@ def app():
                     release_connection(conn)
 
         if state.get("veiculo_id"):
-            # --- SEPARAÇÃO VISUAL DOS DADOS ---
             with st.container(border=True):
                 col1, col2 = st.columns([0.7, 0.3])
                 with col1:
@@ -66,7 +65,7 @@ def app():
                     if st.button("✏️ Alterar Veículo", use_container_width=True):
                         st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
                         st.rerun()
-
+            
             with st.container(border=True):
                 col1, col2 = st.columns([0.7, 0.3])
                 with col1:
@@ -262,32 +261,36 @@ def app():
             
             if not st.session_state.get('api_vehicle_data'):
                 with st.expander("Cadastrar Novo Veículo", expanded=True):
-                    with st.form("form_novo_veiculo_rapido"):
-                        st.subheader("Vincular a uma Empresa Cliente")
-                        busca_empresa = st.text_input("Digite para buscar a empresa", help="Digite pelo menos 3 letras.")
-                        
-                        cliente_id_selecionado = None
-                        nome_empresa_final = busca_empresa
+                    st.subheader("Vincular a uma Empresa Cliente")
+                    busca_empresa = st.text_input("Digite para buscar a empresa", value=st.session_state.get("busca_empresa_novo", ""), help="Digite pelo menos 3 letras e pressione Enter.")
+                    
+                    if busca_empresa != st.session_state.get("busca_empresa_novo"):
+                        st.session_state.busca_empresa_novo = busca_empresa
+                        st.rerun()
 
-                        if len(busca_empresa) >= 3:
-                            resultados_busca = buscar_clientes_por_similaridade(busca_empresa)
-                            if resultados_busca:
-                                opcoes_cliente = {}
-                                for id_cliente, nome_empresa, nome_fantasia in resultados_busca:
-                                    texto_exibicao = nome_empresa
-                                    if nome_fantasia and nome_fantasia.strip() and nome_fantasia.lower() != nome_empresa.lower():
-                                        texto_exibicao += f" (Fantasia: {nome_fantasia})"
-                                    opcoes_cliente[texto_exibicao] = id_cliente
-                                
-                                opcoes_cliente[f"Nenhum destes. Cadastrar '{busca_empresa}' como nova."] = None
-                                
-                                cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente.keys()))
-                                cliente_id_selecionado = opcoes_cliente[cliente_selecionado_str]
-                                if cliente_id_selecionado:
-                                    nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_selecionado), busca_empresa)
-                            else:
-                                st.warning("Nenhuma empresa encontrada com nome similar. O nome digitado será usado para um novo cadastro de cliente.")
-                        
+                    cliente_id_selecionado = None
+                    nome_empresa_final = st.session_state.busca_empresa_novo
+
+                    if len(st.session_state.busca_empresa_novo) >= 3:
+                        resultados_busca = buscar_clientes_por_similaridade(st.session_state.busca_empresa_novo)
+                        if resultados_busca:
+                            opcoes_cliente = {}
+                            for id_cliente, nome_empresa, nome_fantasia in resultados_busca:
+                                texto_exibicao = nome_empresa
+                                if nome_fantasia and nome_fantasia.strip() and nome_fantasia.lower() != nome_empresa.lower():
+                                    texto_exibicao += f" (Fantasia: {nome_fantasia})"
+                                opcoes_cliente[texto_exibicao] = id_cliente
+                            
+                            opcoes_cliente[f"Nenhum destes. Cadastrar '{st.session_state.busca_empresa_novo}' como nova."] = None
+                            
+                            cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente.keys()))
+                            cliente_id_selecionado = opcoes_cliente[cliente_selecionado_str]
+                            if cliente_id_selecionado:
+                                nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_selecionado), st.session_state.busca_empresa_novo)
+                        else:
+                            st.warning("Nenhuma empresa encontrada com nome similar. O nome digitado será usado para um novo cadastro de cliente.")
+                    
+                    with st.form("form_novo_veiculo_rapido"):
                         st.markdown("---")
                         st.subheader("Dados do Veículo")
                         modelo_aceito = st.session_state.get('modelo_aceito', '')
@@ -332,7 +335,7 @@ def app():
 
     if state.get("placa_input"):
         if st.button("Limpar e Iniciar Nova Busca"):
-            keys_to_delete = ['cadastro_servico_state', 'servicos_para_adicionar', 'api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form']
+            keys_to_delete = ['cadastro_servico_state', 'servicos_para_adicionar', 'api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form', 'busca_empresa_edit', 'busca_empresa_novo']
             for key in keys_to_delete:
                 if key in st.session_state:
                     del st.session_state[key]
