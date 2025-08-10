@@ -7,9 +7,11 @@ import requests
 import re
 
 def hash_password(password):
+    """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def enviar_notificacao_telegram(mensagem, chat_id_destino):
+    """Envia uma mensagem para um chat_id específico do Telegram."""
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
         if not token or not chat_id_destino:
@@ -114,7 +116,6 @@ def recalcular_media_veiculo(conn, veiculo_id):
         print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
         return False
 
-# --- MUDANÇA: Função de busca agora retorna também o NOME FANTASIA ---
 def buscar_clientes_por_similaridade(termo_busca):
     """
     Busca clientes no banco com nomes ou nomes fantasia similares ao termo pesquisado.
@@ -126,6 +127,7 @@ def buscar_clientes_por_similaridade(termo_busca):
     if not conn:
         return []
     
+    # --- MUDANÇA: Query agora busca também o NOME FANTASIA ---
     query = """
         SELECT id, nome_empresa, nome_fantasia 
         FROM clientes 

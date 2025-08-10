@@ -15,7 +15,7 @@ def app():
         st.session_state.cadastro_servico_state = {
             "placa_input": "", "veiculo_id": None, "veiculo_info": None,
             "search_triggered": False, "quilometragem": 0,
-            "busca_empresa_edit": "", "busca_empresa_novo": ""
+            "busca_empresa_edit": ""
         }
     state = st.session_state.cadastro_servico_state
 
@@ -32,7 +32,7 @@ def app():
         state["search_triggered"] = True
         state["veiculo_id"] = None
         state["veiculo_info"] = None
-        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form', 'servicos_para_adicionar', 'busca_empresa_edit', 'busca_empresa_novo']:
+        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form', 'servicos_para_adicionar', 'busca_empresa_edit']:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
