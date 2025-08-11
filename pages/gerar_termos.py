@@ -154,31 +154,76 @@ def app():
             margin-top: 1.5em; border: none;
         }}
         .print-button:hover {{ opacity: 0.8; }}
-        #printable-area {{
+        #view-area {{
             border: 1px solid #555; padding: 2rem; border-radius: 5px;
             background-color: #fff; color: #000;
         }}
         
+        /* --- INÍCIO DAS REGRAS DE IMPRESSÃO CORRIGIDAS --- */
         @media print {{
-            .print-button-container {{ display: none; }}
-            
-            /* --- MUDANÇA PRINCIPAL AQUI --- */
+            /* Define o tamanho da página e as margens */
             @page {{
-                size: A4 portrait; /* Define a página como A4 e em modo Retrato */
-                margin: 2cm;       /* Define uma margem padrão para a impressão */
+                size: A4 portrait;
+                margin: 1.5cm;
+            }}
+
+            /* Esconde elementos indesejados do Streamlit e o nosso botão */
+            body > #root > div:not(.stApp), .stApp > header, .stSidebar, .print-button-container {{
+                display: none !important;
+                visibility: hidden !important;
+            }}
+
+            /* Garante que a área principal seja visível para que as regras de filhos funcionem */
+            .main {{
+                visibility: visible !important;
+            }}
+
+            /* Esconde tudo dentro da área principal por padrão */
+            .main * {{
+                visibility: hidden;
+            }}
+
+            /* Mostra APENAS o nosso contêiner de impressão e seu conteúdo */
+            #printable-area, #printable-area * {{
+                visibility: visible;
+            }}
+
+            /* Estrutura o contêiner de impressão para ocupar a página inteira */
+            #printable-area {{
+                position: fixed;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                border: none !important;
+                padding: 0 !important;
+                color: #000 !important;
+                background-color: #fff !important;
+
+                /* Ativa o Flexbox para controlar o layout vertical */
+                display: flex;
+                flex-direction: column;
             }}
             
-            body * {{ visibility: hidden; }}
-            #printable-area, #printable-area * {{ visibility: visible; }}
-            #printable-area {{
-                position: absolute; left: 0; top: 0; width: 100%;
-                border: none !important;
-                color: #000 !important;
+            /* Ajusta o conteúdo para preencher o espaço */
+            .termo-body {{
+                flex-grow: 1; /* Faz o corpo do texto crescer para ocupar o espaço livre */
+                text-align: justify;
+                font-family: sans-serif;
+                font-size: 11pt;
+                line-height: 1.5;
+            }}
+            .termo-header, .termo-footer {{
+                flex-grow: 0;
+                flex-shrink: 0;
+                text-align: center;
+                font-family: sans-serif;
             }}
         }}
+        /* --- FIM DAS REGRAS DE IMPRESSÃO CORRIGIDAS --- */
     </style>
-    
-    <div id="printable-area">
+
+    <div id="view-area">
         <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
         <p style="font-family: sans-serif; text-align: justify; font-size: 11pt; line-height: 1.5;">{texto_completo}</p>
         <br><br>
@@ -191,6 +236,20 @@ def app():
         <button class="print-button" onclick="window.print()">
             🖨️ Imprimir Termo
         </button>
+    </div>
+    
+    <div id="printable-area" style="display: none;">
+        <div class="termo-header">
+            <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
+        </div>
+        <div class="termo-body">
+            <p>{texto_completo}</p>
+        </div>
+        <div class="termo-footer">
+            <p style="text-align: center; font-family: sans-serif;">{data_extenso}</p>
+            <p style="text-align: center; font-family: sans-serif;">&nbsp;</p> 
+            <p style="text-align: center; font-family: sans-serif;">___________________________________<br><b>{nome_assinatura}</b></p>
+        </div>
     </div>
     """
 
