@@ -144,47 +144,35 @@ def app():
     texto_completo, nome_assinatura, data_extenso = gerar_texto_termo(dados_veiculo, selecoes)
     
     st.subheader("Pré-visualização e Impressão")
-
-    # --- INÍCIO DA LÓGICA DE IMPRESSÃO CORRIGIDA ---
-    # Colocamos o termo, o botão e o CSS de impressão juntos dentro de um único componente HTML
     
     html_para_impressao = f"""
     <style>
-        #printable-area {{
-            border: 1px solid #555;
-            padding: 2rem;
-            border-radius: 5px;
-            background-color: #fff; /* Fundo branco para melhor visualização */
-            color: #000; /* Texto preto */
-        }}
         .print-button {{
-            display: block;
-            width: 100%;
-            padding: 0.75rem;
-            border-radius: 0.5rem;
-            background-color: #FF4B4B; /* Cor primária do Streamlit */
-            color: white;
-            font-weight: 600;
-            text-align: center;
-            cursor: pointer;
-            text-decoration: none;
-            margin-top: 1.5em;
-            border: none;
+            display: block; width: 100%; padding: 0.75rem; border-radius: 0.5rem;
+            background-color: #FF4B4B; color: white; font-weight: 600;
+            text-align: center; cursor: pointer; text-decoration: none;
+            margin-top: 1.5em; border: none;
         }}
         .print-button:hover {{ opacity: 0.8; }}
+        #printable-area {{
+            border: 1px solid #555; padding: 2rem; border-radius: 5px;
+            background-color: #fff; color: #000;
+        }}
         
         @media print {{
-            /* Esconde o botão de impressão na hora de imprimir */
-            .print-button-container {{
-                display: none;
-            }}
-            /* Define o layout da página de impressão */
+            .print-button-container {{ display: none; }}
+            
+            /* --- MUDANÇA PRINCIPAL AQUI --- */
             @page {{
-                size: A5 landscape;
-                margin: 1.5cm;
+                size: A4 portrait; /* Define a página como A4 e em modo Retrato */
+                margin: 2cm;       /* Define uma margem padrão para a impressão */
             }}
-            /* Garante que o texto seja preto na impressão */
-            #printable-area, #printable-area * {{
+            
+            body * {{ visibility: hidden; }}
+            #printable-area, #printable-area * {{ visibility: visible; }}
+            #printable-area {{
+                position: absolute; left: 0; top: 0; width: 100%;
+                border: none !important;
                 color: #000 !important;
             }}
         }}
@@ -192,7 +180,7 @@ def app():
     
     <div id="printable-area">
         <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
-        <p style="font-family: sans-serif; text-align: justify; font-size: 11pt;">{texto_completo}</p>
+        <p style="font-family: sans-serif; text-align: justify; font-size: 11pt; line-height: 1.5;">{texto_completo}</p>
         <br><br>
         <p style="text-align: center; font-family: sans-serif;">{data_extenso}</p>
         <br><br><br>
