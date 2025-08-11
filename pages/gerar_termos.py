@@ -143,13 +143,20 @@ def app():
     
     texto_completo, nome_assinatura, data_extenso = gerar_texto_termo(dados_veiculo, selecoes)
     
-    st.subheader("Pré-visualização do Termo")
+    st.subheader("Pré-visualização e Impressão")
+
+    # --- INÍCIO DA LÓGICA DE IMPRESSÃO CORRIGIDA ---
+    # Colocamos o termo, o botão e o CSS de impressão juntos dentro de um único componente HTML
     
-    # --- LÓGICA DE IMPRESSÃO CORRIGIDA ---
-    
-    html_content = f"""
+    html_para_impressao = f"""
     <style>
-        /* Estilos gerais para o botão de impressão */
+        #printable-area {{
+            border: 1px solid #555;
+            padding: 2rem;
+            border-radius: 5px;
+            background-color: #fff; /* Fundo branco para melhor visualização */
+            color: #000; /* Texto preto */
+        }}
         .print-button {{
             display: block;
             width: 100%;
@@ -164,31 +171,25 @@ def app():
             margin-top: 1.5em;
             border: none;
         }}
-        .print-button:hover {{
-            opacity: 0.8;
-        }}
+        .print-button:hover {{ opacity: 0.8; }}
         
-        /* Estilos que são aplicados APENAS durante a impressão */
         @media print {{
-            /* Esconde todos os elementos da página por padrão */
-            body * {{
-                visibility: hidden;
+            /* Esconde o botão de impressão na hora de imprimir */
+            .print-button-container {{
+                display: none;
             }}
-            /* Torna visível APENAS o contêiner do termo e tudo que está dentro dele */
+            /* Define o layout da página de impressão */
+            @page {{
+                size: A5 landscape;
+                margin: 1.5cm;
+            }}
+            /* Garante que o texto seja preto na impressão */
             #printable-area, #printable-area * {{
-                visibility: visible;
-            }}
-            /* Posiciona o termo no topo da página de impressão */
-            #printable-area {{
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                border: none !important;
+                color: #000 !important;
             }}
         }}
     </style>
-
+    
     <div id="printable-area">
         <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
         <p style="font-family: sans-serif; text-align: justify; font-size: 11pt;">{texto_completo}</p>
@@ -198,12 +199,14 @@ def app():
         <p style="text-align: center; font-family: sans-serif;">___________________________________<br><b>{nome_assinatura}</b></p>
     </div>
 
-    <button class="print-button" onclick="window.print()">
-        🖨️ Imprimir Termo
-    </button>
+    <div class="print-button-container">
+        <button class="print-button" onclick="window.print()">
+            🖨️ Imprimir Termo
+        </button>
+    </div>
     """
-    
-    st.markdown(html_content, unsafe_allow_html=True)
+
+    st.components.v1.html(html_para_impressao, height=600, scrolling=True)
 
 if __name__ == "__main__":
     app()
