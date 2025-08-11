@@ -27,6 +27,18 @@ if not st.session_state.get('logged_in'):
     login.render_login_page()
     st.stop()
 
+# --- INÍCIO DA CORREÇÃO: INICIALIZAÇÃO CENTRALIZADA DO ESTADO DA SESSÃO ---
+# Este bloco garante que todas as variáveis de sessão necessárias existam
+# logo após o login, antes de qualquer página ser carregada.
+def initialize_session_state():
+    if 'box_states' not in st.session_state:
+        st.session_state.box_states = {}
+    # (No futuro, se outras páginas precisarem de estado, adicionamos aqui)
+
+initialize_session_state()
+# --- FIM DA CORREÇÃO ---
+
+
 # --- ETAPA 1: DETECTAR O DISPOSITIVO DO USUÁRIO ---
 user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key='USER_AGENT', want_output=True) or ""
 
@@ -44,58 +56,36 @@ with st.sidebar:
 IS_MOBILE = 'Android' in user_agent
 
 if IS_MOBILE:
-    # --- INÍCIO DA SEÇÃO ALTERADA: VISUALIZAÇÃO PARA ANDROID ---
+    # --- VISUALIZAÇÃO PARA ANDROID: MENU FLUTUANTE INFERIOR ---
     
     st.markdown("""
         <style>
-            /* Adiciona espaço no final do conteúdo para não ser coberto pelo menu */
-            .main .block-container {
-                padding-bottom: 80px;
-            }
-            /* Estiliza o contêiner do menu flutuante */
+            .main .block-container { padding-bottom: 80px; }
             .mobile-menu-container {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                background-color: #1a1a1a;
-                border-top: 1px solid #333;
-                z-index: 999;
-                padding: 5px 0;
+                position: fixed; bottom: 0; left: 0; width: 100%;
+                background-color: #1a1a1a; border-top: 1px solid #333;
+                z-index: 999; padding: 5px 0;
                 box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
             }
         </style>
     """, unsafe_allow_html=True)
     
-    # Lista de opções base para todos os usuários mobile
     mobile_options = [
-        "Cadastro de Serviço", 
-        "Alocar Serviços", 
-        "Filas de Serviço", 
-        "Visão dos Boxes"
+        "Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"
     ]
     mobile_icons = [
-        "truck-front", 
-        "card-list", 
-        "card-checklist", 
-        "view-stacked"
+        "truck-front", "card-list", "card-checklist", "view-stacked"
     ]
 
-    # Adiciona opções extras se o usuário for admin
     if st.session_state.get('user_role') == 'admin':
         mobile_options.extend(["Controle de Feedback", "Revisão Proativa"])
         mobile_icons.extend(["telephone-outbound", "arrow-repeat"])
 
-    # Cria o contêiner do menu e renderiza o menu dentro dele
     with st.container():
         st.markdown('<div class="mobile-menu-container">', unsafe_allow_html=True)
         selected_page = option_menu(
-            menu_title=None,
-            options=mobile_options,
-            icons=mobile_icons,
-            menu_icon="cast",
-            default_index=0,
-            orientation="horizontal",
+            menu_title=None, options=mobile_options, icons=mobile_icons,
+            menu_icon="cast", default_index=0, orientation="horizontal",
             styles={
                 "container": {"padding": "0!important", "background-color": "transparent"},
                 "nav-link": {"font-size": "10px", "padding": "8px 0", "text-align": "center"},
@@ -104,7 +94,6 @@ if IS_MOBILE:
             }
         )
         st.markdown('</div>', unsafe_allow_html=True)
-    # --- FIM DA SEÇÃO ALTERADA ---
 
 else:
     # --- VISUALIZAÇÃO PARA PC: MENU SUPERIOR PADRÃO ---
@@ -125,12 +114,8 @@ else:
         icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
 
     selected_page = option_menu(
-        menu_title=None, 
-        options=options, 
-        icons=icons, 
-        menu_icon="cast",
-        default_index=0, 
-        orientation="horizontal",
+        menu_title=None, options=options, icons=icons, 
+        menu_icon="cast", default_index=0, orientation="horizontal",
         styles={
             "container": {"padding": "0!important", "background-color": "#292929"},
             "icon": {"color": "#22a7f0", "font-size": "25px"},
@@ -166,4 +151,9 @@ elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
 
 # Rotas que não estão no menu, mas precisam existir para serem acessadas via link
-# (Não precisam de um 'elif' aqui, pois a navegação é feita pela URL)
+# A navegação para estas páginas é feita pela URL, não pelo menu principal
+if 'page' in st.query_params:
+    if st.query_params['page'] == "gerar_termos":
+        gerar_termos.app()
+    elif st.query_params['page'] == "ajustar_media_km":
+        ajustar_media_km.app()
