@@ -1,7 +1,6 @@
 # /main.py
 
 import streamlit as st
-from utils import load_css
 from streamlit_option_menu import option_menu
 from streamlit_js_eval import streamlit_js_eval
 import login
@@ -24,10 +23,11 @@ from pages import (
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
 
-# --- CSS PARA REMOVER ELEMENTOS DO STREAMLIT ---
+# --- CSS DEFINITIVO PARA LAYOUT PROFISSIONAL E RESPONSIVO ---
 st.markdown("""
 <style>
-    /* Esconde o menu 'hamburger' e o botão 'fork' no topo direito */
+    /* 1. REMOÇÃO DE ELEMENTOS NATIVOS DO STREAMLIT */
+    /* Esconde o menu 'hamburger', botões de 'fork' etc. no topo direito */
     [data-testid="stToolbar"] {
         visibility: hidden;
         height: 0%;
@@ -36,6 +36,29 @@ st.markdown("""
     /* Esconde o rodapé "Made with Streamlit" */
     footer {
         visibility: hidden;
+        height: 0%;
+    }
+
+    /* 2. LÓGICA DO MENU RESPONSIVO PARA CELULAR */
+    @media (max-width: 767px) {
+        /* Adiciona um espaço no final da página para o menu flutuante não cobrir o conteúdo */
+        .main .block-container {
+            padding-bottom: 6rem !important;
+        }
+
+        /* Pega o contêiner do menu e o transforma em uma barra fixa na base */
+        /* Usamos um seletor mais específico para garantir a aplicação do estilo */
+        .menu-container div[data-testid="stOptionMenu"] {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            width: 100%;
+            background-color: #292929;
+            border-top: 1px solid #444;
+            z-index: 9999;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -48,7 +71,6 @@ if not st.session_state.get('logged_in'):
 def initialize_session_state():
     if 'box_states' not in st.session_state:
         st.session_state.box_states = {}
-
 initialize_session_state()
 
 # --- DETECTAR O DISPOSITIVO DO USUÁRIO ---
@@ -66,93 +88,66 @@ with st.sidebar:
 
 IS_MOBILE = 'Android' in user_agent
 
+# Envolve o menu em um contêiner div para que o CSS possa encontrá-lo
+st.markdown('<div class="menu-container">', unsafe_allow_html=True)
+
 if IS_MOBILE:
-    # --- VISUALIZAÇÃO PARA ANDROID: MENU FLUTUANTE INFERIOR ---
-    
-    st.markdown("""
-        <style>
-            /* Adiciona espaço no final da página para o menu não cobrir o conteúdo */
-            .main .block-container { 
-                padding-bottom: 6rem !important; /* Aumenta o espaço para segurança */
-            }
-            /* Cria a barra flutuante na base da tela */
-            .mobile-menu-container {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                background-color: #292929; /* Cor de fundo escura */
-                border-top: 1px solid #444;
-                z-index: 101; /* Garante que o menu fique sobre todos os outros elementos */
-            }
-        </style>
-    """, unsafe_allow_html=True)
-    
+    # --- OPÇÕES PARA ANDROID ---
     mobile_options = [
         "Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"
     ]
     mobile_icons = [
         "truck-front", "card-list", "card-checklist", "view-stacked"
     ]
-
     if st.session_state.get('user_role') == 'admin':
         mobile_options.extend(["Controle de Feedback", "Revisão Proativa"])
         mobile_icons.extend(["telephone-outbound", "arrow-repeat"])
-
-    with st.container():
-        st.markdown('<div class="mobile-menu-container">', unsafe_allow_html=True)
-        selected_page = option_menu(
-            menu_title=None, 
-            options=mobile_options, 
-            icons=mobile_icons,
-            menu_icon="cast", 
-            default_index=0, 
-            orientation="horizontal",
-            styles={
-                "container": {"padding": "5px 0", "background-color": "transparent"},
-                "nav-link": {
-                    "display": "flex", "flex-direction": "column", "align-items": "center",
-                    "justify-content": "center", "font-size": "11px", "text-align": "center",
-                    "height": "60px"
-                },
-                "nav-link-selected": {"background-color": "#333"},
-                "icon": {"font-size": "22px", "margin-bottom": "4px"}
-            }
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-else:
-    # --- VISUALIZAÇÃO PARA PC: MENU SUPERIOR PADRÃO ---
     
-    options = [
+    options_to_show = mobile_options
+    icons_to_show = mobile_icons
+    menu_styles = {
+        "container": {"padding": "5px 0", "background-color": "transparent"},
+        "nav-link": {"font-size": "10px", "padding": "8px 0", "text-align": "center", "height": "60px"},
+        "nav-link-selected": {"background-color": "#333"},
+        "icon": {"font-size": "20px", "margin-bottom": "4px"}
+    }
+else:
+    # --- OPÇÕES PARA PC ---
+    pc_options = [
         "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços", 
         "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", 
         "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa"
     ]
-    icons = [
+    pc_icons = [
         "truck-front", "people", "card-list", "card-checklist", 
         "view-stacked", "check-circle", "clock-history", 
         "telephone-outbound", "arrow-repeat"
     ]
-
     if st.session_state.get('user_role') == 'admin':
-        options.extend(["Gerenciar Usuários", "Relatórios", "Mesclar Históricos"])
-        icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
+        pc_options.extend(["Gerenciar Usuários", "Relatórios", "Mesclar Históricos"])
+        pc_icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
+        
+    options_to_show = pc_options
+    icons_to_show = pc_icons
+    menu_styles = {
+        "container": {"padding": "0!important", "background-color": "#292929"},
+        "icon": {"color": "#22a7f0", "font-size": "25px"},
+        "nav-link": {"font-size": "16px", "text-align": "center", "margin":"0px", "--hover-color": "#444"},
+        "nav-link-selected": {"background-color": "#1a1a1a"},
+    }
 
-    selected_page = option_menu(
-        menu_title=None, 
-        options=options, 
-        icons=icons, 
-        menu_icon="cast", 
-        default_index=0, 
-        orientation="horizontal",
-        styles={
-            "container": {"padding": "0!important", "background-color": "#292929"},
-            "icon": {"color": "#22a7f0", "font-size": "25px"},
-            "nav-link": {"font-size": "16px", "text-align": "center", "margin":"0px", "--hover-color": "#444"},
-            "nav-link-selected": {"background-color": "#1a1a1a"},
-        }
-    )
+selected_page = option_menu(
+    menu_title=None, 
+    options=options_to_show, 
+    icons=icons_to_show, 
+    menu_icon="cast", 
+    default_index=0, 
+    orientation="horizontal",
+    styles=menu_styles
+)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
 
 # --- LÓGICA DE ROTEAMENTO ---
 if selected_page == "Alocar Serviços":
