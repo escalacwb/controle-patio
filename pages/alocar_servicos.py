@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+from pages.ui_components import render_mobile_navbar
+render_mobile_navbar(active_page="alocar")
 from database import get_connection, release_connection
 from datetime import datetime
 import pytz

@@ -6,6 +6,8 @@ import psycopg2.extras
 from datetime import datetime
 import pytz
 from utils import get_catalogo_servicos, consultar_placa_comercial, formatar_telefone, formatar_placa, buscar_clientes_por_similaridade, get_cliente_details
+from pages.ui_components import render_mobile_navbar
+render_mobile_navbar(active_page="cadastro")
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 

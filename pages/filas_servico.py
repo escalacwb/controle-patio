@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
+from pages.ui_components import render_mobile_navbar
+render_mobile_navbar(active_page="filas")
 from database import get_connection, release_connection
 from streamlit_autorefresh import st_autorefresh
+
 
 def app():
     # --- CONFIGURAÇÕES DA PÁGINA ---

@@ -7,6 +7,8 @@ from datetime import datetime
 import pytz
 from utils import get_catalogo_servicos, enviar_notificacao_telegram, recalcular_media_veiculo
 import psycopg2.extras
+from pages.ui_components import render_mobile_navbar
+render_mobile_navbar(active_page="boxes")
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 

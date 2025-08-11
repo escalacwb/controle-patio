@@ -2,6 +2,8 @@
 
 import streamlit as st
 import pandas as pd
+from pages.ui_components import render_mobile_navbar
+render_mobile_navbar(active_page="revisao")
 from database import get_connection, release_connection
 from datetime import datetime
 import pytz
@@ -9,6 +11,7 @@ from urllib.parse import quote_plus
 import re
 from utils import formatar_telefone, buscar_clientes_por_similaridade, get_cliente_details
 import psycopg2.extras
+
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
