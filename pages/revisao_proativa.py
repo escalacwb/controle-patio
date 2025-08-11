@@ -226,7 +226,9 @@ def app():
         df['km_rodados'] = df['km_atual_estimada'] - df['km_ultima_visita']
         
         veiculos_para_contatar = df[df['km_atual_estimada'] >= (df['km_ultima_visita'] + intervalo_revisao_km)].copy()
-        veiculos_para_contatar.sort_values(by='km_atual_estimada', ascending=False, inplace=True)
+        
+        # --- MUDANÇA PRINCIPAL: ORDENAÇÃO POR KM RODADOS ---
+        veiculos_para_contatar.sort_values(by='km_rodados', ascending=False, inplace=True)
         
         st.subheader(f"Veículos Sugeridos para Contato ({len(veiculos_para_contatar)}):")
 
@@ -250,7 +252,6 @@ def app():
                     with col2:
                         st.metric("KM Estimada Atual", f"{int(veiculo['km_atual_estimada']):,}".replace(',', '.'))
                     
-                    # --- MUDANÇA AQUI: Adição do botão ao lado da média ---
                     cap_col1, cap_col2 = st.columns([0.7, 0.3])
                     with cap_col1:
                         media_km_diaria = veiculo['media_km_diaria']
@@ -283,7 +284,7 @@ def app():
                     msg_gestor = (
                         f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
                         f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
-                        f"A última manutenção foi em {data_ultima_visita_str} com {km_ultima_visita_str} km. Desde então, o veículo rodou aproximadamente {km_rodados_str} km, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
+                        f"A última manutenção foi em {data_ultima_visita_str} com {km_ultima_visita_str} km. Com base no histórico de rodagem registrado em nosso sistema, o veículo rodou aproximadamente {km_rodados_str} km desde então, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
                         f"Para manter a manutenção preventiva em dia e garantir a performance do ativo, gostaríamos de alinhar os próximos passos. Por favor, responda esta mensagem para organizarmos o serviço.\n\n"
                         f"Atenciosamente,\nEquipe Capital Truck Center."
                     )
