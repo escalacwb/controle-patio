@@ -8,25 +8,23 @@ import re
 import psycopg2.extras
 
 def hash_password(password):
-    """Gera o hash de uma senha para armazenamento seguro."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def enviar_notificacao_telegram(mensagem, chat_id_destino):
-    """Envia uma mensagem para um chat_id específico do Telegram."""
     try:
         token = st.secrets.get("TELEGRAM_TOKEN")
         if not token or not chat_id_destino:
-            print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
-            return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
+            print("Token ou Chat ID de destino não fornecidos.")
+            return False, "Credenciais do Telegram incompletas."
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         params = {"chat_id": chat_id_destino, "text": mensagem, "parse_mode": "Markdown"}
         response = requests.post(url, json=params)
         if response.status_code == 200:
             return True, "Notificação enviada com sucesso!"
         else:
-            return False, f"Erro retornado pelo Telegram (código {response.status_code}): {response.text}"
+            return False, f"Erro no Telegram (código {response.status_code}): {response.text}"
     except Exception as e:
-        return False, f"Ocorreu uma exceção no Python ao tentar enviar: {str(e)}"
+        return False, f"Exceção no Python: {str(e)}"
 
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
@@ -82,22 +80,11 @@ def formatar_placa(placa: str) -> str:
     return placa_limpa
 
 def recalcular_media_veiculo(conn, veiculo_id):
-    query = """
-        SELECT fim_execucao, quilometragem
-        FROM execucao_servico
-        WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
-        ORDER BY fim_execucao;
-    """
+    query = "SELECT fim_execucao, quilometragem FROM execucao_servico WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0 ORDER BY fim_execucao;"
     df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
     df_veiculo = df_veiculo.drop_duplicates(subset=['quilometragem'], keep='last')
-    
     last_valid_km = -1
-    valid_indices = []
-    for index, row in df_veiculo.iterrows():
-        if row['quilometragem'] > last_valid_km:
-            valid_indices.append(index)
-            last_valid_km = row['quilometragem']
-    
+    valid_indices = [index for index, row in df_veiculo.iterrows() if row['quilometragem'] > last_valid_km and (last_valid_km := row['quilometragem'])]
     valid_group = df_veiculo.loc[valid_indices]
     media_km_diaria = None
     if len(valid_group) >= 2:
@@ -113,21 +100,14 @@ def recalcular_media_veiculo(conn, veiculo_id):
         conn.commit()
         return True
     except Exception as e:
-        conn.rollback()
-        print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
+        conn.rollback(); print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
         return False
 
 def buscar_clientes_por_similaridade(termo_busca):
     if not termo_busca or len(termo_busca) < 3: return []
     conn = get_connection()
     if not conn: return []
-    query = """
-        SELECT id, nome_empresa, nome_fantasia 
-        FROM clientes 
-        WHERE similarity(nome_empresa, %(termo)s) > 0.2 OR similarity(nome_fantasia, %(termo)s) > 0.2
-        ORDER BY GREATEST(similarity(nome_empresa, %(termo)s), similarity(nome_fantasia, %(termo)s)) DESC, nome_empresa
-        LIMIT 10;
-    """
+    query = "SELECT id, nome_empresa, nome_fantasia FROM clientes WHERE similarity(nome_empresa, %(termo)s) > 0.2 OR similarity(nome_fantasia, %(termo)s) > 0.2 ORDER BY GREATEST(similarity(nome_empresa, %(termo)s), similarity(nome_fantasia, %(termo)s)) DESC, nome_empresa LIMIT 10;"
     try:
         df = pd.read_sql(query, conn, params={'termo': termo_busca})
         return list(df.itertuples(index=False, name=None))
