@@ -18,8 +18,7 @@ def app():
     # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
     if 'page_number' not in st.session_state:
         st.session_state.page_number = 0
-    if 'rp_dismissed_vehicles' not in st.session_state:
-        st.session_state.rp_dismissed_vehicles = set()
+    # O estado 'rp_dismissed_vehicles' foi removido, pois a nova lógica usa o banco de dados.
     if 'rp_editing_vehicle_id' not in st.session_state:
         st.session_state.rp_editing_vehicle_id = None
     if 'rp_editing_client_id' not in st.session_state:
@@ -89,7 +88,8 @@ def app():
                         st.rerun()
 
     st.markdown("---")
-    intervalo_revisao_km = st.number_input("Avisar a cada (KM)", min_value=1000, max_value=100000, value=10000, step=1000)
+    intervalo_revisao_km = st.number_input("Avisar a cada (KM)", min_value=1000, max_value=100000, value=10000, step=1000,
+                                       help="O sistema irá alertar sobre veículos que rodaram aproximadamente esta quilometragem desde a última visita.")
     st.markdown("---")
 
     try:
@@ -122,7 +122,8 @@ def app():
                 JOIN ultima_visita uv ON v.id = uv.veiculo_id
                 LEFT JOIN servicos_ultima_visita suv ON v.id = suv.veiculo_id
                 LEFT JOIN clientes c ON v.cliente_id = c.id
-                WHERE v.media_km_diaria IS NOT NULL AND v.media_km_diaria > 0;
+                WHERE v.media_km_diaria IS NOT NULL AND v.media_km_diaria > 0
+                AND v.data_revisao_proativa IS NULL;
             """
             df = pd.read_sql(query, conn)
 
@@ -133,8 +134,7 @@ def app():
         df['dias_desde_ultima_visita'] = (pd.Timestamp.now(tz=MS_TZ) - pd.to_datetime(df['data_ultima_visita'], utc=True).dt.tz_convert(MS_TZ)).dt.days
         df['km_atual_estimada'] = df['km_ultima_visita'] + (df['dias_desde_ultima_visita'] * df['media_km_diaria'])
         
-        df_filtrado = df[~df['veiculo_id'].isin(st.session_state.rp_dismissed_vehicles)]
-        veiculos_para_contatar = df_filtrado[df_filtrado['km_atual_estimada'] >= (df_filtrado['km_ultima_visita'] + intervalo_revisao_km)].copy()
+        veiculos_para_contatar = df[df['km_atual_estimada'] >= (df['km_ultima_visita'] + intervalo_revisao_km)].copy()
         veiculos_para_contatar.sort_values(by='km_atual_estimada', ascending=False, inplace=True)
         
         st.subheader(f"Veículos Sugeridos para Contato ({len(veiculos_para_contatar)}):")
@@ -155,11 +155,12 @@ def app():
                         st.markdown(f"**Veículo:** `{veiculo['placa']}` - {veiculo['modelo']} ({veiculo['empresa']})")
                         st.info(f"**Motorista:** {veiculo['nome_motorista'] or 'N/A'} | **Contato:** {veiculo['contato_motorista'] or 'N/A'}")
                         st.warning(f"**Gestor Frota:** {veiculo['nome_responsavel'] or 'N/A'} | **Contato:** {veiculo['contato_responsavel'] or 'N/A'}")
-                        st.markdown(f"**Últimos Serviços:** *{veiculo['servicos_anteriores'] or 'N/A'}*")
+                        st.markdown(f"**Últimos Serviços:** *{veiculo['servicos_anteriores'] or 'Nenhum serviço registrado na última visita.'}*")
                     with col2:
                         st.metric("KM Estimada Atual", f"{int(veiculo['km_atual_estimada']):,}".replace(',', '.'))
                     
-                    # --- BOTÕES DE AÇÃO ---
+                    st.caption(f"Última visita em {veiculo['data_ultima_visita'].strftime('%d/%m/%Y')} com {int(veiculo['km_ultima_visita']):,} km. Média de {int(veiculo['media_km_diaria'])} km/dia.".replace(',', '.'))
+                    
                     b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
                     
                     def get_whatsapp_link(nome, numero, veiculo_info):
@@ -184,15 +185,27 @@ def app():
                         st.session_state.rp_editing_vehicle_id = None
                         st.rerun()
                     if b_col5.button("✅ Contato Feito", key=f"dismiss_{veiculo['veiculo_id']}", use_container_width=True):
-                        st.session_state.rp_dismissed_vehicles.add(veiculo['veiculo_id'])
-                        st.rerun()
+                        try:
+                            with conn.cursor() as cursor:
+                                cursor.execute(
+                                    "UPDATE veiculos SET data_revisao_proativa = %s WHERE id = %s",
+                                    (datetime.now(MS_TZ).date(), int(veiculo['veiculo_id']))
+                                )
+                            conn.commit()
+                            st.toast(f"Veículo {veiculo['placa']} marcado como contatado.", icon="👍")
+                            st.rerun()
+                        except Exception as e:
+                            conn.rollback()
+                            st.error(f"Erro ao marcar veículo: {e}")
 
             st.markdown("---")
             col_prev, col_info, col_next = st.columns([1, 2, 1])
             if col_prev.button("⬅️ Anterior", use_container_width=True, disabled=(st.session_state.page_number == 0)):
                 st.session_state.page_number -= 1
                 st.rerun()
-            col_info.markdown(f"<div style='text-align: center;'>Página {st.session_state.page_number + 1} de {total_pages}</div>", unsafe_allow_html=True)
+            
+            col_info.markdown(f"<div style='text-align: center; font-size: 1.2rem;'>Página {st.session_state.page_number + 1} de {total_pages}</div>", unsafe_allow_html=True)
+            
             if col_next.button("Próxima ➡️", use_container_width=True, disabled=(st.session_state.page_number >= total_pages - 1)):
                 st.session_state.page_number += 1
                 st.rerun()

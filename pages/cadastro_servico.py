@@ -5,7 +5,6 @@ from database import get_connection, release_connection
 import psycopg2.extras
 from datetime import datetime
 import pytz
-# --- MUDANÇA: Adicionamos get_cliente_details ---
 from utils import get_catalogo_servicos, consultar_placa_comercial, formatar_telefone, formatar_placa, buscar_clientes_por_similaridade, get_cliente_details
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
@@ -110,11 +109,9 @@ def app():
             if st.session_state.get('show_edit_responsavel_form', False):
                 st.info("Altere a empresa à qual este veículo está vinculado.")
                 
-                # --- LÓGICA DE BUSCA DA EMPRESA ---
                 busca_empresa_edit = st.text_input("Digite para buscar/alterar a empresa", value=st.session_state.get("busca_empresa_edit", ""), help="Digite e pressione Enter para buscar.")
                 if busca_empresa_edit != st.session_state.get("busca_empresa_edit"):
                     st.session_state.busca_empresa_edit = busca_empresa_edit
-                    # Limpa os detalhes do cliente anterior ao iniciar nova busca
                     if 'details_responsavel_edit' in st.session_state:
                         del st.session_state['details_responsavel_edit']
                     st.rerun()
@@ -142,22 +139,19 @@ def app():
                             cliente_id_final = cliente_id_selecionado_edit
                             nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_final), st.session_state.busca_empresa_edit)
                         elif cliente_id_selecionado_edit == "NOVO":
-                            cliente_id_final = None # Força a criação de um novo cliente
-                        else: # Se a opção for a vazia ""
+                            cliente_id_final = None
+                        else:
                             cliente_id_final = state['veiculo_info']['cliente_id']
 
-
-                # --- LÓGICA DE ATUALIZAÇÃO DINÂMICA DO RESPONSÁVEL ---
                 if cliente_id_selecionado_edit != st.session_state.get('last_selected_client_id_edit'):
                     st.session_state.last_selected_client_id_edit = cliente_id_selecionado_edit
                     if isinstance(cliente_id_selecionado_edit, int):
                         st.session_state.details_responsavel_edit = get_cliente_details(cliente_id_selecionado_edit)
-                    else: # Limpa os detalhes se for "NOVO" ou ""
+                    else:
                         st.session_state.details_responsavel_edit = {}
-                    st.session_state.editing_responsavel = False # Fecha o form de edição ao trocar de cliente
+                    st.session_state.editing_responsavel = False
                     st.rerun()
                 
-                # --- NOVA SEÇÃO PARA EXIBIR E EDITAR O RESPONSÁVEL ---
                 st.markdown("---")
                 st.subheader("Dados do Responsável pela Frota")
                 
@@ -172,7 +166,6 @@ def app():
                         novo_contato_resp = st.text_input("Contato do Responsável", value=contato_resp)
                         
                         if st.form_submit_button("✅ Salvar Responsável"):
-                            # A ID final para salvar pode ser a selecionada na lista ou, se não selecionou, a original do veículo
                             id_cliente_para_salvar = cliente_id_final if cliente_id_final else state['veiculo_info']['cliente_id']
                             if id_cliente_para_salvar:
                                 conn = get_connection()
@@ -181,25 +174,23 @@ def app():
                                         with conn.cursor() as cursor:
                                             cursor.execute(
                                                 "UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s WHERE id = %s",
-                                                (novo_nome_resp, formatar_telefone(novo_contato_resp), id_cliente_para_salvar)
+                                                (novo_nome_resp, formatar_telefone(novo_contato_resp), int(id_cliente_para_salvar))
                                             )
                                             conn.commit()
                                             st.success("Responsável atualizado com sucesso!")
                                             st.session_state.editing_responsavel = False
-                                            # Força a busca dos novos dados
                                             st.session_state.last_selected_client_id_edit = None
                                             st.rerun()
                                     finally:
                                         release_connection(conn)
                             else:
                                 st.warning("Selecione um cliente existente para poder editar o responsável.")
-
-                else: # MODO DE VISUALIZAÇÃO
+                else:
                     col_nome, col_contato, col_btn = st.columns([0.4, 0.4, 0.2])
                     col_nome.text_input("Nome do Responsável", value=nome_resp, disabled=True)
                     col_contato.text_input("Contato do Responsável", value=contato_resp, disabled=True)
                     with col_btn:
-                        st.write("") # Truque para alinhar o botão
+                        st.write("")
                         st.write("")
                         if st.button("✏️ Alterar", use_container_width=True, help="Alterar dados do responsável"):
                             id_cliente_para_editar = st.session_state.get('last_selected_client_id_edit')
@@ -210,25 +201,21 @@ def app():
                                 st.toast("Selecione um cliente da lista para editar.", icon="⚠️")
 
                 st.markdown("---")
-
-                # --- BOTÃO FINAL PARA VINCULAR O VEÍCULO À EMPRESA SELECIONADA ---
                 if st.button("✅ Salvar Vinculação da Empresa", type="primary"):
                     conn = get_connection()
                     if conn:
                         try:
                             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                                if cliente_id_final is None and nome_empresa_final: # Se é um cliente novo
+                                if cliente_id_final is None and nome_empresa_final:
                                     st.info(f"Criando novo cliente: {nome_empresa_final}")
                                     cursor.execute("INSERT INTO clientes (nome_empresa) VALUES (%s) RETURNING id", (nome_empresa_final,))
                                     cliente_id_final = cursor.fetchone()['id']
                                 
-                                # Atualiza o veículo com o ID do cliente final
                                 query_veiculo = "UPDATE veiculos SET empresa = %s, cliente_id = %s WHERE id = %s"
                                 cursor.execute(query_veiculo, (nome_empresa_final, cliente_id_final, state['veiculo_id']))
                                 conn.commit()
                                 
                                 st.success("Vinculação da empresa atualizada com sucesso!")
-                                # Limpa estados para forçar recarga completa
                                 st.session_state.show_edit_responsavel_form = False
                                 st.session_state.last_selected_client_id_edit = None
                                 if 'details_responsavel_edit' in st.session_state:
@@ -292,6 +279,13 @@ def app():
                                     table_name = table_map.get(s['area'])
                                     query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
                                     cursor.execute(query, (state["veiculo_id"], s['tipo'], s['qtd'], observacao_geral, state["quilometragem"], datetime.now(MS_TZ), datetime.now(MS_TZ)))
+                                
+                                # --- MUDANÇA PRINCIPAL: Reseta o campo da revisão proativa ---
+                                cursor.execute(
+                                    "UPDATE veiculos SET data_revisao_proativa = NULL WHERE id = %s",
+                                    (state["veiculo_id"],)
+                                )
+
                                 conn.commit()
                                 st.success("✅ Serviços cadastrados com sucesso!")
                                 state["search_triggered"] = False
