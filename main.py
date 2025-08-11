@@ -23,6 +23,22 @@ from pages import (
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
 
+# --- CSS PARA REMOVER ELEMENTOS DO STREAMLIT ---
+st.markdown("""
+<style>
+    /* Esconde o menu 'hamburger' e o botão 'fork' no topo direito */
+    [data-testid="stToolbar"] {
+        visibility: hidden;
+        height: 0%;
+        position: fixed;
+    }
+    /* Esconde o rodapé "Made with Streamlit" */
+    footer {
+        visibility: hidden;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 if not st.session_state.get('logged_in'):
     login.render_login_page()
     st.stop()
@@ -31,14 +47,11 @@ if not st.session_state.get('logged_in'):
 def initialize_session_state():
     if 'box_states' not in st.session_state:
         st.session_state.box_states = {}
-    # (No futuro, se outras páginas precisarem de estado, adicionamos aqui)
 
 initialize_session_state()
 
-
 # --- DETECTAR O DISPOSITIVO DO USUÁRIO ---
 user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key='USER_AGENT', want_output=True) or ""
-
 
 # --- APLICATIVO PRINCIPAL ---
 with st.sidebar:
@@ -57,21 +70,19 @@ if IS_MOBILE:
     
     st.markdown("""
         <style>
-            /* Garante que o menu não cubra o conteúdo no final da página */
+            /* Adiciona espaço no final da página para o menu não cobrir o conteúdo */
             .main .block-container { 
-                padding-bottom: 80px !important;
+                padding-bottom: 6rem !important; /* Aumenta o espaço para segurança */
             }
-            /* Estiliza o contêiner do menu para ser fixo e flutuante */
+            /* Cria a barra flutuante na base da tela */
             .mobile-menu-container {
                 position: fixed;
                 bottom: 0;
                 left: 0;
                 width: 100%;
-                background-color: #1a1a1a;
-                border-top: 1px solid #333;
-                z-index: 999;
-                padding: 5px 0;
-                box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+                background-color: #292929; /* Cor de fundo escura */
+                border-top: 1px solid #444;
+                z-index: 101; /* Garante que o menu fique sobre todos os outros elementos */
             }
         </style>
     """, unsafe_allow_html=True)
@@ -97,16 +108,10 @@ if IS_MOBILE:
             default_index=0, 
             orientation="horizontal",
             styles={
-                "container": {"padding": "0!important", "background-color": "transparent"},
-                # --- ESTILOS ATUALIZADOS PARA MELHOR ALINHAMENTO ---
+                "container": {"padding": "5px 0", "background-color": "transparent"},
                 "nav-link": {
-                    "display": "flex",
-                    "flex-direction": "column",
-                    "align-items": "center",
-                    "justify-content": "center",
-                    "font-size": "11px",
-                    "padding": "10px 0",
-                    "text-align": "center",
+                    "display": "flex", "flex-direction": "column", "align-items": "center",
+                    "justify-content": "center", "font-size": "11px", "text-align": "center",
                     "height": "60px"
                 },
                 "nav-link-selected": {"background-color": "#333"},
@@ -148,7 +153,7 @@ else:
         }
     )
 
-# --- LÓGICA DE ROTEAMENTO (Funciona para ambos os menus) ---
+# --- LÓGICA DE ROTEAMENTO ---
 if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
@@ -173,6 +178,3 @@ elif selected_page == "Relatórios":
     relatorios.app()
 elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
-
-# O roteamento para páginas acessadas via link (como gerar_termos e ajustar_media_km)
-# é gerenciado automaticamente pelo Streamlit, por isso o bloco de código anterior foi removido.
