@@ -250,11 +250,17 @@ def app():
                     with col2:
                         st.metric("KM Estimada Atual", f"{int(veiculo['km_atual_estimada']):,}".replace(',', '.'))
                     
-                    st.caption(f"Última visita em {veiculo['data_ultima_visita'].strftime('%d/%m/%Y')} com {int(veiculo['km_ultima_visita']):,} km. Média de {int(veiculo['media_km_diaria'])} km/dia.".replace(',', '.'))
-                    
+                    # --- MUDANÇA AQUI: Adição do botão ao lado da média ---
+                    cap_col1, cap_col2 = st.columns([0.7, 0.3])
+                    with cap_col1:
+                        media_km_diaria = veiculo['media_km_diaria']
+                        media_formatada = f"{media_km_diaria:.2f}" if pd.notna(media_km_diaria) else "N/A"
+                        st.caption(f"Última visita em {veiculo['data_ultima_visita'].strftime('%d/%m/%Y')} com {int(veiculo['km_ultima_visita']):,} km. Média de {media_formatada} km/dia.".replace(',', '.'))
+                    with cap_col2:
+                        st.link_button("✏️ Ajustar Média", url=f"ajustar_media_km?veiculo_id={veiculo['veiculo_id']}", use_container_width=True)
+
                     b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
                     
-                    # --- INÍCIO DA SEÇÃO DE MENSAGENS ATUALIZADA ---
                     def create_whatsapp_link(numero, msg_text):
                         if not numero or not isinstance(numero, str): return None
                         num_limpo = "55" + re.sub(r'\D', '', numero)
@@ -268,7 +274,7 @@ def app():
                     
                     msg_motorista = (
                         f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
-                        f"Aqui é da Capital Truck Center - Michelin de Dourados/MS. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
+                        f"Aqui é da Capital Truck Center. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
                         f"A última foi com {km_ultima_visita_str} km e, com base no histórico de rodagem dele aqui no sistema, ele já rodou aproximadamente {km_rodados_str} km desde então, estando agora com cerca de {km_atual_estimada_str} km.\n\n"
                         f"Para garantir a segurança e o bom funcionamento do veículo, é importante fazer uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!\n\n"
                         f"Um abraço!"
@@ -276,7 +282,7 @@ def app():
 
                     msg_gestor = (
                         f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
-                        f"Somos da Capital Truck Center - Michelin de Dourados/MS e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
+                        f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
                         f"A última manutenção foi em {data_ultima_visita_str} com {km_ultima_visita_str} km. Desde então, o veículo rodou aproximadamente {km_rodados_str} km, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
                         f"Para manter a manutenção preventiva em dia e garantir a performance do ativo, gostaríamos de alinhar os próximos passos. Por favor, responda esta mensagem para organizarmos o serviço.\n\n"
                         f"Atenciosamente,\nEquipe Capital Truck Center."
@@ -284,7 +290,6 @@ def app():
                     
                     link_motorista = create_whatsapp_link(veiculo['contato_motorista'], msg_motorista)
                     link_gestor = create_whatsapp_link(veiculo['contato_responsavel'], msg_gestor)
-                    # --- FIM DA SEÇÃO DE MENSAGENS ATUALIZADA ---
 
                     b_col1.link_button("📲 Falar com Motorista", url=link_motorista or "", use_container_width=True, disabled=not link_motorista)
                     b_col2.link_button("📲 Falar com Gestor", url=link_gestor or "", use_container_width=True, disabled=not link_gestor)
