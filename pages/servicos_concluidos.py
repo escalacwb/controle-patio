@@ -1,3 +1,5 @@
+# /pages/servicos_concluidos.py
+
 import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
@@ -73,8 +75,10 @@ def app():
         return
 
     try:
+        # ALTERAÇÃO: Adicionado es.id as execucao_id para ser usado no botão
         query = """
             SELECT
+                es.id as execucao_id,
                 es.veiculo_id, es.quilometragem, es.fim_execucao,
                 es.nome_motorista, es.contato_motorista,
                 v.placa, v.empresa,
@@ -106,8 +110,12 @@ def app():
         
         for (veiculo_id, placa, empresa, quilometragem), grupo_visita in visitas_agrupadas:
             info_visita = grupo_visita.iloc[0]
+            # Pega o ID da primeira execução do grupo para representar a visita
+            execucao_id_principal = info_visita['execucao_id']
+            
             with st.container(border=True):
-                col1, col2, col3 = st.columns([0.5, 0.3, 0.2])
+                # ALTERAÇÃO: Layout de colunas ajustado para 4 colunas para os botões
+                col1, col2, col3, col4 = st.columns([0.4, 0.3, 0.15, 0.15])
                 with col1:
                     st.markdown(f"#### Veículo: **{placa}** ({empresa})")
                     if pd.notna(info_visita['nome_motorista']) and info_visita['nome_motorista']:
@@ -118,8 +126,12 @@ def app():
                     st.write(f"**Quilometragem:** {quilometragem:,} km".replace(',', '.'))
                 
                 with col3:
+                    # --- NOVO BOTÃO PARA GERAR TERMO ---
+                    st.link_button("📄 Gerar Termo", url=f"/gerar_termos?execucao_id={execucao_id_principal}", use_container_width=True)
+
+                with col4:
                     if st.session_state.get('user_role') == 'admin':
-                        if st.button("Reverter Visita", key=f"revert_{veiculo_id}_{quilometragem}", type="secondary", use_container_width=True):
+                        if st.button("Reverter", key=f"revert_{veiculo_id}_{quilometragem}", use_container_width=True):
                             reverter_visita(conn, veiculo_id, quilometragem)
 
                 observacoes = grupo_visita['observacao_execucao'].dropna().unique()

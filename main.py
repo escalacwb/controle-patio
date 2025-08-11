@@ -1,3 +1,5 @@
+# /main.py
+
 import streamlit as st
 from streamlit_option_menu import option_menu
 import login
@@ -14,7 +16,8 @@ from pages import (
     gerenciar_usuarios,
     relatorios,
     dados_clientes,
-    mesclar_historico # <-- ADICIONADO
+    mesclar_historico,
+    gerar_termos 
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
@@ -26,8 +29,6 @@ if not st.session_state.get('logged_in'):
 # --- INICIALIZAÇÃO CENTRALIZADA DO ESTADO DA SESSÃO ---
 if 'box_states' not in st.session_state:
     st.session_state.box_states = {}
-# (No futuro, se outras páginas precisarem de memória, adicionamos aqui)
-
 
 # --- APLICATIVO PRINCIPAL ---
 with st.sidebar:
@@ -66,8 +67,8 @@ if st.session_state.get('user_role') == 'admin':
     icons.append("people-fill")
     options.append("Relatórios")
     icons.append("graph-up")
-    options.append("Mesclar Históricos") # <-- ADICIONADO
-    icons.append("sign-merge-left-fill")    # <-- ADICIONADO
+    options.append("Mesclar Históricos")
+    icons.append("sign-merge-left-fill")
 
 selected_page = option_menu(
     menu_title=None, 
@@ -109,5 +110,7 @@ elif selected_page == "Gerenciar Usuários":
     gerenciar_usuarios.app()
 elif selected_page == "Relatórios":
     relatorios.app()
-elif selected_page == "Mesclar Históricos": # <-- ADICIONADO
+elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
+elif selected_page == "Gerar Termos": # A rota ainda existe para ser chamada
+    gerar_termos.app()
