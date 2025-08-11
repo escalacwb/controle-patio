@@ -29,7 +29,7 @@ def app():
         st.error("Falha ao conectar ao banco de dados.")
         st.stop()
 
-    # --- PAINEL DE EDIÇÃO DE EMPRESA (LÓGICA REPLICADA) ---
+    # --- PAINEL DE EDIÇÃO DE EMPRESA ---
     if st.session_state.rp_editing_company_for_vehicle_id:
         veiculo_id_para_editar = st.session_state.rp_editing_company_for_vehicle_id
         df_v_edit = pd.read_sql("SELECT placa, empresa, cliente_id FROM veiculos WHERE id = %s", conn, params=(int(veiculo_id_para_editar),))
@@ -147,10 +147,36 @@ def app():
                     st.session_state.pop('rp_busca_empresa_edit', None)
                     st.rerun()
 
-    # --- O RESTO DA PÁGINA CONTINUA ABAIXO ---
+    # --- SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE VEÍCULO ---
     if st.session_state.rp_editing_vehicle_id:
-        # (O formulário de edição de veículo já foi renderizado no topo)
-        pass
+        veiculo_id = st.session_state.rp_editing_vehicle_id
+        df_v = pd.read_sql("SELECT * FROM veiculos WHERE id = %s", conn, params=(int(veiculo_id),))
+        if not df_v.empty:
+            v_edit = df_v.iloc[0]
+            with st.expander(f"✏️ Editando Veículo: {v_edit['placa']}", expanded=True):
+                with st.form("form_edit_vehicle_rp"):
+                    ve_col1, ve_col2 = st.columns(2)
+                    novo_modelo = ve_col1.text_input("Modelo", value=v_edit['modelo'] or '')
+                    novo_ano = ve_col2.number_input("Ano do Modelo", min_value=1950, max_value=datetime.now().year + 1, value=int(v_edit['ano_modelo'] or datetime.now().year), step=1)
+                    ve_col3, ve_col4 = st.columns(2)
+                    novo_motorista = ve_col3.text_input("Nome do Motorista", value=v_edit['nome_motorista'] or '')
+                    novo_contato_motorista = ve_col4.text_input("Contato do Motorista", value=v_edit['contato_motorista'] or '')
+                    
+                    submit_v, cancel_v = st.columns(2)
+                    if submit_v.form_submit_button("✅ Salvar Veículo", type="primary", use_container_width=True):
+                        try:
+                            with conn.cursor() as cursor:
+                                cursor.execute("UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s",
+                                               (novo_modelo, novo_ano, novo_motorista, formatar_telefone(novo_contato_motorista), int(v_edit['id'])))
+                                conn.commit()
+                                st.success(f"Veículo {v_edit['placa']} atualizado!")
+                                st.session_state.rp_editing_vehicle_id = None
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao salvar veículo: {e}")
+                    if cancel_v.form_submit_button("❌ Cancelar", use_container_width=True):
+                        st.session_state.rp_editing_vehicle_id = None
+                        st.rerun()
 
     st.markdown("---")
     intervalo_revisao_km = st.number_input("Avisar a cada (KM)", min_value=1000, max_value=100000, value=10000, step=1000)
@@ -197,6 +223,7 @@ def app():
 
         df['dias_desde_ultima_visita'] = (pd.Timestamp.now(tz=MS_TZ) - pd.to_datetime(df['data_ultima_visita'], utc=True).dt.tz_convert(MS_TZ)).dt.days
         df['km_atual_estimada'] = df['km_ultima_visita'] + (df['dias_desde_ultima_visita'] * df['media_km_diaria'])
+        df['km_rodados'] = df['km_atual_estimada'] - df['km_ultima_visita']
         
         veiculos_para_contatar = df[df['km_atual_estimada'] >= (df['km_ultima_visita'] + intervalo_revisao_km)].copy()
         veiculos_para_contatar.sort_values(by='km_atual_estimada', ascending=False, inplace=True)
@@ -227,15 +254,37 @@ def app():
                     
                     b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
                     
-                    def get_whatsapp_link(nome, numero, veiculo_info):
-                        if not nome or not numero or not isinstance(numero, str): return None
+                    # --- INÍCIO DA SEÇÃO DE MENSAGENS ATUALIZADA ---
+                    def create_whatsapp_link(numero, msg_text):
+                        if not numero or not isinstance(numero, str): return None
                         num_limpo = "55" + re.sub(r'\D', '', numero)
                         if len(num_limpo) < 12: return None
-                        msg = f"Olá, {nome}! Tudo bem? Vimos que seu caminhão {veiculo_info['modelo']} (placa {veiculo_info['placa']}) está próximo da quilometragem de revisão ({int(veiculo_info['km_atual_estimada']):,} km). Gostaria de agendar um horário?".replace(',', '.')
-                        return f"https://wa.me/{num_limpo}?text={quote_plus(msg)}"
+                        return f"https://wa.me/{num_limpo}?text={quote_plus(msg_text)}"
+                    
+                    km_ultima_visita_str = f"{int(veiculo['km_ultima_visita']):,}".replace(',', '.')
+                    km_atual_estimada_str = f"{int(veiculo['km_atual_estimada']):,}".replace(',', '.')
+                    km_rodados_str = f"{int(veiculo['km_rodados']):,}".replace(',', '.')
+                    data_ultima_visita_str = veiculo['data_ultima_visita'].strftime('%d/%m/%Y')
+                    
+                    msg_motorista = (
+                        f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
+                        f"Aqui é da Capital Truck Center. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
+                        f"A última foi com {km_ultima_visita_str} km e, com base no histórico de rodagem dele aqui no sistema, ele já rodou aproximadamente {km_rodados_str} km desde então, estando agora com cerca de {km_atual_estimada_str} km.\n\n"
+                        f"Para garantir a segurança e o bom funcionamento do veículo, é importante fazer uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!\n\n"
+                        f"Um abraço!"
+                    )
 
-                    link_motorista = get_whatsapp_link(veiculo['nome_motorista'], veiculo['contato_motorista'], veiculo)
-                    link_gestor = get_whatsapp_link(veiculo['nome_responsavel'], veiculo['contato_responsavel'], veiculo)
+                    msg_gestor = (
+                        f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
+                        f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
+                        f"A última manutenção foi em {data_ultima_visita_str} com {km_ultima_visita_str} km. Desde então, o veículo rodou aproximadamente {km_rodados_str} km, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
+                        f"Para manter a manutenção preventiva em dia e garantir a performance do ativo, gostaríamos de alinhar os próximos passos. Por favor, responda esta mensagem para organizarmos o serviço.\n\n"
+                        f"Atenciosamente,\nEquipe Capital Truck Center."
+                    )
+                    
+                    link_motorista = create_whatsapp_link(veiculo['contato_motorista'], msg_motorista)
+                    link_gestor = create_whatsapp_link(veiculo['contato_responsavel'], msg_gestor)
+                    # --- FIM DA SEÇÃO DE MENSAGENS ATUALIZADA ---
 
                     b_col1.link_button("📲 Falar com Motorista", url=link_motorista or "", use_container_width=True, disabled=not link_motorista)
                     b_col2.link_button("📲 Falar com Gestor", url=link_gestor or "", use_container_width=True, disabled=not link_gestor)
@@ -244,7 +293,7 @@ def app():
                         st.session_state.rp_editing_vehicle_id = veiculo['veiculo_id']
                         st.session_state.rp_editing_company_for_vehicle_id = None
                         st.rerun()
-                    if b_col4.button("✏️ Alt. Empresa", key=f"edit_c_{veiculo['veiculo_id']}", use_container_width=True):
+                    if b_col4.button("✏️ Alt. Empresa", key=f"edit_c_{veiculo['veiculo_id']}", use_container_width=True, disabled=pd.isna(veiculo['cliente_id'])):
                         st.session_state.rp_editing_company_for_vehicle_id = veiculo['veiculo_id']
                         st.session_state.rp_editing_vehicle_id = None
                         st.rerun()
