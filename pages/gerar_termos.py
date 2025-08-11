@@ -50,7 +50,7 @@ def gerar_texto_termo(dados_veiculo, selecoes):
     partes_texto = [texto_base]
     
     if avarias_selecionadas:
-        texto_avarias = "- O veículo apresenta as seguintes avarias:\n" + "\n".join([f"    {item}" for item in avarias_selecionadas])
+        texto_avarias = "- O veículo apresenta as seguintes avarias:<br>" + "<br>".join([f"&nbsp;&nbsp;&nbsp;&nbsp;{item}" for item in avarias_selecionadas])
         partes_texto.append(texto_avarias)
         partes_texto.append(
             "Estou plenamente ciente de que as folgas identificadas nos componentes da suspensão e direção podem comprometer "
@@ -79,13 +79,13 @@ def gerar_texto_termo(dados_veiculo, selecoes):
         
     texto_final = (
         "Assumo total responsabilidade pelas consequências decorrentes da realização do alinhamento nestas condições, "
-        "bem como pela utilização do veículo após a execução do serviço.\n\n"
-        "Declaro, ainda, que compreendo e aceito que, **devido às condições apresentadas, este serviço será realizado sem garantia**, "
-        "uma vez que **não é possível garantir a precisão técnica exigida pelo fabricante**."
+        "bem como pela utilização do veículo após a execução do serviço.<br><br>"
+        "Declaro, ainda, que compreendo e aceito que, <b>devido às condições apresentadas, este serviço será realizado sem garantia</b>, "
+        "uma vez que <b>não é possível garantir a precisão técnica exigida pelo fabricante</b>."
     )
     partes_texto.append(texto_final)
     
-    return "\n\n".join(partes_texto), nome_motorista.strip(), data_extenso
+    return "<br><br>".join(partes_texto), nome_motorista.strip(), data_extenso
 
 def app():
     st.set_page_config(layout="centered")
@@ -147,37 +147,63 @@ def app():
     
     st.subheader("Pré-visualização do Termo")
     
+    # Monta o HTML do termo em uma única variável
     termo_html = f"""
-    <div id="printable" style="border: 1px solid #555; padding: 20px; border-radius: 5px;">
-        <h3 style="text-align: center;">TERMO DE RESPONSABILIDADE</h3>
-        <p>{texto_completo.replace(chr(10), "<br>")}</p>
+    <div id="printable">
+        <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
+        <p style="font-family: sans-serif; text-align: justify;">{texto_completo}</p>
         <br><br>
-        <p style="text-align: center;">{data_extenso}</p>
-        <br><br>
-        <p style="text-align: center;">___________________________________<br><b>{nome_assinatura}</b></p>
+        <p style="text-align: center; font-family: sans-serif;">{data_extenso}</p>
+        <br><br><br>
+        <p style="text-align: center; font-family: sans-serif;">___________________________________<br><b>{nome_assinatura}</b></p>
     </div>
     """
-    st.markdown(termo_html, unsafe_allow_html=True)
+    
+    # Exibe o termo na tela
+    with st.container(border=True):
+        st.markdown(termo_html, unsafe_allow_html=True)
 
-    if st.button("🖨️ Imprimir Termo", type="primary", use_container_width=True):
-        print_js = """
-        <script>
-            var printContents = document.getElementById('printable').innerHTML;
-            var originalContents = document.body.innerHTML;
-            var style = '<style>@media print { body * { visibility: hidden; } #printable, #printable * { visibility: visible; } #printable { position: absolute; left: 0; top: 0; width: 100%; } @page { size: A5 landscape; margin: 1cm; } p, h3 { font-family: sans-serif; font-size: 12pt; } h3 { font-size: 14pt; } b { font-weight: bold; } }</style>';
-            
-            var printWindow = window.open('', '', 'height=600,width=800');
-            printWindow.document.write('<html><head><title>Imprimir Termo</title>');
-            printWindow.document.write(style);
-            printWindow.document.write('</head><body>');
-            printWindow.document.write(printContents);
-            printWindow.document.write('</body></html>');
-            printWindow.document.close();
-            printWindow.focus();
-            setTimeout(function(){ printWindow.print(); printWindow.close(); }, 500);
-        </script>
-        """
-        st.components.v1.html(print_js, height=0)
+    # --- NOVA LÓGICA DE IMPRESSÃO ---
+    print_button_html = """
+    <style>
+        .print-button {
+            display: block;
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid transparent;
+            border-radius: 0.5rem;
+            background-color: #FF4B4B; /* Cor primária do Streamlit */
+            color: white;
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+            text-decoration: none;
+            margin-top: 1em;
+        }
+        .print-button:hover {
+            opacity: 0.8;
+        }
+        @media print {
+            /* Esconde tudo, exceto a área imprimível e seus filhos */
+            body * {
+                visibility: hidden;
+            }
+            #printable, #printable * {
+                visibility: visible;
+            }
+            #printable {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+        }
+    </style>
+    <a href="javascript:window.print()" class="print-button">
+        🖨️ Imprimir Termo
+    </a>
+    """
+    st.components.v1.html(print_button_html, height=50)
 
 if __name__ == "__main__":
     app()
