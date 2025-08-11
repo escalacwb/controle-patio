@@ -139,7 +139,6 @@ def app():
                                 st.session_state.dc_selected_vehicle_placa = None
                                 st.rerun()
             
-            # <<< INÍCIO DO BLOCO CORRIGIDO E RESTAURADO >>>
             if st.session_state.dc_viewing_vehicles_for_client == selected_id:
                 st.markdown("---")
                 st.header(f"🚛 Veículos do Cliente: {cliente['nome_empresa']}")
@@ -147,7 +146,8 @@ def app():
                 df_veiculos = pd.read_sql(
                     "SELECT id, placa, modelo, media_km_diaria FROM veiculos WHERE cliente_id = %s ORDER BY placa",
                     conn,
-                    params=(st.session_state.dc_viewing_vehicles_for_client,)
+                    # --- LINHA CORRIGIDA --- Converte o ID para um int padrão do Python
+                    params=(int(st.session_state.dc_viewing_vehicles_for_client),)
                 )
 
                 if df_veiculos.empty:
@@ -159,11 +159,10 @@ def app():
                             st.markdown(f"**Placa:** `{veiculo['placa']}` | **Modelo:** {veiculo['modelo'] or 'N/A'}")
                             media_km = f"{veiculo['media_km_diaria']:.2f}" if pd.notna(veiculo['media_km_diaria']) else "N/A"
                             st.caption(f"ID do Veículo: {veiculo['id']} | Média: {media_km} km/dia")
-                        with v_col2:
+                        with col2:
                             if st.button("📋 Ver Histórico Completo", key=f"history_{veiculo['id']}", use_container_width=True):
                                 st.session_state.dc_selected_vehicle_placa = veiculo['placa']
                                 st.rerun()
-            # <<< FIM DO BLOCO CORRIGIDO E RESTAURADO >>>
             
             if st.session_state.dc_selected_vehicle_placa:
                 st.markdown("---")
