@@ -13,7 +13,8 @@ from pages import (
     revisao_proativa,
     gerenciar_usuarios,
     relatorios,
-    dados_clientes # Importa a nova página
+    dados_clientes,
+    mesclar_historico # <-- ADICIONADO
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
@@ -37,7 +38,6 @@ with st.sidebar:
         st.rerun()
 
 # --- LISTAS DE OPÇÕES E ÍCONES DO MENU ---
-# Adicionada a nova página e ícones para todas as opções
 options = [
     "Cadastro de Serviço", 
     "Dados de Clientes", 
@@ -66,6 +66,8 @@ if st.session_state.get('user_role') == 'admin':
     icons.append("people-fill")
     options.append("Relatórios")
     icons.append("graph-up")
+    options.append("Mesclar Históricos") # <-- ADICIONADO
+    icons.append("sign-merge-left-fill")    # <-- ADICIONADO
 
 selected_page = option_menu(
     menu_title=None, 
@@ -87,7 +89,7 @@ if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
     cadastro_servico.app()
-elif selected_page == "Dados de Clientes": # Rota para a nova página
+elif selected_page == "Dados de Clientes":
     dados_clientes.app()
 elif selected_page == "Cadastro de Veículo":
     cadastro_veiculo.app()
@@ -107,3 +109,5 @@ elif selected_page == "Gerenciar Usuários":
     gerenciar_usuarios.app()
 elif selected_page == "Relatórios":
     relatorios.app()
+elif selected_page == "Mesclar Históricos": # <-- ADICIONADO
+    mesclar_historico.app()
