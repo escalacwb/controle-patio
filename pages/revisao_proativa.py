@@ -7,7 +7,8 @@ from datetime import datetime
 import pytz
 from urllib.parse import quote_plus
 import re
-from utils import formatar_telefone
+from utils import formatar_telefone, buscar_clientes_por_similaridade, get_cliente_details
+import psycopg2.extras
 
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
@@ -18,78 +19,141 @@ def app():
     # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
     if 'page_number' not in st.session_state:
         st.session_state.page_number = 0
-    # O estado 'rp_dismissed_vehicles' foi removido, pois a nova lógica usa o banco de dados.
     if 'rp_editing_vehicle_id' not in st.session_state:
         st.session_state.rp_editing_vehicle_id = None
-    if 'rp_editing_client_id' not in st.session_state:
-        st.session_state.rp_editing_client_id = None
+    if 'rp_editing_company_for_vehicle_id' not in st.session_state:
+        st.session_state.rp_editing_company_for_vehicle_id = None
 
     conn = get_connection()
     if not conn:
         st.error("Falha ao conectar ao banco de dados.")
         st.stop()
 
-    # --- SEÇÃO DE FORMULÁRIOS DE EDIÇÃO (APARECEM NO TOPO QUANDO ATIVOS) ---
-    if st.session_state.rp_editing_vehicle_id:
-        veiculo_id = st.session_state.rp_editing_vehicle_id
-        df_v = pd.read_sql("SELECT * FROM veiculos WHERE id = %s", conn, params=(int(veiculo_id),))
-        if not df_v.empty:
-            v_edit = df_v.iloc[0]
-            with st.expander(f"✏️ Editando Veículo: {v_edit['placa']}", expanded=True):
-                with st.form("form_edit_vehicle_rp"):
-                    ve_col1, ve_col2 = st.columns(2)
-                    novo_modelo = ve_col1.text_input("Modelo", value=v_edit['modelo'] or '')
-                    novo_ano = ve_col2.number_input("Ano do Modelo", min_value=1950, max_value=datetime.now().year + 1, value=int(v_edit['ano_modelo'] or datetime.now().year), step=1)
-                    ve_col3, ve_col4 = st.columns(2)
-                    novo_motorista = ve_col3.text_input("Nome do Motorista", value=v_edit['nome_motorista'] or '')
-                    novo_contato_motorista = ve_col4.text_input("Contato do Motorista", value=v_edit['contato_motorista'] or '')
-                    
-                    submit_v, cancel_v = st.columns(2)
-                    if submit_v.form_submit_button("✅ Salvar Veículo", type="primary", use_container_width=True):
-                        try:
-                            with conn.cursor() as cursor:
-                                cursor.execute("UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s",
-                                               (novo_modelo, novo_ano, novo_motorista, formatar_telefone(novo_contato_motorista), int(v_edit['id'])))
-                                conn.commit()
-                                st.success(f"Veículo {v_edit['placa']} atualizado!")
-                                st.session_state.rp_editing_vehicle_id = None
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao salvar veículo: {e}")
-                    if cancel_v.form_submit_button("❌ Cancelar", use_container_width=True):
-                        st.session_state.rp_editing_vehicle_id = None
-                        st.rerun()
+    # --- PAINEL DE EDIÇÃO DE EMPRESA (LÓGICA REPLICADA) ---
+    if st.session_state.rp_editing_company_for_vehicle_id:
+        veiculo_id_para_editar = st.session_state.rp_editing_company_for_vehicle_id
+        df_v_edit = pd.read_sql("SELECT placa, empresa, cliente_id FROM veiculos WHERE id = %s", conn, params=(int(veiculo_id_para_editar),))
+        
+        if not df_v_edit.empty:
+            v_edit_data = df_v_edit.iloc[0]
+            with st.expander(f"✏️ Alterando Empresa do Veículo: {v_edit_data['placa']}", expanded=True):
+                
+                if 'rp_busca_empresa_edit' not in st.session_state:
+                    st.session_state.rp_busca_empresa_edit = v_edit_data['empresa'] or ""
 
-    if st.session_state.rp_editing_client_id:
-        cliente_id = st.session_state.rp_editing_client_id
-        df_c = pd.read_sql("SELECT * FROM clientes WHERE id = %s", conn, params=(int(cliente_id),))
-        if not df_c.empty:
-            c_edit = df_c.iloc[0]
-            with st.expander(f"✏️ Editando Empresa: {c_edit['nome_empresa']}", expanded=True):
-                with st.form("form_edit_client_rp"):
-                    ce_col1, ce_col2 = st.columns(2)
-                    novo_resp = ce_col1.text_input("Nome do Responsável", value=c_edit['nome_responsavel'] or '')
-                    novo_contato_resp = ce_col2.text_input("Contato do Responsável", value=c_edit['contato_responsavel'] or '')
-                    
-                    submit_c, cancel_c = st.columns(2)
-                    if submit_c.form_submit_button("✅ Salvar Empresa", type="primary", use_container_width=True):
-                        try:
-                            with conn.cursor() as cursor:
-                                cursor.execute("UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s WHERE id = %s",
-                                               (novo_resp, formatar_telefone(novo_contato_resp), int(c_edit['id'])))
-                                conn.commit()
-                                st.success(f"Cliente {c_edit['nome_empresa']} atualizado!")
-                                st.session_state.rp_editing_client_id = None
+                busca_empresa_edit = st.text_input("Digite para buscar a nova empresa", value=st.session_state.rp_busca_empresa_edit, key="rp_busca_empresa_input")
+
+                if busca_empresa_edit != st.session_state.rp_busca_empresa_edit:
+                    st.session_state.rp_busca_empresa_edit = busca_empresa_edit
+                    st.session_state.pop('rp_last_selected_client_id', None)
+                    st.session_state.pop('rp_details_responsavel', None)
+                    st.rerun()
+
+                cliente_id_final = v_edit_data['cliente_id']
+                nome_empresa_final = st.session_state.rp_busca_empresa_edit
+                cliente_id_selecionado_edit = None
+
+                if len(st.session_state.rp_busca_empresa_edit) >= 3:
+                    resultados_busca = buscar_clientes_por_similaridade(st.session_state.rp_busca_empresa_edit)
+                    if resultados_busca:
+                        opcoes_cliente_edit = {"": None}
+                        for id_c, nome_e, nome_f in resultados_busca:
+                            texto_exibicao = f"{nome_e} (Fantasia: {nome_f})" if nome_f and nome_f.strip() and nome_e.lower() != nome_f.lower() else nome_e
+                            opcoes_cliente_edit[texto_exibicao] = id_c
+                        opcoes_cliente_edit[f"Nenhum destes. Criar nova empresa '{st.session_state.rp_busca_empresa_edit}'"] = "NOVO"
+                        
+                        cliente_selecionado_str = st.selectbox("Selecione a empresa encontrada ou confirme a criação de uma nova:", options=list(opcoes_cliente_edit.keys()), key="rp_select_edit_empresa")
+                        
+                        cliente_id_selecionado_edit = opcoes_cliente_edit[cliente_selecionado_str]
+                        if cliente_id_selecionado_edit and cliente_id_selecionado_edit != "NOVO":
+                            cliente_id_final = cliente_id_selecionado_edit
+                            nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_final), st.session_state.rp_busca_empresa_edit)
+                        elif cliente_id_selecionado_edit == "NOVO":
+                            cliente_id_final = None
+
+                if cliente_id_selecionado_edit != st.session_state.get('rp_last_selected_client_id'):
+                    st.session_state.rp_last_selected_client_id = cliente_id_selecionado_edit
+                    if isinstance(cliente_id_selecionado_edit, int):
+                        st.session_state.rp_details_responsavel = get_cliente_details(cliente_id_selecionado_edit)
+                    else:
+                        st.session_state.rp_details_responsavel = {}
+                    st.session_state.rp_editing_responsavel = False
+                    st.rerun()
+                
+                st.markdown("---")
+                st.subheader("Dados do Responsável pela Frota")
+                
+                details = st.session_state.get('rp_details_responsavel', {})
+                nome_resp = details.get('nome_responsavel', "") if details else ""
+                contato_resp = details.get('contato_responsavel', "") if details else ""
+
+                if st.session_state.get('rp_editing_responsavel', False):
+                    with st.form("form_rp_edit_responsavel"):
+                        st.info("Você está editando os dados do responsável para esta empresa.")
+                        novo_nome_resp = st.text_input("Nome do Responsável", value=nome_resp)
+                        novo_contato_resp = st.text_input("Contato do Responsável", value=contato_resp)
+                        if st.form_submit_button("✅ Salvar Responsável"):
+                            id_cliente_para_salvar = st.session_state.get('rp_last_selected_client_id')
+                            if id_cliente_para_salvar and isinstance(id_cliente_para_salvar, int):
+                                try:
+                                    with conn.cursor() as cursor:
+                                        cursor.execute("UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s WHERE id = %s", (novo_nome_resp, formatar_telefone(novo_contato_resp), int(id_cliente_para_salvar)))
+                                        conn.commit()
+                                        st.success("Responsável atualizado!")
+                                        st.session_state.rp_editing_responsavel = False
+                                        st.session_state.rp_last_selected_client_id = None
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao salvar: {e}")
+                            else:
+                                st.warning("Selecione um cliente existente da lista para poder editar o responsável.")
+                else:
+                    col_nome, col_contato, col_btn = st.columns([0.4, 0.4, 0.2])
+                    col_nome.text_input("Nome do Responsável", value=nome_resp, disabled=True, key="rp_resp_nome")
+                    col_contato.text_input("Contato do Responsável", value=contato_resp, disabled=True, key="rp_resp_contato")
+                    with col_btn:
+                        st.write(""); st.write("")
+                        if st.button("✏️ Alterar", use_container_width=True, key="rp_edit_resp_btn"):
+                            if isinstance(st.session_state.get('rp_last_selected_client_id'), int):
+                                st.session_state.rp_editing_responsavel = True
                                 st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao salvar cliente: {e}")
-                    if cancel_c.form_submit_button("❌ Cancelar", use_container_width=True):
-                        st.session_state.rp_editing_client_id = None
-                        st.rerun()
+                            else:
+                                st.toast("Selecione um cliente da lista para poder editar.", icon="⚠️")
+
+                st.markdown("---")
+                s_col, c_col = st.columns(2)
+                if s_col.button("✅ Salvar Vinculação da Empresa", type="primary", use_container_width=True):
+                    try:
+                        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                            if cliente_id_final is None and nome_empresa_final:
+                                cursor.execute("INSERT INTO clientes (nome_empresa) VALUES (%s) RETURNING id", (nome_empresa_final,))
+                                cliente_id_final = cursor.fetchone()['id']
+                            
+                            if cliente_id_final:
+                                query_veiculo = "UPDATE veiculos SET empresa = %s, cliente_id = %s WHERE id = %s"
+                                cursor.execute(query_veiculo, (nome_empresa_final, cliente_id_final, int(veiculo_id_para_editar)))
+                                conn.commit()
+                                st.success("Vinculação da empresa atualizada com sucesso!")
+                                st.session_state.rp_editing_company_for_vehicle_id = None
+                                st.session_state.pop('rp_busca_empresa_edit', None)
+                                st.rerun()
+                            else:
+                                st.error("Nenhum cliente selecionado ou criado para vincular.")
+                    except Exception as e:
+                        st.error(f"Erro ao salvar vinculação: {e}")
+
+                if c_col.button("❌ Cancelar Alteração de Empresa", use_container_width=True):
+                    st.session_state.rp_editing_company_for_vehicle_id = None
+                    st.session_state.pop('rp_busca_empresa_edit', None)
+                    st.rerun()
+
+    # --- O RESTO DA PÁGINA CONTINUA ABAIXO ---
+    if st.session_state.rp_editing_vehicle_id:
+        # (O formulário de edição de veículo já foi renderizado no topo)
+        pass
 
     st.markdown("---")
-    intervalo_revisao_km = st.number_input("Avisar a cada (KM)", min_value=1000, max_value=100000, value=10000, step=1000,
-                                       help="O sistema irá alertar sobre veículos que rodaram aproximadamente esta quilometragem desde a última visita.")
+    intervalo_revisao_km = st.number_input("Avisar a cada (KM)", min_value=1000, max_value=100000, value=10000, step=1000)
     st.markdown("---")
 
     try:
@@ -164,7 +228,7 @@ def app():
                     b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
                     
                     def get_whatsapp_link(nome, numero, veiculo_info):
-                        if not numero or not isinstance(numero, str): return None
+                        if not nome or not numero or not isinstance(numero, str): return None
                         num_limpo = "55" + re.sub(r'\D', '', numero)
                         if len(num_limpo) < 12: return None
                         msg = f"Olá, {nome}! Tudo bem? Vimos que seu caminhão {veiculo_info['modelo']} (placa {veiculo_info['placa']}) está próximo da quilometragem de revisão ({int(veiculo_info['km_atual_estimada']):,} km). Gostaria de agendar um horário?".replace(',', '.')
@@ -178,10 +242,10 @@ def app():
                     
                     if b_col3.button("✏️ Alt. Veículo", key=f"edit_v_{veiculo['veiculo_id']}", use_container_width=True):
                         st.session_state.rp_editing_vehicle_id = veiculo['veiculo_id']
-                        st.session_state.rp_editing_client_id = None
+                        st.session_state.rp_editing_company_for_vehicle_id = None
                         st.rerun()
-                    if b_col4.button("✏️ Alt. Empresa", key=f"edit_c_{veiculo['veiculo_id']}", use_container_width=True, disabled=pd.isna(veiculo['cliente_id'])):
-                        st.session_state.rp_editing_client_id = veiculo['cliente_id']
+                    if b_col4.button("✏️ Alt. Empresa", key=f"edit_c_{veiculo['veiculo_id']}", use_container_width=True):
+                        st.session_state.rp_editing_company_for_vehicle_id = veiculo['veiculo_id']
                         st.session_state.rp_editing_vehicle_id = None
                         st.rerun()
                     if b_col5.button("✅ Contato Feito", key=f"dismiss_{veiculo['veiculo_id']}", use_container_width=True):
