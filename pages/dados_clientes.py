@@ -22,14 +22,12 @@ def app():
         st.session_state.dc_viewing_vehicles_for_client = None
     if 'dc_selected_vehicle_placa' not in st.session_state:
         st.session_state.dc_selected_vehicle_placa = None
-    # --- NOVO ESTADO PARA EDIÇÃO DE VEÍCULO ---
     if 'dc_editing_vehicle_id' not in st.session_state:
         st.session_state.dc_editing_vehicle_id = None
 
 
     def search_changed():
         st.session_state.dc_search_term = st.session_state.dc_search_input
-        # Reseta todas as seleções ao iniciar uma nova busca
         st.session_state.dc_selected_client_id = None
         st.session_state.dc_editing_client_id = None
         st.session_state.dc_viewing_vehicles_for_client = None
@@ -66,7 +64,8 @@ def app():
         except ValueError:
             pass
         
-        query = "SELECT id, nome_empresa, nome_fantasia FROM clientes WHERE " + " OR ".join(where_clauses) + " ORDER BY nome_empresa"
+        # Este select agora busca todos os dados para evitar uma segunda consulta
+        query = "SELECT * FROM clientes WHERE " + " OR ".join(where_clauses) + " ORDER BY nome_empresa"
         df_clientes_results = pd.read_sql(query, conn, params=query_params)
 
         if df_clientes_results.empty:
@@ -96,13 +95,13 @@ def app():
 
         selected_id = st.session_state.dc_selected_client_id
         if selected_id:
-            cliente_details_df = pd.read_sql("SELECT * FROM clientes WHERE id = %s", conn, params=(selected_id,))
+            # Pega os detalhes do cliente do DataFrame já carregado
+            cliente_details_df = df_clientes_results[df_clientes_results['id'] == selected_id]
             if not cliente_details_df.empty:
                 cliente = cliente_details_df.iloc[0]
                 cliente_id = cliente['id']
 
                 with st.container(border=True):
-                    # Lógica de edição de CLIENTE (sem alterações)
                     if st.session_state.dc_editing_client_id == cliente_id:
                         with st.form(key=f"form_edit_{cliente_id}"):
                             st.subheader(f"Editando Cliente: {cliente['nome_empresa']}")
@@ -121,7 +120,11 @@ def app():
                                 try:
                                     with conn.cursor() as cursor:
                                         update_query = "UPDATE clientes SET nome_empresa = %s, nome_fantasia = %s, cidade = %s, uf = %s, nome_responsavel = %s, contato_responsavel = %s WHERE id = %s"
-                                        cursor.execute(update_query, (novo_nome_empresa, novo_nome_fantasia, nova_cidade, nova_uf.upper(), novo_nome_resp, formatar_telefone(novo_contato_resp), cliente_id))
+                                        cursor.execute(update_query, (
+                                            novo_nome_empresa, novo_nome_fantasia, nova_cidade, nova_uf.upper(), 
+                                            novo_nome_resp, formatar_telefone(novo_contato_resp), 
+                                            int(cliente_id) # <-- CORREÇÃO: Converte o ID para o tipo int padrão
+                                        ))
                                         conn.commit()
                                         st.success(f"Cliente {novo_nome_empresa} atualizado com sucesso!")
                                         st.session_state.dc_editing_client_id = None
@@ -133,7 +136,6 @@ def app():
                                 st.session_state.dc_editing_client_id = None
                                 st.rerun()
                     else:
-                        # Lógica de visualização do CLIENTE (sem alterações)
                         col1, col2 = st.columns([0.7, 0.3])
                         with col1:
                             st.subheader(cliente['nome_empresa'])
@@ -171,7 +173,6 @@ def app():
                                 media_km = f"{veiculo['media_km_diaria']:.2f}" if pd.notna(veiculo['media_km_diaria']) else "N/A"
                                 st.caption(f"ID: {veiculo['id']} | Ano: {veiculo['ano_modelo'] or 'N/A'} | Média: {media_km} km/dia")
                             with v_col2:
-                                # --- NOVO BOTÃO DE ALTERAR VEÍCULO ---
                                 if st.button("✏️ Alterar Veículo", key=f"edit_vehicle_{veiculo['id']}", use_container_width=True):
                                     st.session_state.dc_editing_vehicle_id = veiculo['id']
                                     st.session_state.dc_selected_vehicle_placa = None
@@ -182,7 +183,6 @@ def app():
                                     st.session_state.dc_editing_vehicle_id = None
                                     st.rerun()
             
-            # --- NOVO BLOCO PARA FORMULÁRIO DE EDIÇÃO DE VEÍCULO ---
             if st.session_state.dc_editing_vehicle_id:
                 st.markdown("---")
                 vehicle_to_edit_df = pd.read_sql("SELECT * FROM veiculos WHERE id = %s", conn, params=(int(st.session_state.dc_editing_vehicle_id),))
@@ -202,7 +202,7 @@ def app():
                             try:
                                 with conn.cursor() as cursor:
                                     query_update_v = "UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s"
-                                    cursor.execute(query_update_v, (novo_modelo, novo_ano, novo_motorista, formatar_telefone(novo_contato_motorista), v_edit['id']))
+                                    cursor.execute(query_update_v, (novo_modelo, novo_ano, novo_motorista, formatar_telefone(novo_contato_motorista), int(v_edit['id'])))
                                     conn.commit()
                                     st.success(f"Veículo {v_edit['placa']} atualizado com sucesso!")
                                     st.session_state.dc_editing_vehicle_id = None
