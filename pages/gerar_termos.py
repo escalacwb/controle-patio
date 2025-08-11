@@ -26,11 +26,9 @@ def gerar_texto_termo(dados_veiculo, selecoes):
     marca = partes_modelo[0].upper() if len(partes_modelo) > 0 else ''
     modelo = partes_modelo[1].upper() if len(partes_modelo) > 1 else ''
     
-    # --- DATA ATUAL POR EXTENSO ---
     agora = datetime.now()
     data_extenso = agora.strftime(f"Dourados - MS, %d de %B de %Y (%A)")
 
-    # --- LISTA DE AVARIAS PADRÃO ---
     avarias_padrao = [
         "FOLGA EM BUCHA JUMELO", "FOLGA EM BUCHA TIRANTE", "FOLGA EM TERMINAL",
         "PINO DE CENTRO QUEBRADO", "FOLGA EM MANGA DE EIXO", "FOLGA EM ROLAMENTO",
@@ -39,7 +37,7 @@ def gerar_texto_termo(dados_veiculo, selecoes):
     
     avarias_selecionadas = [avaria for avaria in avarias_padrao if selecoes.get(avaria)]
     
-    # --- MONTAGEM DO TEXTO ---
+    # --- MONTAGEM DO TEXTO (preparado para HTML) ---
     texto_base = (
         f"Eu, {nome_motorista}, responsável pelo veículo {marca} {modelo} de placa {placa}, "
         f"pertencente à empresa {cliente}, DECLARO, para os devidos fins, que autorizo a execução do serviço de alinhamento "
@@ -147,63 +145,78 @@ def app():
     
     st.subheader("Pré-visualização do Termo")
     
-    # Monta o HTML do termo em uma única variável
-    termo_html = f"""
-    <div id="printable">
-        <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
-        <p style="font-family: sans-serif; text-align: justify;">{texto_completo}</p>
-        <br><br>
-        <p style="text-align: center; font-family: sans-serif;">{data_extenso}</p>
-        <br><br><br>
-        <p style="text-align: center; font-family: sans-serif;">___________________________________<br><b>{nome_assinatura}</b></p>
-    </div>
-    """
+    # --- INÍCIO DA LÓGICA DE IMPRESSÃO CORRIGIDA ---
     
-    # Exibe o termo na tela
-    with st.container(border=True):
-        st.markdown(termo_html, unsafe_allow_html=True)
-
-    # --- NOVA LÓGICA DE IMPRESSÃO ---
-    print_button_html = """
-    <style>
-        .print-button {
-            display: block;
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid transparent;
-            border-radius: 0.5rem;
-            background-color: #FF4B4B; /* Cor primária do Streamlit */
-            color: white;
-            font-weight: 600;
-            text-align: center;
-            cursor: pointer;
-            text-decoration: none;
-            margin-top: 1em;
-        }
-        .print-button:hover {
-            opacity: 0.8;
-        }
-        @media print {
-            /* Esconde tudo, exceto a área imprimível e seus filhos */
-            body * {
-                visibility: hidden;
-            }
-            #printable, #printable * {
-                visibility: visible;
-            }
-            #printable {
-                position: absolute;
-                left: 0;
-                top: 0;
+    # Monta todo o HTML (CSS + conteúdo do termo + botão) em uma única string
+    html_para_renderizar = f"""
+        <style>
+            .print-button {{
+                display: inline-block;
+                padding: 0.75rem 1.5rem;
+                border-radius: 0.5rem;
+                background-color: #FF4B4B; /* Cor primária do Streamlit */
+                color: white;
+                font-weight: 600;
+                text-align: center;
+                cursor: pointer;
+                text-decoration: none;
+                margin-top: 1.5em;
                 width: 100%;
-            }
-        }
-    </style>
-    <a href="javascript:window.print()" class="print-button">
-        🖨️ Imprimir Termo
-    </a>
+                box-sizing: border-box;
+            }}
+            .print-button:hover {{
+                opacity: 0.8;
+            }}
+            #printable-container {{
+                border: 1px solid #555;
+                padding: 2rem;
+                border-radius: 5px;
+            }}
+            
+            /* Regras de CSS que só se aplicam na hora da impressão */
+            @media print {{
+                /* Esconde todos os elementos do corpo da página */
+                body > #root > div:not(.stApp) {{
+                    display: none;
+                }}
+                .stApp > header, .stSidebar, .main > div:first-child {{
+                    visibility: hidden;
+                }}
+
+                /* Torna visível apenas o contêiner do termo e seu conteúdo */
+                #printable-container, #printable-container * {{
+                    visibility: visible;
+                }}
+                
+                /* Posiciona o contêiner no canto superior da página de impressão */
+                #printable-container {{
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    width: 100%;
+                    border: none !important;
+                    padding: 0 !important;
+                }}
+            }}
+        </style>
+        
+        <div id="printable-container">
+            <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
+            <p style="font-family: sans-serif; text-align: justify; font-size: 11pt;">{texto_completo}</p>
+            <br><br>
+            <p style="text-align: center; font-family: sans-serif;">{data_extenso}</p>
+            <br><br><br>
+            <p style="text-align: center; font-family: sans-serif;">___________________________________<br><b>{nome_assinatura}</b></p>
+        </div>
+
+        <a href="javascript:window.print()" class="print-button">
+            🖨️ Imprimir Termo
+        </a>
     """
-    st.components.v1.html(print_button_html, height=50)
+
+    st.markdown(html_para_renderizar, unsafe_allow_html=True)
+    
+    # --- FIM DA LÓGICA DE IMPRESSÃO CORRIGIDA ---
 
 if __name__ == "__main__":
     app()
