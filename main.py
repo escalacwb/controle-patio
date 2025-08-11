@@ -12,7 +12,8 @@ from pages import (
     feedback_servicos,
     revisao_proativa,
     gerenciar_usuarios,
-    relatorios
+    relatorios,
+    dados_clientes # Importa a nova página
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
@@ -22,8 +23,6 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- INICIALIZAÇÃO CENTRALIZADA DO ESTADO DA SESSÃO ---
-# Este bloco garante que todas as variáveis de memória necessárias existam
-# logo após o login, antes de qualquer página ser carregada.
 if 'box_states' not in st.session_state:
     st.session_state.box_states = {}
 # (No futuro, se outras páginas precisarem de memória, adicionamos aqui)
@@ -37,8 +36,30 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
-options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa"]
-icons = ["truck-front", "card-list", "card-checklist", "view-stacked", "check-circle", "clock-history"]
+# --- LISTAS DE OPÇÕES E ÍCONES DO MENU ---
+# Adicionada a nova página e ícones para todas as opções
+options = [
+    "Cadastro de Serviço", 
+    "Dados de Clientes", 
+    "Alocar Serviços", 
+    "Filas de Serviço", 
+    "Visão dos Boxes", 
+    "Serviços Concluídos", 
+    "Histórico por Veículo", 
+    "Controle de Feedback", 
+    "Revisão Proativa"
+]
+icons = [
+    "truck-front", 
+    "people", 
+    "card-list", 
+    "card-checklist", 
+    "view-stacked", 
+    "check-circle", 
+    "clock-history", 
+    "telephone-outbound", 
+    "arrow-repeat"
+]
 
 if st.session_state.get('user_role') == 'admin':
     options.append("Gerenciar Usuários")
@@ -66,6 +87,8 @@ if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
     cadastro_servico.app()
+elif selected_page == "Dados de Clientes": # Rota para a nova página
+    dados_clientes.app()
 elif selected_page == "Cadastro de Veículo":
     cadastro_veiculo.app()
 elif selected_page == "Filas de Serviço":
@@ -76,9 +99,9 @@ elif selected_page == "Serviços Concluídos":
     servicos_concluidos.app()
 elif selected_page == "Histórico por Veículo":
     historico_veiculo.app()
-elif selected_page == "Controle de Feedback": # <-- ADICIONE ESTE BLOCO
+elif selected_page == "Controle de Feedback":
     feedback_servicos.app()
-elif selected_page == "Revisão Proativa": # <-- ADICIONE ESTE BLOCO
+elif selected_page == "Revisão Proativa":
     revisao_proativa.app()
 elif selected_page == "Gerenciar Usuários":
     gerenciar_usuarios.app()
