@@ -268,7 +268,7 @@ def app():
                     
                     msg_motorista = (
                         f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
-                        f"Aqui é da Capital Truck Center. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
+                        f"Aqui é da Capital Truck Center - Michelin de Dourados/MS. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
                         f"A última foi com {km_ultima_visita_str} km e, com base no histórico de rodagem dele aqui no sistema, ele já rodou aproximadamente {km_rodados_str} km desde então, estando agora com cerca de {km_atual_estimada_str} km.\n\n"
                         f"Para garantir a segurança e o bom funcionamento do veículo, é importante fazer uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!\n\n"
                         f"Um abraço!"
@@ -276,7 +276,7 @@ def app():
 
                     msg_gestor = (
                         f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
-                        f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
+                        f"Somos da Capital Truck Center - Michelin de Dourados/MS e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
                         f"A última manutenção foi em {data_ultima_visita_str} com {km_ultima_visita_str} km. Desde então, o veículo rodou aproximadamente {km_rodados_str} km, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
                         f"Para manter a manutenção preventiva em dia e garantir a performance do ativo, gostaríamos de alinhar os próximos passos. Por favor, responda esta mensagem para organizarmos o serviço.\n\n"
                         f"Atenciosamente,\nEquipe Capital Truck Center."
