@@ -145,78 +145,65 @@ def app():
     
     st.subheader("Pré-visualização do Termo")
     
-    # --- INÍCIO DA LÓGICA DE IMPRESSÃO CORRIGIDA ---
+    # --- LÓGICA DE IMPRESSÃO CORRIGIDA ---
     
-    # Monta todo o HTML (CSS + conteúdo do termo + botão) em uma única string
-    html_para_renderizar = f"""
-        <style>
-            .print-button {{
-                display: inline-block;
-                padding: 0.75rem 1.5rem;
-                border-radius: 0.5rem;
-                background-color: #FF4B4B; /* Cor primária do Streamlit */
-                color: white;
-                font-weight: 600;
-                text-align: center;
-                cursor: pointer;
-                text-decoration: none;
-                margin-top: 1.5em;
-                width: 100%;
-                box-sizing: border-box;
-            }}
-            .print-button:hover {{
-                opacity: 0.8;
-            }}
-            #printable-container {{
-                border: 1px solid #555;
-                padding: 2rem;
-                border-radius: 5px;
-            }}
-            
-            /* Regras de CSS que só se aplicam na hora da impressão */
-            @media print {{
-                /* Esconde todos os elementos do corpo da página */
-                body > #root > div:not(.stApp) {{
-                    display: none;
-                }}
-                .stApp > header, .stSidebar, .main > div:first-child {{
-                    visibility: hidden;
-                }}
-
-                /* Torna visível apenas o contêiner do termo e seu conteúdo */
-                #printable-container, #printable-container * {{
-                    visibility: visible;
-                }}
-                
-                /* Posiciona o contêiner no canto superior da página de impressão */
-                #printable-container {{
-                    position: absolute;
-                    left: 0;
-                    top: 0;
-                    width: 100%;
-                    border: none !important;
-                    padding: 0 !important;
-                }}
-            }}
-        </style>
+    html_content = f"""
+    <style>
+        /* Estilos gerais para o botão de impressão */
+        .print-button {{
+            display: block;
+            width: 100%;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            background-color: #FF4B4B; /* Cor primária do Streamlit */
+            color: white;
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+            text-decoration: none;
+            margin-top: 1.5em;
+            border: none;
+        }}
+        .print-button:hover {{
+            opacity: 0.8;
+        }}
         
-        <div id="printable-container">
-            <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
-            <p style="font-family: sans-serif; text-align: justify; font-size: 11pt;">{texto_completo}</p>
-            <br><br>
-            <p style="text-align: center; font-family: sans-serif;">{data_extenso}</p>
-            <br><br><br>
-            <p style="text-align: center; font-family: sans-serif;">___________________________________<br><b>{nome_assinatura}</b></p>
-        </div>
+        /* Estilos que são aplicados APENAS durante a impressão */
+        @media print {{
+            /* Esconde todos os elementos da página por padrão */
+            body * {{
+                visibility: hidden;
+            }}
+            /* Torna visível APENAS o contêiner do termo e tudo que está dentro dele */
+            #printable-area, #printable-area * {{
+                visibility: visible;
+            }}
+            /* Posiciona o termo no topo da página de impressão */
+            #printable-area {{
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                border: none !important;
+            }}
+        }}
+    </style>
 
-        <a href="javascript:window.print()" class="print-button">
-            🖨️ Imprimir Termo
-        </a>
+    <div id="printable-area">
+        <h3 style="text-align: center; font-family: sans-serif;">TERMO DE RESPONSABILIDADE</h3>
+        <p style="font-family: sans-serif; text-align: justify; font-size: 11pt;">{texto_completo}</p>
+        <br><br>
+        <p style="text-align: center; font-family: sans-serif;">{data_extenso}</p>
+        <br><br><br>
+        <p style="text-align: center; font-family: sans-serif;">___________________________________<br><b>{nome_assinatura}</b></p>
+    </div>
+
+    <button class="print-button" onclick="window.print()">
+        🖨️ Imprimir Termo
+    </button>
     """
-
-    st.markdown(html_para_renderizar, unsafe_allow_html=True)
     
-    # --- FIM DA LÓGICA DE IMPRESSÃO CORRIGIDA ---
+    st.markdown(html_content, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     app()
