@@ -1,13 +1,12 @@
-/* --- SEÇÃO DE TIPOGRAFIA FLUIDA E RESPONSIVA --- */
-/* Esta seção usa clamp() para fontes que se ajustam a qualquer tela */
+/* /style.css (Versão Completa e Unificada) */
 
+/* --- SEÇÃO DE TIPOGRAFIA FLUIDA E RESPONSIVA (SEU CÓDIGO ORIGINAL) --- */
 :root {
-    /* Define tamanhos mínimos, preferidos (fluidos) e máximos para as fontes */
-    --font-size-sm: clamp(0.8rem, 0.5vw + 0.5rem, 0.9rem);      /* Pequeno (ex: texto de ajuda) */
-    --font-size-base: clamp(1rem, 1vw + 0.5rem, 1.1rem);    /* Texto normal */
-    --font-size-lg: clamp(1.1rem, 1.5vw + 0.5rem, 1.25rem);   /* Título h3 e subheaders */
-    --font-size-xl: clamp(1.25rem, 2.5vw + 0.5rem, 1.75rem);  /* Título h2 */
-    --font-size-xxl: clamp(1.5rem, 3.5vw + 0.5rem, 2.25rem);  /* Título h1 */
+    --font-size-sm: clamp(0.8rem, 0.5vw + 0.5rem, 0.9rem);
+    --font-size-base: clamp(1rem, 1vw + 0.5rem, 1.1rem);
+    --font-size-lg: clamp(1.1rem, 1.5vw + 0.5rem, 1.25rem);
+    --font-size-xl: clamp(1.25rem, 2.5vw + 0.5rem, 1.75rem);
+    --font-size-xxl: clamp(1.5rem, 3.5vw + 0.5rem, 2.25rem);
 }
 
 body {
@@ -23,33 +22,26 @@ h3 {
     font-size: var(--font-size-lg);
 }
 
-/* Garante que o texto dentro dos containers dos boxes quebre a linha no celular */
 div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div[data-testid="stMarkdownContainer"] p {
     word-break: break-word;
 }
 
-
-/* --- SUAS REGRAS ANTERIORES (MANTIDAS) --- */
-
-/* Esconde o menu de navegação de arquivos do Streamlit */
+/* --- SUAS REGRAS DE LAYOUT E BOTÕES (SEU CÓDIGO ORIGINAL) --- */
 [data-testid="stSidebarNav"] {
     display: none;
 }
 
-/* Define a largura máxima do bloco principal do app em telas grandes */
 .main .block-container {
     max-width: 1400px;
     padding: 2rem 2rem;
 }
 
-/* Melhora a aparência dos containers que usamos para os blocos */
 [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 10px;
     padding: 1rem;
 }
 
-/* Estilos para os botões */
 button[title^="Remover"] {
     background-color: #a11d1f !important;
     border-color: #a11d1f !important;
@@ -67,4 +59,38 @@ button[title^="Adicionar"] {
 button[title^="Adicionar"]:hover {
     background-color: #1a8ccd !important;
     border-color: #1a8ccd !important;
+}
+
+
+/* --- NOVAS REGRAS PARA LAYOUT PROFISSIONAL E MENU RESPONSIVO --- */
+
+/* Esconde o menu 'hamburger' e o rodapé do Streamlit */
+[data-testid="stToolbar"] {
+    visibility: hidden;
+    height: 0%;
+    position: fixed;
+}
+footer {
+    visibility: hidden;
+}
+
+/* ESTILOS PARA TELAS PEQUENAS (CELULARES) */
+@media (max-width: 767px) {
+    /* Adiciona um espaço no final da página para o menu flutuante não cobrir o conteúdo */
+    .main .block-container {
+        padding-bottom: 6rem !important;
+    }
+
+    /* Pega o contêiner do menu e o transforma em uma barra fixa na base */
+    div[data-testid="stOptionMenu"] {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        background-color: #292929;
+        border-top: 1px solid #444;
+        z-index: 9999;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+    }
 }

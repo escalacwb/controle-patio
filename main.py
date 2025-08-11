@@ -1,6 +1,7 @@
 # /main.py
 
 import streamlit as st
+from utils import load_css
 from streamlit_option_menu import option_menu
 from streamlit_js_eval import streamlit_js_eval
 import login
