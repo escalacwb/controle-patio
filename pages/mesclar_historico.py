@@ -6,21 +6,6 @@ from database import get_connection, release_connection
 from utils import recalcular_media_veiculo
 import psycopg2.extras
 
-# Dicionário para converter o 5º dígito da placa antiga para o padrão Mercosul
-CONVERSAO_PLACA = {
-    '0': 'A', '1': 'B', '2': 'C', '3': 'D', '4': 'E',
-    '5': 'F', '6': 'G', '7': 'H', '8': 'I', '9': 'J'
-}
-
-def converter_placa_antiga_para_nova(placa_antiga):
-    """Converte uma placa no formato antigo (ex: ABC1234) para o novo (ex: ABC1B34)."""
-    if len(placa_antiga) != 7 or not placa_antiga[4].isdigit():
-        return None
-    quinto_digito = placa_antiga[4]
-    if quinto_digito in CONVERSAO_PLACA:
-        return f"{placa_antiga[:4]}{CONVERSAO_PLACA[quinto_digito]}{placa_antiga[5:]}"
-    return None
-
 def mesclar_dados_veiculos(conn, id_antigo, id_novo):
     """
     Executa a fusão dos dados, transferindo o histórico e consolidando as informações.
@@ -34,7 +19,9 @@ def mesclar_dados_veiculos(conn, id_antigo, id_novo):
                     nome_motorista = COALESCE(v_novo.nome_motorista, v_antigo.nome_motorista),
                     contato_motorista = COALESCE(v_novo.contato_motorista, v_antigo.contato_motorista),
                     empresa = COALESCE(v_novo.empresa, v_antigo.empresa),
-                    cliente_id = COALESCE(v_novo.cliente_id, v_antigo.cliente_id)
+                    cliente_id = COALESCE(v_novo.cliente_id, v_antigo.cliente_id),
+                    modelo = COALESCE(v_novo.modelo, v_antigo.modelo),
+                    ano_modelo = COALESCE(v_novo.ano_modelo, v_antigo.ano_modelo)
                 FROM veiculos v_antigo
                 WHERE v_novo.id = %s AND v_antigo.id = %s;
             """, (id_novo, id_antigo))
@@ -54,7 +41,7 @@ def mesclar_dados_veiculos(conn, id_antigo, id_novo):
 
             # 3. Remove o registro do veículo antigo para evitar duplicidade
             cursor.execute("DELETE FROM veiculos WHERE id = %s;", (id_antigo,))
-
+            
             conn.commit()
             
             # 4. Recalcula a média de KM do veículo novo, agora com o histórico completo
@@ -68,77 +55,75 @@ def mesclar_dados_veiculos(conn, id_antigo, id_novo):
 
 def app():
     st.title("🖇️ Mesclar Históricos de Veículos")
-    st.markdown("Use esta ferramenta para fundir o histórico de um veículo que teve a placa alterada do modelo antigo para o Mercosul.")
-    st.warning("⚠️ **Atenção:** Esta é uma operação permanente e irá apagar o registro do veículo com a placa antiga. Faça um backup do banco de dados antes de prosseguir.")
+    st.markdown("Esta ferramenta analisa todos os veículos e sugere fusões para placas que mudaram do modelo antigo para o Mercosul.")
+    st.warning("⚠️ **Atenção:** A mesclagem é uma operação permanente e irá apagar o registro do veículo com a placa antiga. Faça um backup do banco de dados antes de prosseguir.")
+    st.markdown("---")
 
-    placa_busca = st.text_input("Digite a placa nova (Mercosul) para iniciar a busca", max_chars=7).upper()
-
-    if len(placa_busca) != 7:
-        st.info("Por favor, digite uma placa válida com 7 caracteres.")
-        st.stop()
-    
     conn = get_connection()
     if not conn:
         st.error("Não foi possível conectar ao banco de dados.")
         st.stop()
 
     try:
-        df_novo = pd.read_sql("SELECT * FROM veiculos WHERE placa = %s", conn, params=(placa_busca,))
+        # Nova query que faz um self-join para encontrar todos os pares de placas correspondentes
+        query_pares = """
+            SELECT
+                v_antigo.id AS id_antigo,
+                v_antigo.placa AS placa_antiga,
+                v_novo.id AS id_novo,
+                v_novo.placa AS placa_nova
+            FROM
+                veiculos AS v_antigo
+            JOIN
+                veiculos AS v_novo ON
+                    -- Garante que estamos comparando uma placa antiga com uma nova
+                    SUBSTRING(v_antigo.placa, 5, 1) ~ '[0-9]' AND
+                    SUBSTRING(v_novo.placa, 5, 1) ~ '[A-Z]' AND
+                    -- Compara as partes que não mudam na placa
+                    SUBSTRING(v_novo.placa, 1, 4) = SUBSTRING(v_antigo.placa, 1, 4) AND
+                    SUBSTRING(v_novo.placa, 6, 2) = SUBSTRING(v_antigo.placa, 6, 2) AND
+                    -- Aplica a regra de conversão da letra
+                    SUBSTRING(v_novo.placa, 5, 1) = CASE SUBSTRING(v_antigo.placa, 5, 1)
+                                                        WHEN '0' THEN 'A' WHEN '1' THEN 'B'
+                                                        WHEN '2' THEN 'C' WHEN '3' THEN 'D'
+                                                        WHEN '4' THEN 'E' WHEN '5' THEN 'F'
+                                                        WHEN '6' THEN 'G' WHEN '7' THEN 'H'
+                                                        WHEN '8' THEN 'I' WHEN '9' THEN 'J'
+                                                      END;
+        """
         
-        if df_novo.empty:
-            st.error(f"A placa nova '{placa_busca}' não foi encontrada no sistema.")
+        with st.spinner("Procurando por placas para mesclar..."):
+            df_pares = pd.read_sql(query_pares, conn)
+
+        if df_pares.empty:
+            st.success("✅ Nenhuma placa com potencial de mesclagem foi encontrada no sistema.")
             st.stop()
-
-        veiculo_novo = df_novo.iloc[0]
-        placa_antiga_convertida = converter_placa_antiga_para_nova(placa_busca.replace(placa_busca[4], str(list(CONVERSAO_PLACA.keys())[list(CONVERSAO_PLACA.values()).index(placa_busca[4])]))) if not placa_busca[4].isdigit() else None
         
-        placa_antiga_reversa = None
-        # Tenta a conversão reversa para encontrar a placa antiga
-        for key, value in CONVERSAO_PLACA.items():
-            if value == placa_busca[4]:
-                placa_antiga_reversa = f"{placa_busca[:4]}{key}{placa_busca[5:]}"
-                break
-        
-        if not placa_antiga_reversa:
-            st.warning("A placa digitada não parece ser uma placa Mercosul convertida (o 5º caractere não é uma letra de conversão).")
-            st.stop()
+        st.subheader(f"Encontrados {len(df_pares)} pares de placas para possível mesclagem:")
 
-        df_antigo = pd.read_sql("SELECT * FROM veiculos WHERE placa = %s", conn, params=(placa_antiga_reversa,))
-
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Veículo com Placa Antiga")
-            if not df_antigo.empty:
-                veiculo_antigo = df_antigo.iloc[0]
-                st.success(f"✅ Encontrado: **{veiculo_antigo['placa']}**")
-                st.write(f"**ID:** {veiculo_antigo['id']}")
-                st.write(f"**Empresa:** {veiculo_antigo['empresa']}")
-                st.write(f"**Motorista:** {veiculo_antigo['nome_motorista']}")
-            else:
-                st.error(f"Placa antiga correspondente '{placa_antiga_reversa}' não encontrada.")
-
-        with col2:
-            st.subheader("Veículo com Placa Nova")
-            st.info(f"Veículo a ser mantido: **{veiculo_novo['placa']}**")
-            st.write(f"**ID:** {veiculo_novo['id']}")
-            st.write(f"**Empresa:** {veiculo_novo['empresa']}")
-            st.write(f"**Motorista:** {veiculo_novo['nome_motorista']}")
-
-        if not df_antigo.empty and not df_novo.empty:
-            st.markdown("---")
-            st.subheader("Confirmar Mesclagem")
-            st.write(f"O histórico do veículo **{veiculo_antigo['placa']}** será transferido para o veículo **{veiculo_novo['placa']}**. Os dados de contato e empresa serão consolidados, e o registro de **{veiculo_antigo['placa']}** será **permanentemente apagado**.")
+        for _, par in df_pares.iterrows():
+            id_antigo = int(par['id_antigo'])
+            placa_antiga = par['placa_antiga']
+            id_novo = int(par['id_novo'])
+            placa_nova = par['placa_nova']
             
-            if st.button("Confirmar e Mesclar Históricos", type="primary", use_container_width=True):
-                with st.spinner("Mesclando dados... Por favor, aguarde."):
-                    id_antigo = int(veiculo_antigo['id'])
-                    id_novo = int(veiculo_novo['id'])
-                    sucesso, mensagem = mesclar_dados_veiculos(conn, id_antigo, id_novo)
-                    if sucesso:
-                        st.success(mensagem)
-                    else:
-                        st.error(mensagem)
+            with st.container(border=True):
+                cols = st.columns([0.4, 0.4, 0.2])
+                cols[0].metric("Placa Antiga (será removida)", placa_antiga)
+                cols[1].metric("Placa Nova (será mantida)", placa_nova)
+                
+                with cols[2]:
+                    st.write("") # Espaçamento para alinhar o botão
+                    if st.button("Mesclar Históricos", key=f"merge_{id_antigo}", type="primary", use_container_width=True):
+                        with st.spinner(f"Mesclando {placa_antiga} -> {placa_nova}..."):
+                            sucesso, mensagem = mesclar_dados_veiculos(conn, id_antigo, id_novo)
+                            if sucesso:
+                                st.success(mensagem)
+                                st.rerun()
+                            else:
+                                st.error(mensagem)
+                                
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao buscar os pares de placas: {e}")
     finally:
         release_connection(conn)
