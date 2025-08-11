@@ -27,11 +27,15 @@ st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
 st.markdown("""
 <style>
     /* 1. REMOÇÃO DE ELEMENTOS NATIVOS DO STREAMLIT */
-    /* Esconde o menu 'hamburger', botões de 'fork' etc. no topo direito */
+    /* Esconde a barra de ferramentas superior (menu hamburger, fork, etc.) */
     [data-testid="stToolbar"] {
         visibility: hidden;
         height: 0%;
         position: fixed;
+    }
+    /* Esconde o cabeçalho onde a barra de ferramentas fica */
+    header[data-testid="stHeader"] {
+        display: none !important;
     }
     /* Esconde o rodapé "Made with Streamlit" */
     footer {
@@ -40,24 +44,25 @@ st.markdown("""
     }
 
     /* 2. LÓGICA DO MENU RESPONSIVO PARA CELULAR */
+    /* Aplica-se apenas a telas com largura máxima de 767px (celulares) */
     @media (max-width: 767px) {
         /* Adiciona um espaço no final da página para o menu flutuante não cobrir o conteúdo */
         .main .block-container {
             padding-bottom: 6rem !important;
         }
 
-        /* Pega o contêiner do menu e o transforma em uma barra fixa na base */
+        /* Pega o contêiner do menu e o fixa na base da tela */
         /* Usamos um seletor mais específico para garantir a aplicação do estilo */
         .menu-container div[data-testid="stOptionMenu"] {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            width: 100%;
-            background-color: #292929;
-            border-top: 1px solid #444;
-            z-index: 9999;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            background-color: #292929 !important;
+            border-top: 1px solid #444 !important;
+            z-index: 9999 !important;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.5) !important;
         }
     }
 </style>
@@ -73,7 +78,7 @@ def initialize_session_state():
         st.session_state.box_states = {}
 initialize_session_state()
 
-# --- DETECTAR O DISPOSITIVO DO USUÁRIO ---
+# --- DETECTAR O DISPOSITIVO DO USUÁRIO (PARA CONTEÚDO DO MENU) ---
 user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key='USER_AGENT', want_output=True) or ""
 
 # --- APLICATIVO PRINCIPAL ---
@@ -84,21 +89,16 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
-# --- LÓGICA PARA RENDERIZAÇÃO CONDICIONAL (PC vs ANDROID) ---
-
-IS_MOBILE = 'Android' in user_agent
+# --- LÓGICA PARA RENDERIZAÇÃO CONDICIONAL ---
+IS_MOBILE = 'Android' in user_agent or 'iPhone' in user_agent
 
 # Envolve o menu em um contêiner div para que o CSS possa encontrá-lo
 st.markdown('<div class="menu-container">', unsafe_allow_html=True)
 
 if IS_MOBILE:
-    # --- OPÇÕES PARA ANDROID ---
-    mobile_options = [
-        "Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"
-    ]
-    mobile_icons = [
-        "truck-front", "card-list", "card-checklist", "view-stacked"
-    ]
+    # --- OPÇÕES DE MENU PARA CELULAR ---
+    mobile_options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"]
+    mobile_icons = ["truck-front", "card-list", "card-checklist", "view-stacked"]
     if st.session_state.get('user_role') == 'admin':
         mobile_options.extend(["Controle de Feedback", "Revisão Proativa"])
         mobile_icons.extend(["telephone-outbound", "arrow-repeat"])
@@ -112,7 +112,7 @@ if IS_MOBILE:
         "icon": {"font-size": "20px", "margin-bottom": "4px"}
     }
 else:
-    # --- OPÇÕES PARA PC ---
+    # --- OPÇÕES DE MENU PARA PC ---
     pc_options = [
         "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços", 
         "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", 
@@ -148,8 +148,7 @@ selected_page = option_menu(
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-
-# --- LÓGICA DE ROTEAMENTO ---
+# --- LÓGICA DE ROTEAMENTO COMPLETA ---
 if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
@@ -174,3 +173,7 @@ elif selected_page == "Relatórios":
     relatorios.app()
 elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
+
+# O roteamento para páginas como 'gerar_termos' e 'ajustar_media_km' 
+# é feito automaticamente pelo Streamlit quando acessadas via link direto,
+# por isso elas não precisam de um 'elif' aqui.
