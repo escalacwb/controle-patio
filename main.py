@@ -27,19 +27,16 @@ if not st.session_state.get('logged_in'):
     login.render_login_page()
     st.stop()
 
-# --- INÍCIO DA CORREÇÃO: INICIALIZAÇÃO CENTRALIZADA DO ESTADO DA SESSÃO ---
-# Este bloco garante que todas as variáveis de sessão necessárias existam
-# logo após o login, antes de qualquer página ser carregada.
+# --- INICIALIZAÇÃO CENTRALIZADA DO ESTADO DA SESSÃO ---
 def initialize_session_state():
     if 'box_states' not in st.session_state:
         st.session_state.box_states = {}
     # (No futuro, se outras páginas precisarem de estado, adicionamos aqui)
 
 initialize_session_state()
-# --- FIM DA CORREÇÃO ---
 
 
-# --- ETAPA 1: DETECTAR O DISPOSITIVO DO USUÁRIO ---
+# --- DETECTAR O DISPOSITIVO DO USUÁRIO ---
 user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key='USER_AGENT', want_output=True) or ""
 
 
@@ -51,7 +48,7 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
-# --- ETAPA 2: LÓGICA PARA RENDERIZAÇÃO CONDICIONAL (PC vs ANDROID) ---
+# --- LÓGICA PARA RENDERIZAÇÃO CONDICIONAL (PC vs ANDROID) ---
 
 IS_MOBILE = 'Android' in user_agent
 
@@ -60,11 +57,20 @@ if IS_MOBILE:
     
     st.markdown("""
         <style>
-            .main .block-container { padding-bottom: 80px; }
+            /* Garante que o menu não cubra o conteúdo no final da página */
+            .main .block-container { 
+                padding-bottom: 80px !important;
+            }
+            /* Estiliza o contêiner do menu para ser fixo e flutuante */
             .mobile-menu-container {
-                position: fixed; bottom: 0; left: 0; width: 100%;
-                background-color: #1a1a1a; border-top: 1px solid #333;
-                z-index: 999; padding: 5px 0;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                background-color: #1a1a1a;
+                border-top: 1px solid #333;
+                z-index: 999;
+                padding: 5px 0;
                 box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
             }
         </style>
@@ -84,13 +90,27 @@ if IS_MOBILE:
     with st.container():
         st.markdown('<div class="mobile-menu-container">', unsafe_allow_html=True)
         selected_page = option_menu(
-            menu_title=None, options=mobile_options, icons=mobile_icons,
-            menu_icon="cast", default_index=0, orientation="horizontal",
+            menu_title=None, 
+            options=mobile_options, 
+            icons=mobile_icons,
+            menu_icon="cast", 
+            default_index=0, 
+            orientation="horizontal",
             styles={
                 "container": {"padding": "0!important", "background-color": "transparent"},
-                "nav-link": {"font-size": "10px", "padding": "8px 0", "text-align": "center"},
+                # --- ESTILOS ATUALIZADOS PARA MELHOR ALINHAMENTO ---
+                "nav-link": {
+                    "display": "flex",
+                    "flex-direction": "column",
+                    "align-items": "center",
+                    "justify-content": "center",
+                    "font-size": "11px",
+                    "padding": "10px 0",
+                    "text-align": "center",
+                    "height": "60px"
+                },
                 "nav-link-selected": {"background-color": "#333"},
-                "icon": {"font-size": "20px"}
+                "icon": {"font-size": "22px", "margin-bottom": "4px"}
             }
         )
         st.markdown('</div>', unsafe_allow_html=True)
@@ -114,8 +134,12 @@ else:
         icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
 
     selected_page = option_menu(
-        menu_title=None, options=options, icons=icons, 
-        menu_icon="cast", default_index=0, orientation="horizontal",
+        menu_title=None, 
+        options=options, 
+        icons=icons, 
+        menu_icon="cast", 
+        default_index=0, 
+        orientation="horizontal",
         styles={
             "container": {"padding": "0!important", "background-color": "#292929"},
             "icon": {"color": "#22a7f0", "font-size": "25px"},
@@ -150,10 +174,5 @@ elif selected_page == "Relatórios":
 elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
 
-# Rotas que não estão no menu, mas precisam existir para serem acessadas via link
-# A navegação para estas páginas é feita pela URL, não pelo menu principal
-if 'page' in st.query_params:
-    if st.query_params['page'] == "gerar_termos":
-        gerar_termos.app()
-    elif st.query_params['page'] == "ajustar_media_km":
-        ajustar_media_km.app()
+# O roteamento para páginas acessadas via link (como gerar_termos e ajustar_media_km)
+# é gerenciado automaticamente pelo Streamlit, por isso o bloco de código anterior foi removido.
