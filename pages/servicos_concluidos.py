@@ -64,8 +64,9 @@ def app():
         start_date, end_date = selected_dates
         end_date_inclusive = end_date + timedelta(days=1)
     else:
-        start_date = today - timedelta(days=30)
-        end_date_inclusive = today + timedelta(days=1)
+        # Fallback para caso o usuário selecione apenas uma data
+        start_date = selected_dates[0] - timedelta(days=30)
+        end_date_inclusive = selected_dates[0] + timedelta(days=1)
     
     st.markdown("---")
 
@@ -75,7 +76,6 @@ def app():
         return
 
     try:
-        # ALTERAÇÃO: Adicionado es.id as execucao_id para ser usado no botão
         query = """
             SELECT
                 es.id as execucao_id,
@@ -110,23 +110,28 @@ def app():
         
         for (veiculo_id, placa, empresa, quilometragem), grupo_visita in visitas_agrupadas:
             info_visita = grupo_visita.iloc[0]
-            # Pega o ID da primeira execução do grupo para representar a visita
             execucao_id_principal = info_visita['execucao_id']
             
             with st.container(border=True):
-                # ALTERAÇÃO: Layout de colunas ajustado para 4 colunas para os botões
                 col1, col2, col3, col4 = st.columns([0.4, 0.3, 0.15, 0.15])
                 with col1:
-                    st.markdown(f"#### Veículo: **{placa}** ({empresa})")
+                    st.markdown(f"#### Veículo: **{placa or 'N/A'}** ({empresa or 'N/A'})")
                     if pd.notna(info_visita['nome_motorista']) and info_visita['nome_motorista']:
                         st.caption(f"Motorista: {info_visita['nome_motorista']} ({info_visita['contato_motorista'] or 'N/A'})")
 
                 with col2:
-                    st.write(f"**Data de Conclusão:** {pd.to_datetime(info_visita['fim_execucao']).strftime('%d/%m/%Y')}")
-                    st.write(f"**Quilometragem:** {quilometragem:,} km".replace(',', '.'))
+                    # --- CÓDIGO MAIS SEGURO PARA DATAS E NÚMEROS ---
+                    data_str = "N/A"
+                    if pd.notna(info_visita['fim_execucao']):
+                        data_str = pd.to_datetime(info_visita['fim_execucao']).strftime('%d/%m/%Y')
+                    st.write(f"**Data de Conclusão:** {data_str}")
+
+                    km_str = "N/A"
+                    if pd.notna(quilometragem):
+                        km_str = f"{int(quilometragem):,} km".replace(',', '.')
+                    st.write(f"**Quilometragem:** {km_str}")
                 
                 with col3:
-                    # --- NOVO BOTÃO PARA GERAR TERMO ---
                     st.link_button("📄 Gerar Termo", url=f"/gerar_termos?execucao_id={execucao_id_principal}", use_container_width=True)
 
                 with col4:
