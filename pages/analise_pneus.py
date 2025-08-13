@@ -3,26 +3,26 @@ import os
 import io
 import json
 import base64
-from typing import Optional, List, Tuple
+from typing import Optional, List, Dict
 
 import streamlit as st
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageFont
 from openai import OpenAI
-import utils  # manter: usa consultar_placa_comercial()
+import utils  # usa consultar_placa_comercial()
 
-# ----------------------------
-# Configurações
-# ----------------------------
-WHATSAPP_NUMERO = "5567984173800"  # telefone da empresa (somente dígitos, com DDI)
-MAX_OBS = 150                      # limite de caracteres para observação
-MAX_SIDE = 1024                    # lado máximo de imagem para economizar tokens
-JPEG_QUALITY = 85                  # compressão JPEG
+# =========================
+# Config
+# =========================
+WHATSAPP_NUMERO = "5567984173800"   # telefone da empresa (somente dígitos com DDI)
+MAX_OBS = 150
+MAX_SIDE = 1024                     # maior lado ao redimensionar (economia de tokens)
+JPEG_QUALITY = 85                   # compressão
 
-# ----------------------------
-# Utilidades de imagem
-# ----------------------------
+# =========================
+# Utilitários de imagem
+# =========================
 def _open_and_prepare(file) -> Optional[Image.Image]:
-    """Abre imagem do upload, corrige orientação EXIF, converte para RGB, redimensiona."""
+    """Abre imagem, corrige EXIF, converte RGB e redimensiona para MAX_SIDE."""
     if not file:
         return None
     try:
@@ -30,12 +30,11 @@ def _open_and_prepare(file) -> Optional[Image.Image]:
     except Exception:
         return None
     try:
-        img = ImageOps.exif_transpose(img)  # corrige rotação
+        img = ImageOps.exif_transpose(img)
     except Exception:
         pass
     if img.mode != "RGB":
         img = img.convert("RGB")
-    # Redimensiona mantendo proporção (maior lado = MAX_SIDE)
     w, h = img.size
     if max(w, h) > MAX_SIDE:
         if w >= h:
@@ -46,44 +45,55 @@ def _open_and_prepare(file) -> Optional[Image.Image]:
             img = img.resize((nw, MAX_SIDE), Image.LANCZOS)
     return img
 
-def _grid_2x2(left_top: Image.Image, left_bottom: Image.Image,
-              right_top: Image.Image, right_bottom: Image.Image) -> Image.Image:
-    """Monta uma colagem 2x2: esquerda (cima/baixo), direita (cima/baixo)."""
-    # Normaliza larguras por coluna e alturas por linha
-    lt, lb, rt, rb = left_top, left_bottom, right_top, right_bottom
-    # Ajusta largura das colunas pela menor largura de cada coluna para alinhamento visual
+
+def _fit_to_width(img: Image.Image, target_w: int) -> Image.Image:
+    if img.width == target_w:
+        return img
+    nh = int(img.height * (target_w / img.width))
+    return img.resize((target_w, nh), Image.LANCZOS)
+
+
+def _pad_to_height(img: Image.Image, target_h: int) -> Image.Image:
+    if img.height == target_h:
+        return img
+    canvas = Image.new("RGB", (img.width, target_h), "white")
+    canvas.paste(img, (0, 0))
+    return canvas
+
+
+def _draw_label(canvas: Image.Image, text: str, xy=(8, 8), bg=(34, 167, 240), fg=(255, 255, 255)):
+    draw = ImageDraw.Draw(canvas)
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+    pad = 8
+    tw, th = draw.textsize(text, font=font)
+    rect = [xy[0], xy[1], xy[0] + tw + pad * 2, xy[1] + th + pad * 2]
+    draw.rectangle(rect, fill=bg)
+    draw.text((xy[0] + pad, xy[1] + pad), text, fill=fg, font=font)
+
+
+def _grid_2x2_labeled(
+    lt: Image.Image, lb: Image.Image, rt: Image.Image, rb: Image.Image,
+    labels: Dict[str, str]
+) -> Image.Image:
+    """
+    Monta colagem 2x2 (esq cima/baixo, dir cima/baixo) e aplica rótulos.
+    labels: {"title","left_top","left_bottom","right_top","right_bottom"}
+    """
     left_w = min(lt.width if lt else MAX_SIDE, lb.width if lb else MAX_SIDE)
     right_w = min(rt.width if rt else MAX_SIDE, rb.width if rb else MAX_SIDE)
 
-    def _fit_w(img, target_w):
-        if not img:
-            return Image.new("RGB", (target_w, target_w), "white")
-        if img.width == target_w:
-            return img
-        nh = int(img.height * (target_w / img.width))
-        return img.resize((target_w, nh), Image.LANCZOS)
+    lt = _fit_to_width(lt, left_w) if lt else Image.new("RGB", (left_w, left_w), "white")
+    lb = _fit_to_width(lb, left_w) if lb else Image.new("RGB", (left_w, left_w), "white")
+    rt = _fit_to_width(rt, right_w) if rt else Image.new("RGB", (right_w, right_w), "white")
+    rb = _fit_to_width(rb, right_w) if rb else Image.new("RGB", (right_w, right_w), "white")
 
-    lt = _fit_w(lt, left_w) if lt else Image.new("RGB", (left_w, left_w), "white")
-    lb = _fit_w(lb, left_w) if lb else Image.new("RGB", (left_w, left_w), "white")
-    rt = _fit_w(rt, right_w) if rt else Image.new("RGB", (right_w, right_w), "white")
-    rb = _fit_w(rb, right_w) if rb else Image.new("RGB", (right_w, right_w), "white")
-
-    # Alturas por linha
     top_h = max(lt.height, rt.height)
     bot_h = max(lb.height, rb.height)
-
-    # Se alguma imagem for menor, "ancora" no topo e preenche com branco embaixo
-    def _pad_h(img, target_h):
-        if img.height == target_h:
-            return img
-        canvas = Image.new("RGB", (img.width, target_h), "white")
-        canvas.paste(img, (0, 0))
-        return canvas
-
-    lt = _pad_h(lt, top_h)
-    rt = _pad_h(rt, top_h)
-    lb = _pad_h(lb, bot_h)
-    rb = _pad_h(rb, bot_h)
+    lt, rt = _pad_to_height(lt, top_h), _pad_to_height(rt, top_h)
+    lb, rb = _pad_to_height(lb, bot_h), _pad_to_height(rb, bot_h)
 
     total_w = left_w + right_w
     total_h = top_h + bot_h
@@ -92,11 +102,22 @@ def _grid_2x2(left_top: Image.Image, left_bottom: Image.Image,
     out.paste(rt, (left_w, 0))
     out.paste(lb, (0, top_h))
     out.paste(rb, (left_w, top_h))
+
+    if labels.get("title"):
+        _draw_label(out, labels["title"], xy=(8, 8))
+    _draw_label(out, labels.get("left_top", ""), xy=(8, 8))
+    _draw_label(out, labels.get("right_top", ""), xy=(left_w + 8, 8))
+    _draw_label(out, labels.get("left_bottom", ""), xy=(8, top_h + 8))
+    _draw_label(out, labels.get("right_bottom", ""), xy=(left_w + 8, top_h + 8))
     return out
 
-def _stack_vertical(top_img: Image.Image, bottom_img: Image.Image) -> Image.Image:
-    """Empilha duas imagens verticalmente centralizando pela largura."""
-    w = max(top_img.width, bottom_img.width)
+
+def _stack_vertical_center(collages: List[Image.Image], titles: List[str]) -> Image.Image:
+    """Empilha N colagens verticalmente, centralizando. Titula cada seção."""
+    if not collages:
+        return Image.new("RGB", (800, 600), "white")
+    w = max(c.width for c in collages)
+
     def _center_w(img, target_w):
         if img.width == target_w:
             return img
@@ -104,84 +125,89 @@ def _stack_vertical(top_img: Image.Image, bottom_img: Image.Image) -> Image.Imag
         x = (target_w - img.width) // 2
         canvas.paste(img, (x, 0))
         return canvas
-    top = _center_w(top_img, w)
-    bottom = _center_w(bottom_img, w)
-    out = Image.new("RGB", (w, top.height + bottom.height), "white")
-    out.paste(top, (0, 0))
-    out.paste(bottom, (0, top.height))
+
+    centered = [_center_w(c, w) for c in collages]
+    total_h = sum(c.height for c in centered)
+    out = Image.new("RGB", (w, total_h), "white")
+
+    y = 0
+    for idx, c in enumerate(centered):
+        out.paste(c, (0, y))
+        # rótulo de faixa
+        _draw_label(out, titles[idx], xy=(10, y + 10))
+        y += c.height
     return out
 
+
 def _img_to_dataurl(img: Image.Image) -> str:
-    """Converte PIL Image -> data URL JPEG."""
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return f"data:image/jpeg;base64,{b64}"
 
-# ----------------------------
-# Prompt / OpenAI
-# ----------------------------
-def _build_multimodal_message(data_url: str, meta: dict, obs: str) -> list:
-    """
-    Monta o conteúdo multimodal a ser enviado.
-    Envia UMA imagem (colagem com todos os eixos) + texto com instruções claras.
-    """
+# =========================
+# OpenAI / Prompt
+# =========================
+def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: List[str]) -> list:
     aviso = (
         "Você é o AVP — Analisador Virtual de Pneus, um sistema AUTOMÁTICO de visão computacional. "
-        "⚠️ Laudo auxiliar, sujeito a erros. Não usar como única base de decisão. "
+        "⚠️ Este laudo é auxiliar e pode conter erros. Não usar como única base de decisão. "
         "Recomenda-se inspeção presencial por profissional qualificado."
     )
 
-    # Instruções sobre layout:
     layout = (
-        "A imagem enviada contém DUAS colagens empilhadas:\n"
-        "1) TOPO = EIXO DIANTEIRO (2x2):\n"
-        "   - Coluna ESQUERDA = LADO MOTORISTA (cima: foto de TRÁS→FRENTE; baixo: foto de FRENTE→TRÁS)\n"
-        "   - Coluna DIREITA  = LADO OPOSTO (cima: TRÁS→FRENTE; baixo: FRENTE→TRÁS)\n"
-        "2) BASE = EIXO TRASEIRO (2x2):\n"
-        "   - Coluna ESQUERDA = LADO MOTORISTA (cima: FRENTE do conjunto geminado; baixo: TRÁS do conjunto geminado)\n"
-        "   - Coluna DIREITA  = LADO OPOSTO (cima: FRENTE; baixo: TRÁS)\n"
+        "Você receberá UMA imagem com uma SEQUÊNCIA de colagens 2×2 empilhadas verticalmente. "
+        "Cada colagem possui um rótulo no canto superior (ex.: 'Eixo Dianteiro 1', 'Eixo Traseiro 2').\n"
+        "Em TODAS as colagens: coluna ESQUERDA = lado MOTORISTA, coluna DIREITA = lado OPOSTO.\n"
+        "• Em eixos DIANTEIROS: LINHA de CIMA = TRÁS→FRENTE; LINHA de BAIXO = FRENTE→TRÁS (é 1 pneu por lado).\n"
+        "• Em eixos TRASEIROS (conjunto geminado): LINHA de CIMA = FRENTE do conjunto; LINHA de BAIXO = TRÁS do conjunto.\n"
+        f"Ordem de cima para baixo: {', '.join(axis_titles)}.\n"
+    )
+
+    escopo = (
+        "Tarefa: atue como especialista em pneus de caminhões. Investigue e explique de forma objetiva:\n"
+        "- Tipos de desgaste (lateral interno/externo, serrilhamento/dente de serra, cunha, conicidade, cupping, feathering),\n"
+        "  diferenças entre lados/pares, recap solta, trincas/ressecamento, cortes/bolhas.\n"
+        "- Hipóteses de geometria (toe, camber, caster) e suspensão (amortecedor, buchas, rolamentos) quando aplicável.\n"
+        "- Pressão incorreta (baixa/alta) e necessidade de balanceamento.\n"
+        "- Risco e severidade (0–5) por eixo; recomendações práticas e priorizadas.\n"
+        "- Se fotos forem insuficientes, liste exatamente o que faltou (ângulo, foco, luz, distância).\n"
     )
 
     formato = (
-        "Responda SOMENTE em JSON válido:\n"
+        "Responda SOMENTE em JSON válido com o formato:\n"
         "{\n"
-        '  "placa": "...",\n'
-        '  "resumo_geral": "...",\n'
+        '  "placa": "string",\n'
+        '  "qualidade_imagens": {"score": 0.0-1.0, "problemas": ["..."], "faltantes": ["..."]},\n'
         '  "eixos": [\n'
         '    {\n'
-        '      "eixo": "Dianteiro",\n'
-        '      "achados": ["..."],\n'
-        '      "recomenda_alinhamento": true/false,\n'
-        '      "recomenda_balanceamento": true/false,\n'
-        '      "confianca": 0.0-1.0,\n'
-        '      "observacoes": "..." \n'
-        '    },\n'
-        '    {\n'
-        '      "eixo": "Traseiro",\n'
-        '      "achados": ["..."],\n'
-        '      "recomenda_alinhamento": true/false,\n'
-        '      "recomenda_balanceamento": true/false,\n'
-        '      "confianca": 0.0-1.0,\n'
-        '      "observacoes": "..." \n'
+        '      "titulo": "Eixo Dianteiro 1",\n'
+        '      "tipo": "Dianteiro|Traseiro",\n'
+        '      "lados": {\n'
+        '        "motorista": {"achados": ["..."], "inflacao": "baixa|alta|ok|indef", "severidade": 0-5},\n'
+        '        "oposto":    {"achados": ["..."], "inflacao": "baixa|alta|ok|indef", "severidade": 0-5}\n'
+        '      },\n'
+        '      "suspeitas_geometria": {"toe": "provável|possível|improvável", "camber": "...", "caster": "..."},\n'
+        '      "balanceamento": "necessário|avaliar|ok",\n'
+        '      "risco": "baixo|médio|alto",\n'
+        '      "observacoes": "string opcional"\n'
         '    }\n'
         '  ],\n'
-        '  "recomendacoes_finais": ["..."],\n'
-        '  "aviso": "Laudo automático do AVP: utilize como apoio, sujeito a erros."\n'
+        '  "recomendacoes_finais": ["ações curtas e priorizadas"],\n'
+        '  "resumo_geral": "explicação em 2–4 frases para leigo",\n'
+        '  "whatsapp_resumo": "2–3 linhas diretas para WhatsApp"\n'
         "}\n"
     )
 
     header = (
         f"{aviso}\n\n"
-        f"Contexto:\n"
+        "Contexto do veículo:\n"
         f"- Placa: {meta.get('placa')}\n"
         f"- Motorista/gestor: {meta.get('nome')} (tel: {meta.get('telefone')}, email: {meta.get('email')})\n"
         f"- Empresa: {meta.get('empresa')}\n"
-        f"- Dados da placa/API: {json.dumps(meta.get('placa_info') or {}, ensure_ascii=False)}\n"
-        f"- Observação do motorista: {obs}\n\n"
-        f"{layout}\n"
-        "Tarefa: verificar desalinhamento, desbalanceamento, dente de serra, cunha, conicidade, desgaste lateral (interno/externo) e pressão incorreta.\n\n"
-        f"{formato}"
+        f"- Observação do motorista: {obs}\n"
+        f"- Dados da placa/API: {json.dumps(meta.get('placa_info') or {}, ensure_ascii=False)}\n\n"
+        f"{layout}\n{escopo}\n{formato}"
     )
 
     return [
@@ -189,13 +215,14 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str) -> list:
         {"type": "image_url", "image_url": {"url": data_url}},
     ]
 
-def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: str) -> dict:
+
+def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: str, axis_titles: List[str]) -> dict:
     api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
         return {"erro": "OPENAI_API_KEY ausente em Secrets/variável de ambiente."}
 
     client = OpenAI(api_key=api_key)
-    content = _build_multimodal_message(data_url, meta, obs)
+    content = _build_multimodal_message(data_url, meta, obs, axis_titles)
 
     try:
         resp = client.chat.completions.create(
@@ -210,7 +237,6 @@ def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: s
         try:
             return json.loads(text)
         except Exception:
-            # fallback: tenta achar primeiro bloco JSON
             import re
             m = re.search(r"\{[\s\S]*\}", text)
             if m:
@@ -222,20 +248,20 @@ def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: s
     except Exception as e:
         return {"erro": f"Falha na API: {e}"}
 
-# ----------------------------
-# UI principal (app)
-# ----------------------------
+# =========================
+# UI
+# =========================
 def app():
     st.title("🛞 Análise de Pneus por Foto — AVP")
-    st.caption("Laudo automático de apoio — sujeito a erros. Recomenda-se inspeção presencial.")
+    st.caption("Laudo automático de apoio (sujeito a erros). Recomenda-se inspeção presencial.")
 
-    # Modelo
-    col_m1, col_m2 = st.columns([1, 3])
+    # Toggle do modelo
+    col_m1, _ = st.columns([1, 3])
     with col_m1:
         modo_detalhado = st.toggle("Análise detalhada (gpt-4.0)", value=False)
     modelo = "gpt-4o" if modo_detalhado else "gpt-4o-mini"
 
-    # Form de identificação
+    # Identificação
     with st.form("form_ident"):
         c1, c2 = st.columns(2)
         with c1:
@@ -258,139 +284,198 @@ def app():
 
     st.markdown("---")
 
-    # Observação curta
-    observacao = st.text_area("Observação do motorista (máx. 150 caracteres)", max_chars=MAX_OBS, placeholder="Ex.: puxa para a direita, vibra acima de 80 km/h…")
+    observacao = st.text_area(
+        "Observação do motorista (máx. 150 caracteres)",
+        max_chars=MAX_OBS,
+        placeholder="Ex.: puxa para a direita, vibra acima de 80 km/h…"
+    )
 
-    st.markdown("### 📸 Eixo Dianteiro (4 fotos)")
-    st.caption("LADO MOTORISTA: (1) TRÁS→FRENTE, (2) FRENTE→TRÁS — LADO OPOSTO: (1) TRÁS→FRENTE, (2) FRENTE→TRÁS")
-    cdm, cdo = st.columns(2)
-    with cdm:
-        d_m_1 = st.file_uploader("Motorista — Foto 1 (trás→frente)", type=["jpg","jpeg","png"], key="dm1")
-        d_m_2 = st.file_uploader("Motorista — Foto 2 (frente→trás)", type=["jpg","jpeg","png"], key="dm2")
-    with cdo:
-        d_o_1 = st.file_uploader("Oposto — Foto 1 (trás→frente)", type=["jpg","jpeg","png"], key="do1")
-        d_o_2 = st.file_uploader("Oposto — Foto 2 (frente→trás)", type=["jpg","jpeg","png"], key="do2")
+    # ------- Controle dinâmico de eixos -------
+    if "axes" not in st.session_state:
+        st.session_state.axes: List[Dict] = []  # cada item: {"tipo": "Dianteiro|Traseiro", "files": {...}}
 
-    st.markdown("### 📸 Eixo Traseiro (4 fotos — conjunto geminado)")
-    st.caption("LADO MOTORISTA: (1) FRENTE, (2) TRÁS — LADO OPOSTO: (1) FRENTE, (2) TRÁS")
-    ctm, cto = st.columns(2)
-    with ctm:
-        t_m_1 = st.file_uploader("Motorista — Frente (conjunto)", type=["jpg","jpeg","png"], key="tm1")
-        t_m_2 = st.file_uploader("Motorista — Trás (conjunto)", type=["jpg","jpeg","png"], key="tm2")
-    with cto:
-        t_o_1 = st.file_uploader("Oposto — Frente (conjunto)", type=["jpg","jpeg","png"], key="to1")
-        t_o_2 = st.file_uploader("Oposto — Trás (conjunto)", type=["jpg","jpeg","png"], key="to2")
+    cA, cB, cC = st.columns(3)
+    with cA:
+        if st.button("➕ Adicionar Dianteiro"):
+            st.session_state.axes.append({"tipo": "Dianteiro", "files": {}})
+    with cB:
+        if st.button("➕ Adicionar Traseiro"):
+            st.session_state.axes.append({"tipo": "Traseiro", "files": {}})
+    with cC:
+        if st.session_state.axes and st.button("🗑️ Remover último eixo"):
+            st.session_state.axes.pop()
+
+    if not st.session_state.axes:
+        st.info("Adicione pelo menos um eixo (Dianteiro/Traseiro).")
+        return
+
+    # Uploaders por eixo
+    for idx, eixo in enumerate(st.session_state.axes, start=1):
+        with st.container(border=True):
+            st.subheader(f"Eixo {idx} — {eixo['tipo']}")
+            # 4 fotos por eixo, com rótulos diferentes por tipo
+            if eixo["tipo"] == "Dianteiro":
+                st.caption("MOTORISTA: (1) TRÁS→FRENTE, (2) FRENTE→TRÁS — OPOSTO: (1) TRÁS→FRENTE, (2) FRENTE→TRÁS")
+                cm, co = st.columns(2)
+                with cm:
+                    eixo["files"]["lt"] = st.file_uploader(
+                        f"Motorista — Foto 1 (trás→frente)  — Dianteiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"d_dm1_{idx}"
+                    )
+                    eixo["files"]["lb"] = st.file_uploader(
+                        f"Motorista — Foto 2 (frente→trás) — Dianteiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"d_dm2_{idx}"
+                    )
+                with co:
+                    eixo["files"]["rt"] = st.file_uploader(
+                        f"Oposto — Foto 1 (trás→frente)   — Dianteiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"d_do1_{idx}"
+                    )
+                    eixo["files"]["rb"] = st.file_uploader(
+                        f"Oposto — Foto 2 (frente→trás)  — Dianteiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"d_do2_{idx}"
+                    )
+            else:
+                st.caption("MOTORISTA: (1) FRENTE, (2) TRÁS — OPOSTO: (1) FRENTE, (2) TRÁS")
+                cm, co = st.columns(2)
+                with cm:
+                    eixo["files"]["lt"] = st.file_uploader(
+                        f"Motorista — Frente (conjunto) — Traseiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"t_tm1_{idx}"
+                    )
+                    eixo["files"]["lb"] = st.file_uploader(
+                        f"Motorista — Trás  (conjunto) — Traseiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"t_tm2_{idx}"
+                    )
+                with co:
+                    eixo["files"]["rt"] = st.file_uploader(
+                        f"Oposto — Frente (conjunto) — Traseiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"t_to1_{idx}"
+                    )
+                    eixo["files"]["rb"] = st.file_uploader(
+                        f"Oposto — Trás  (conjunto) — Traseiro {idx}",
+                        type=["jpg","jpeg","png"], key=f"t_to2_{idx}"
+                    )
 
     st.markdown("---")
     pronto = st.button("🚀 Enviar para análise")
+    if not pronto:
+        return
 
-    if pronto:
-        # Checagem de chave
-        if not (st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")):
-            st.error("Defina OPENAI_API_KEY em Secrets/variável de ambiente.")
-            st.stop()
+    if not (st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")):
+        st.error("Defina OPENAI_API_KEY em Secrets/variável de ambiente.")
+        return
 
-        # Verifica fotos
-        faltando = [x for x in [d_m_1, d_m_2, d_o_1, d_o_2, t_m_1, t_m_2, t_o_1, t_o_2] if x is None]
-        if faltando:
-            st.error("Envie todas as 8 fotos (4 dianteiro + 4 traseiro).")
-            st.stop()
+    # Verificação de fotos por eixo
+    for i, eixo in enumerate(st.session_state.axes, start=1):
+        files = eixo["files"]
+        if not all(files.get(k) for k in ("lt","lb","rt","rb")):
+            st.error(f"Envie as 4 fotos do eixo {i} — {eixo['tipo']}.")
+            return
 
-        # Pré-processa
-        with st.spinner("Preparando imagens…"):
-            dm1 = _open_and_prepare(d_m_1)
-            dm2 = _open_and_prepare(d_m_2)
-            do1 = _open_and_prepare(d_o_1)
-            do2 = _open_and_prepare(d_o_2)
+    with st.spinner("Preparando imagens…"):
+        collages, titles = [], []
+        for i, eixo in enumerate(st.session_state.axes, start=1):
+            # abre e redimensiona
+            lt = _open_and_prepare(eixo["files"]["lt"])
+            lb = _open_and_prepare(eixo["files"]["lb"])
+            rt = _open_and_prepare(eixo["files"]["rt"])
+            rb = _open_and_prepare(eixo["files"]["rb"])
 
-            tm1 = _open_and_prepare(t_m_1)
-            tm2 = _open_and_prepare(t_m_2)
-            to1 = _open_and_prepare(t_o_1)
-            to2 = _open_and_prepare(t_o_2)
+            if eixo["tipo"] == "Dianteiro":
+                labels = dict(
+                    title=f"Eixo Dianteiro {i}",
+                    left_top="Motorista — Trás→Frente",
+                    left_bottom="Motorista — Frente→Trás",
+                    right_top="Oposto — Trás→Frente",
+                    right_bottom="Oposto — Frente→Trás",
+                )
+            else:
+                labels = dict(
+                    title=f"Eixo Traseiro {i}",
+                    left_top="Motorista — Frente",
+                    left_bottom="Motorista — Trás",
+                    right_top="Oposto — Frente",
+                    right_bottom="Oposto — Trás",
+                )
+            col = _grid_2x2_labeled(lt, lb, rt, rb, labels)
+            collages.append(col)
+            titles.append(labels["title"])
 
-            # Colagem 2x2 do eixo dianteiro:
-            # Coluna esquerda = Motorista (cima: trás→frente / baixo: frente→trás)
-            # Coluna direita  = Oposto    (cima: trás→frente / baixo: frente→trás)
-            colagem_dianteiro = _grid_2x2(
-                left_top=dm1, left_bottom=dm2,
-                right_top=do1, right_bottom=do2
-            )
+        # Pré-visualização individual
+        for c, t in zip(collages, titles):
+            st.image(c, caption=f"Pré-visualização — {t}", use_column_width=True)
 
-            # Colagem 2x2 do eixo traseiro:
-            # Coluna esquerda = Motorista (cima: frente / baixo: trás)
-            # Coluna direita  = Oposto    (cima: frente / baixo: trás)
-            colagem_traseiro = _grid_2x2(
-                left_top=tm1, left_bottom=tm2,
-                right_top=to1, right_bottom=to2
-            )
+        # Empilha tudo numa imagem única
+        colagem_final = _stack_vertical_center(collages, titles)
 
-            # Colagem final (dianteiro em cima, traseiro embaixo)
-            colagem_final = _stack_vertical(colagem_dianteiro, colagem_traseiro)
+    data_url = _img_to_dataurl(colagem_final)
+    meta = {
+        "placa": placa, "nome": nome, "empresa": empresa,
+        "telefone": telefone, "email": email, "placa_info": placa_info
+    }
+    obs = (observacao or "")[:MAX_OBS]
 
-            st.image(colagem_dianteiro, caption="Pré-visualização — Eixo Dianteiro (2x2)", use_column_width=True)
-            st.image(colagem_traseiro, caption="Pré-visualização — Eixo Traseiro (2x2)", use_column_width=True)
+    with st.spinner("Analisando com IA…"):
+        laudo = _call_openai_single_image(data_url, meta, obs, modelo, titles)
 
-        # Monta data URL
-        data_url = _img_to_dataurl(colagem_final)
+    if "erro" in laudo:
+        st.error(laudo["erro"])
+        if laudo.get("raw"):
+            with st.expander("Resposta bruta do modelo"):
+                st.code(laudo["raw"])
+        return
 
-        # Meta
-        meta = {
-            "placa": placa,
-            "nome": nome,
-            "empresa": empresa,
-            "telefone": telefone,
-            "email": email,
-            "placa_info": placa_info
-        }
+    # ---- Apresentação do laudo ----
+    st.success("Laudo recebido.")
 
-        # Chama OpenAI
-        with st.spinner("Analisando com IA…"):
-            laudo = _call_openai_single_image(data_url, meta, observacao or "", modelo)
+    st.markdown("## 🧾 Resumo")
+    if laudo.get("resumo_geral"):
+        st.write(laudo["resumo_geral"])
 
-        if "erro" in laudo:
-            st.error(laudo["erro"])
-            if laudo.get("raw"):
-                with st.expander("Resposta bruta do modelo"):
-                    st.code(laudo["raw"])
-            st.stop()
+    q = laudo.get("qualidade_imagens") or {}
+    if q:
+        score = q.get("score")
+        probs = ", ".join(q.get("problemas") or [])
+        falt = ", ".join(q.get("faltantes") or [])
+        st.caption(f"Qualidade estimada: {score if score is not None else '-'} | Problemas: {probs or '-'} | Faltantes: {falt or '-'}")
 
-        # Exibição do laudo
-        st.success("Laudo recebido.")
-        st.json(laudo)
-
-        # Resumo amigável
-        st.markdown("### 🧾 Resumo")
-        if laudo.get("resumo_geral"):
-            st.write(laudo["resumo_geral"])
-        for ex in laudo.get("eixos", []):
-            with st.container(border=True):
-                st.markdown(f"**{ex.get('eixo','Eixo')}**")
-                ach = ex.get("achados") or []
+    for eixo in laudo.get("eixos", []):
+        with st.container(border=True):
+            st.markdown(f"### {eixo.get('titulo', eixo.get('tipo','Eixo'))}")
+            lados = eixo.get("lados") or {}
+            for lado_nome in ("motorista", "oposto"):
+                det = lados.get(lado_nome) or {}
+                st.markdown(f"**Lado {lado_nome.capitalize()}**")
+                ach = det.get("achados") or []
                 if ach:
                     st.write("• " + "\n• ".join(ach))
-                st.write(f"**Alinhamento?** {ex.get('recomenda_alinhamento')}")
-                st.write(f"**Balanceamento?** {ex.get('recomenda_balanceamento')}")
-                if ex.get("observacoes"):
-                    st.caption(ex["observacoes"])
-        if laudo.get("recomendacoes_finais"):
-            st.markdown("### 🔧 Recomendações finais")
-            st.write("• " + "\n• ".join(laudo["recomendacoes_finais"]))
+                st.write(f"Inflação: {det.get('inflacao', '-')}")
+                st.write(f"Severidade: {det.get('severidade', '-')}/5")
+                st.markdown("---")
+            sg = eixo.get("suspeitas_geometria") or {}
+            st.write(f"**Hipóteses de geometria** — Toe: {sg.get('toe','-')} | Camber: {sg.get('camber','-')} | Caster: {sg.get('caster','-')}")
+            st.write(f"**Balanceamento**: {eixo.get('balanceamento','-')} | **Risco**: {eixo.get('risco','-')}")
+            if eixo.get("observacoes"):
+                st.caption(eixo["observacoes"])
 
-        # Link do WhatsApp (mensagem do cliente para a empresa)
-        # Monta um resumo curto para WhatsApp (limita tamanho)
-        resumo_wpp = laudo.get("resumo_geral") or ""
-        resumo_wpp = (resumo_wpp[:600] + "…") if len(resumo_wpp) > 600 else resumo_wpp
-        msg = (
-            "Olá, fiz o teste de análise dos pneus e recebi o seguinte resultado:\n\n"
-            f"{resumo_wpp}\n\n"
-            f"Caminhão/Placa: {placa}\n"
-            f"Empresa: {empresa}\n"
-            f"Motorista/Gestor: {nome}\n"
-            f"Telefone: {telefone}\n"
-            f"E-mail: {email}\n"
-            f"Observação: {observacao or '-'}\n\n"
-            "Gostaria de conversar sobre a manutenção do veículo."
-        )
-        from urllib.parse import quote
-        link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(msg)}"
-        st.markdown(f"[📲 Enviar resultado via WhatsApp]({link_wpp})", unsafe_allow_html=True)
+    if laudo.get("recomendacoes_finais"):
+        st.markdown("## 🔧 Recomendações finais")
+        st.write("• " + "\n• ".join(laudo["recomendacoes_finais"]))
+
+    # ---- WhatsApp (mensagem do cliente para a empresa) ----
+    from urllib.parse import quote
+    resumo_wpp = laudo.get("whatsapp_resumo") or (laudo.get("resumo_geral") or "")
+    resumo_wpp = (resumo_wpp[:700] + "…") if len(resumo_wpp) > 700 else resumo_wpp
+    msg = (
+        "Olá! Fiz o teste de análise de pneus e gostaria de conversar sobre a manutenção do veículo.\n\n"
+        f"{resumo_wpp}\n\n"
+        f"Caminhão/Placa: {placa}\n"
+        f"Empresa: {empresa}\n"
+        f"Motorista/Gestor: {nome}\n"
+        f"Telefone: {telefone}\n"
+        f"E-mail: {email}\n"
+        f"Observação: {obs or '-'}"
+    )
+    link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(msg)}"
+    st.markdown(f"[📲 Enviar resultado via WhatsApp]({link_wpp})")
