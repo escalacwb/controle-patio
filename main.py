@@ -18,7 +18,8 @@ from pages import (
     dados_clientes,
     mesclar_historico,
     gerar_termos,
-    ajustar_media_km
+    ajustar_media_km,
+    analise_pneus      # <-- NOVO: página de análise de pneus
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
@@ -27,84 +28,60 @@ st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
 st.markdown("""
 <style>
     /* 1. REMOÇÃO DE ELEMENTOS NATIVOS DO STREAMLIT */
-    /* Esconde a barra de ferramentas superior (menu hamburger, fork, etc.) */
-    [data-testid="stToolbar"] {
-        visibility: hidden;
-        height: 0%;
-        position: fixed;
-    }
-    /* Esconde o cabeçalho onde a barra de ferramentas fica */
-    header[data-testid="stHeader"] {
-        display: none !important;
-    }
-    /* Esconde o rodapé "Made with Streamlit" */
-    footer {
-        visibility: hidden;
-        height: 0%;
-    }
+    [data-testid="stToolbar"] { visibility: hidden; height: 0%; position: fixed; }
+    header[data-testid="stHeader"] { display: none !important; }
+    footer { visibility: hidden; height: 0%; }
 
-    /* 2. LÓGICA DO MENU RESPONSIVO PARA CELULAR */
-    /* Aplica-se apenas a telas com largura máxima de 767px (celulares) */
+    /* 2. MENU RESPONSIVO PARA CELULAR */
     @media (max-width: 767px) {
-        /* Adiciona um espaço no final da página para o menu flutuante não cobrir o conteúdo */
-        .main .block-container {
-            padding-bottom: 6rem !important;
-        }
-
-        /* Pega o contêiner do menu e o fixa na base da tela */
-        /* Usamos um seletor mais específico para garantir a aplicação do estilo */
+        .main .block-container { padding-bottom: 6rem !important; }
         .menu-container div[data-testid="stOptionMenu"] {
-            position: fixed !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            width: 100% !important;
-            background-color: #292929 !important;
-            border-top: 1px solid #444 !important;
-            z-index: 9999 !important;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.5) !important;
+            position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important;
+            width: 100% !important; background-color: #292929 !important; border-top: 1px solid #444 !important;
+            z-index: 9999 !important; box-shadow: 0 -2px 10px rgba(0,0,0,0.5) !important;
         }
     }
 </style>
 """, unsafe_allow_html=True)
 
+# --- LOGIN ---
 if not st.session_state.get('logged_in'):
     login.render_login_page()
     st.stop()
 
-# --- INICIALIZAÇÃO CENTRALIZADA DO ESTADO DA SESSÃO ---
+# --- ESTADO DE SESSÃO ---
 def initialize_session_state():
     if 'box_states' not in st.session_state:
         st.session_state.box_states = {}
 initialize_session_state()
 
-# --- DETECTAR O DISPOSITIVO DO USUÁRIO (PARA CONTEÚDO DO MENU) ---
+# --- DETECTAR DISPOSITIVO ---
 user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key='USER_AGENT', want_output=True) or ""
 
-# --- APLICATIVO PRINCIPAL ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.success(f"Logado como: **{st.session_state.get('user_name')}**")
     if st.button("Logout", use_container_width=True, type="secondary"):
-        for key in st.session_state.keys():
+        for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
 
-# --- LÓGICA PARA RENDERIZAÇÃO CONDICIONAL ---
+# --- RENDERIZAÇÃO CONDICIONAL ---
 IS_MOBILE = 'Android' in user_agent or 'iPhone' in user_agent
 
-# Envolve o menu em um contêiner div para que o CSS possa encontrá-lo
+# Envolve o menu para aplicar CSS
 st.markdown('<div class="menu-container">', unsafe_allow_html=True)
 
 if IS_MOBILE:
-    # --- OPÇÕES DE MENU PARA CELULAR ---
-    mobile_options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"]
-    mobile_icons = ["truck-front", "card-list", "card-checklist", "view-stacked"]
+    # --- MENU (MOBILE) ---
+    mobile_options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes", "Análise de Pneus"]
+    mobile_icons   = ["truck-front", "card-list", "card-checklist", "view-stacked", "camera"]
     if st.session_state.get('user_role') == 'admin':
         mobile_options.extend(["Controle de Feedback", "Revisão Proativa"])
         mobile_icons.extend(["telephone-outbound", "arrow-repeat"])
-    
+
     options_to_show = mobile_options
-    icons_to_show = mobile_icons
+    icons_to_show   = mobile_icons
     menu_styles = {
         "container": {"padding": "5px 0", "background-color": "transparent"},
         "nav-link": {"font-size": "10px", "padding": "8px 0", "text-align": "center", "height": "60px"},
@@ -112,23 +89,25 @@ if IS_MOBILE:
         "icon": {"font-size": "20px", "margin-bottom": "4px"}
     }
 else:
-    # --- OPÇÕES DE MENU PARA PC ---
+    # --- MENU (PC) ---
     pc_options = [
-        "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços", 
-        "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos", 
-        "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa"
+        "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços",
+        "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos",
+        "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa",
+        "Análise de Pneus"   # <-- NOVO
     ]
     pc_icons = [
-        "truck-front", "people", "card-list", "card-checklist", 
-        "view-stacked", "check-circle", "clock-history", 
-        "telephone-outbound", "arrow-repeat"
+        "truck-front", "people", "card-list",
+        "card-checklist", "view-stacked", "check-circle",
+        "clock-history", "telephone-outbound", "arrow-repeat",
+        "camera"         # <-- NOVO
     ]
     if st.session_state.get('user_role') == 'admin':
         pc_options.extend(["Gerenciar Usuários", "Relatórios", "Mesclar Históricos"])
         pc_icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
-        
+
     options_to_show = pc_options
-    icons_to_show = pc_icons
+    icons_to_show   = pc_icons
     menu_styles = {
         "container": {"padding": "0!important", "background-color": "#292929"},
         "icon": {"color": "#22a7f0", "font-size": "25px"},
@@ -137,18 +116,18 @@ else:
     }
 
 selected_page = option_menu(
-    menu_title=None, 
-    options=options_to_show, 
-    icons=icons_to_show, 
-    menu_icon="cast", 
-    default_index=0, 
+    menu_title=None,
+    options=options_to_show,
+    icons=icons_to_show,
+    menu_icon="cast",
+    default_index=0,
     orientation="horizontal",
     styles=menu_styles
 )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- LÓGICA DE ROTEAMENTO COMPLETA ---
+# --- ROTEAMENTO ---
 if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
@@ -167,6 +146,9 @@ elif selected_page == "Controle de Feedback":
     feedback_servicos.app()
 elif selected_page == "Revisão Proativa":
     revisao_proativa.app()
+elif selected_page == "Análise de Pneus":
+    # <-- NOVO: chama a página de análise de pneus
+    analise_pneus.app()
 elif selected_page == "Gerenciar Usuários":
     gerenciar_usuarios.app()
 elif selected_page == "Relatórios":
@@ -174,6 +156,5 @@ elif selected_page == "Relatórios":
 elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
 
-# O roteamento para páginas como 'gerar_termos' e 'ajustar_media_km' 
-# é feito automaticamente pelo Streamlit quando acessadas via link direto,
-# por isso elas não precisam de um 'elif' aqui.
+# Páginas acessadas via link direto (gerar_termos / ajustar_media_km)
+# continuam sem rota direta aqui, seguindo o seu padrão atual.

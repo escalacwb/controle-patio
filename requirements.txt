@@ -9,3 +9,4 @@ plotly
 requests
 streamlit-autorefresh
 streamlit-js-eval
+openai>=1.30.0
