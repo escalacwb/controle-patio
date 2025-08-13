@@ -18,6 +18,9 @@ MAX_OBS = 150
 MAX_SIDE = 1024                     # maior lado ao redimensionar (economia de tokens)
 JPEG_QUALITY = 85                   # compressão
 
+# Modo debug: mostra colagens e resposta bruta. Em produção, deixe False.
+DEBUG = bool(st.secrets.get("DEBUG_ANALISE_PNEUS", False))
+
 # =========================
 # Utilitários de imagem
 # =========================
@@ -62,13 +65,24 @@ def _pad_to_height(img: Image.Image, target_h: int) -> Image.Image:
 
 
 def _draw_label(canvas: Image.Image, text: str, xy=(8, 8), bg=(34, 167, 240), fg=(255, 255, 255)):
+    """Desenha um selo com texto no canvas. Compatível com Pillow moderno (textbbox)."""
     draw = ImageDraw.Draw(canvas)
     try:
         font = ImageFont.load_default()
     except Exception:
         font = None
     pad = 8
-    tw, th = draw.textsize(text, font=font)
+
+    # Pillow novo: usar textbbox; se falhar, faz um fallback aproximado
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    except Exception:
+        try:
+            tw, th = font.getsize(text) if font else (len(text) * 6, 12)
+        except Exception:
+            tw, th = (len(text) * 6, 12)
+
     rect = [xy[0], xy[1], xy[0] + tw + pad * 2, xy[1] + th + pad * 2]
     draw.rectangle(rect, fill=bg)
     draw.text((xy[0] + pad, xy[1] + pad), text, fill=fg, font=font)
@@ -402,9 +416,10 @@ def app():
             collages.append(col)
             titles.append(labels["title"])
 
-        # Pré-visualização individual
-        for c, t in zip(collages, titles):
-            st.image(c, caption=f"Pré-visualização — {t}", use_column_width=True)
+        # Pré-visualização individual: apenas se DEBUG = True
+        if DEBUG:
+            for c, t in zip(collages, titles):
+                st.image(c, caption=f"Pré-visualização — {t}", use_column_width=True)
 
         # Empilha tudo numa imagem única
         colagem_final = _stack_vertical_center(collages, titles)
@@ -421,7 +436,8 @@ def app():
 
     if "erro" in laudo:
         st.error(laudo["erro"])
-        if laudo.get("raw"):
+        # Resposta bruta só em debug
+        if DEBUG and laudo.get("raw"):
             with st.expander("Resposta bruta do modelo"):
                 st.code(laudo["raw"])
         return
