@@ -225,9 +225,9 @@ def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image
         q_lines = _wrap_text(draw, q_text, body_font, W - 2*P)
         height += 30 + len(q_lines)*22
 
-    # Eixos (relatórios)
+    # Eixos (diagnóstico global)
     for eixo in laudo.get("eixos", []):
-        rel = eixo.get("relatorio") or ""
+        rel = eixo.get("diagnostico_global") or eixo.get("relatorio") or ""
         rel_lines = _wrap_text(draw, f"{eixo.get('titulo', eixo.get('tipo','Eixo'))}: {rel}", body_font, W - 2*P)
         height += 30 + len(rel_lines)*22
 
@@ -275,7 +275,7 @@ def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image
     for eixo in laudo.get("eixos", []):
         y += 30
         d.text((P, y), eixo.get("titulo", eixo.get("tipo","Eixo")), font=h2_font, fill=(0,0,0)); y += 30
-        rel = eixo.get("relatorio") or ""
+        rel = eixo.get("diagnostico_global") or eixo.get("relatorio") or ""
         for line in _wrap_text(d, rel, body_font, W - 2*P):
             d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
 
@@ -303,12 +303,11 @@ def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image
 def _build_pdf_bytes(report_img: Image.Image) -> bytes:
     """Converte a imagem do relatório para PDF (1 página)."""
     buf = io.BytesIO()
-    # Pillow salva imagem única como PDF sem dependências
     report_img.save(buf, format="PDF", resolution=150.0)
     return buf.getvalue()
 
 # =========================
-# OpenAI / Prompt
+# OpenAI / Prompt (ANÁLISE GLOBAL POR EIXO)
 # =========================
 def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: List[str]) -> list:
     aviso = (
@@ -317,28 +316,40 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         "Recomenda-se inspeção presencial por profissional qualificado."
     )
 
+    # Orientação de fotografia para reduzir recusas por 'baixa visibilidade'
+    orientacao_foto = (
+        "Orientações de leitura das imagens (considere-as ao julgar qualidade/limites): "
+        "As fotos podem vir de motoristas com celular. O alvo é mostrar VOLUME da banda: "
+        "preferir ângulo de 30–45° em relação ao plano da banda e distância ~0,8–1,2 m; "
+        "enquadrar banda + ombros (interno e externo) e um pouco de flanco; "
+        "evitar sombras duras / contraluz; manter foco nítido; se o pneu estiver fora do caminhão, "
+        "posicionar a câmera levemente acima da banda para ver profundidade dos sulcos; "
+        "evitar foto completamente reta (ortogonal) que achata os sulcos."
+    )
+
     layout = (
         "Você receberá UMA imagem com uma SEQUÊNCIA de colagens 2×2 empilhadas verticalmente. "
-        "Cada colagem possui um rótulo no canto superior (ex.: 'Eixo Dianteiro 1', 'Eixo Traseiro 2').\n"
-        "Em TODAS as colagens: coluna ESQUERDA = lado MOTORISTA, coluna DIREITA = lado OPOSTO.\n"
-        "• Em eixos DIANTEIROS: LINHA de CIMA = TRÁS→FRENTE; LINHA de BAIXO = FRENTE→TRÁS (é 1 pneu por lado).\n"
-        "• Em eixos TRASEIROS (conjunto geminado): LINHA de CIMA = FRENTE do conjunto; LINHA de BAIXO = TRÁS do conjunto.\n"
-        f"Ordem de cima para baixo: {', '.join(axis_titles)}.\n"
+        "Cada colagem possui um rótulo no canto superior (ex.: 'Eixo Dianteiro 1', 'Eixo Traseiro 2'). "
+        "Em TODAS as colagens: coluna ESQUERDA = lado MOTORISTA, coluna DIREITA = lado OPOSTO. "
+        "• Em eixos DIANTEIROS: LINHA de CIMA = TRÁS→FRENTE; LINHA de BAIXO = FRENTE→TRÁS (é 1 pneu por lado). "
+        "• Em eixos TRASEIROS (conjunto geminado): LINHA de CIMA = FRENTE do conjunto; LINHA de BAIXO = TRÁS do conjunto. "
+        f"Ordem de cima para baixo: {', '.join(axis_titles)}."
     )
 
+    # >>> Análise GLOBAL por eixo (texto corrido), com pressão por pneu quando possível
     escopo = (
-        "Atue como especialista em pneus de caminhões pesados. As fotos podem estar com ângulo/foco/iluminação imperfeitos; "
-        "seja tolerante e registre limitações. Faça análise pneu a pneu **e** forneça um texto fluido por eixo, "
-        "como um relatório profissional (sem bullets), mencionando quando aplicável: "
-        "convergência **positiva/negativa**, cambagem **positiva/negativa**, caster, pressão **alta/baixa/ok**, "
-        "indícios de recapagem solta, trincas/fissuras superficiais, cortes, bolhas e diferenças entre pares. "
-        "Relacione causas prováveis e impacto prático (segurança/durabilidade). "
-        "Se a imagem não permitir avaliar, explique exatamente o que faltou (ângulo/foco/luz/distância)."
+        "Atue como especialista em pneus de caminhões pesados. Entregue um diagnóstico **global por eixo** "
+        "(texto fluido, sem bullets), descrevendo padrão de desgaste observado (ombros, centro, cunha, conicidade, "
+        "serrilhamento/dente de serra, cupping, recap solta, trincas superficiais) e as **causas prováveis no conjunto** "
+        "(ex.: convergência fechada/aberta, cambagem positiva/negativa, caster avançado/recuado, pressão inadequada, "
+        "sobrecarga, componentes de suspensão/rolamento). "
+        "Se possível, informe **pressão por pneu** (baixa/alta/ok) para Motorista e Oposto. "
+        "Quando as fotos limitarem a avaliação, aponte exatamente o que faltou (ângulo/foco/luz/distância)."
     )
 
-    # IMPORTANTE: uso de termos em PT-BR (convergência/cambagem/caster)
+    # Formato reduzido e mais objetivo para custo baixo, mas rico o suficiente
     formato = (
-        "Responda SOMENTE em JSON válido com o formato:\n"
+        "Responda SOMENTE em JSON válido no formato:\n"
         "{\n"
         '  "placa": "string",\n'
         '  "qualidade_imagens": {"score": 0.0-1.0, "problemas": ["..."], "faltantes": ["..."]},\n'
@@ -346,24 +357,11 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         '    {\n'
         '      "titulo": "Eixo Dianteiro 1",\n'
         '      "tipo": "Dianteiro|Traseiro",\n'
-        '      "relatorio": "texto corrido e profissional sobre o eixo (convergência/cambagem/caster/pressão e achados)",\n'
-        '      "diagnostico_geometria": {\n'
-        '        "convergencia": "positiva|negativa|ok|indef",\n'
-        '        "cambagem": "positiva|negativa|ok|indef",\n'
-        '        "caster": "avancado|recuado|ok|indef"\n'
-        '      },\n'
-        '      "avaliacao_pressao": {"motorista":"baixa|alta|ok|indef","oposto":"baixa|alta|ok|indef"},\n'
-        '      "pneus": [\n'
-        '        {\n'
-        '          "posicao": "Motorista Frente|Motorista Trás|Oposto Frente|Oposto Trás",\n'
-        '          "achados": ["descrição detalhada"],\n'
-        '          "inflacao": "baixa|alta|ok|indef",\n'
-        '          "severidade": 0-5,\n'
-        '          "causas_provaveis": ["..."]\n'
-        '        }\n'
-        '      ],\n'
-        '      "observacoes_gerais_eixo": "Resumo técnico do eixo (opcional)",\n'
-        '      "risco_eixo": "baixo|médio|alto"\n'
+        '      "diagnostico_global": "texto corrido e profissional integrando desgaste observado e causas prováveis no conjunto",\n'
+        '      "pressao_pneus": {"motorista":"baixa|alta|ok|indef","oposto":"baixa|alta|ok|indef"},\n'
+        '      "achados_chave": ["opcional: até 5 pontos resumidos de evidências"],\n'
+        '      "severidade_eixo": 0-5,\n'
+        '      "prioridade_manutencao": "baixa|média|alta"\n'
         '    }\n'
         '  ],\n'
         '  "recomendacoes_finais": ["ações curtas e priorizadas"],\n'
@@ -380,7 +378,7 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         f"- Empresa: {meta.get('empresa')}\n"
         f"- Observação do motorista: {obs}\n"
         f"- Dados da placa/API: {json.dumps(meta.get('placa_info') or {}, ensure_ascii=False)}\n\n"
-        f"{layout}\n{escopo}\n\n{formato}"
+        f"{orientacao_foto}\n\n{layout}\n\n{escopo}\n\n{formato}"
     )
 
     return [
@@ -456,6 +454,17 @@ def app():
             st.warning(data)
 
     st.markdown("---")
+
+    # Guia rápido de fotografia (resolve o caso 'foto muito reta na banda')
+    with st.expander("📸 Como fotografar para melhor leitura (dica rápida)"):
+        st.write(
+            "- Use **ângulo de 30–45°** em relação à banda (evite foto totalmente reta).\n"
+            "- Fique a **~1 metro**; enquadre **banda + dois ombros** e um pouco do flanco.\n"
+            "- Evite **contraluz** e sombras fortes; garanta foco nítido.\n"
+            "- Se o pneu estiver **fora do caminhão**, fotografe levemente **de cima** para mostrar profundidade dos sulcos.\n"
+            "- Dianteiro: faça uma foto **trás→frente** e outra **frente→trás** de cada lado.\n"
+            "- Traseiro (germinado): uma foto **de frente** do conjunto e outra **por trás** de cada lado."
+        )
 
     observacao = st.text_area(
         "Observação do motorista (máx. 150 caracteres)",
@@ -620,42 +629,40 @@ def app():
             f"Problemas: {probs or '-'} | Faltantes: {falt or '-'}"
         )
 
-    # Render: formato novo (com relatório fluido e termos PT-BR) ou fallback
+    # Render: novo formato (diagnóstico global por eixo), com fallback
     for eixo in laudo.get("eixos", []):
         with st.container(border=True):
             titulo = eixo.get("titulo", eixo.get("tipo", "Eixo"))
             st.markdown(f"### {titulo}")
 
-            # 1) Se vier o novo campo 'relatorio' (texto corrido), priorizamos
-            rel = eixo.get("relatorio")
-            if isinstance(rel, str) and rel.strip():
-                st.write(rel.strip())
+            diag = eixo.get("diagnostico_global") or eixo.get("relatorio")
+            if isinstance(diag, str) and diag.strip():
+                st.write(diag.strip())
             else:
-                # 2) Caso não venha, tentamos montar com dados estruturados (compat)
-                dg = eixo.get("diagnostico_geometria") or eixo.get("suspeitas_geometria") or {}
-                conv = dg.get("convergencia") or dg.get("toe") or "-"
-                camb = dg.get("cambagem") or dg.get("camber") or "-"
-                cas  = dg.get("caster") or "-"
-                st.write(
-                    f"Neste eixo, a convergência foi classificada como **{conv}**, "
-                    f"a cambagem como **{camb}** e o caster como **{cas}**."
+                # fallback bem simples se o modelo não retornou o novo campo
+                st.write("Diagnóstico do eixo não informado pelo modelo.")
+
+            # Pressão por pneu (opcional, conciso)
+            press = eixo.get("pressao_pneus") or {}
+            if press:
+                st.caption(
+                    f"Pressão estimada — Motorista: {press.get('motorista','-')} | Oposto: {press.get('oposto','-')}"
                 )
 
-            # 3) Detalhes pneu-a-pneu se existirem
-            pneus = eixo.get("pneus")
-            if isinstance(pneus, list) and pneus:
-                st.markdown("**Detalhes por pneu**")
-                for p in pneus:
-                    pos = p.get("posicao", "Pneu")
-                    ach = p.get("achados") or []
-                    ach_txt = " • ".join(ach) if ach else "sem anomalias marcantes nas imagens."
-                    st.write(f"- {pos}: {ach_txt} [pressão: {p.get('inflacao','-')}; severidade: {p.get('severidade','-')}/5].")
-
-            # 4) Observações e risco
-            if eixo.get("observacoes_gerais_eixo"):
-                st.caption(eixo["observacoes_gerais_eixo"])
-            if eixo.get("risco_eixo"):
-                st.write(f"**Risco do eixo:** {eixo.get('risco_eixo')}")
+            # Achados chave e severidade/prioridade (se vierem)
+            ach = eixo.get("achados_chave") or []
+            sev = eixo.get("severidade_eixo")
+            pri = eixo.get("prioridade_manutencao")
+            linha = []
+            if sev is not None:
+                linha.append(f"Severidade do eixo: {sev}/5")
+            if pri:
+                linha.append(f"Prioridade: {pri}")
+            if linha:
+                st.caption(" | ".join(linha))
+            if ach:
+                # mostrar como frase única para manter fluidez
+                st.caption("Achados-chave: " + "; ".join(ach))
 
     if laudo.get("recomendacoes_finais"):
         st.markdown("## 🔧 Recomendações finais")
