@@ -159,6 +159,154 @@ def _img_to_dataurl(img: Image.Image) -> str:
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return f"data:image/jpeg;base64,{b64}"
 
+# -------- Helpers para exportação PDF (renderizando texto em imagem) --------
+def _get_font(size=16):
+    try:
+        return ImageFont.truetype("arial.ttf", size)
+    except Exception:
+        try:
+            return ImageFont.truetype("DejaVuSans.ttf", size)
+        except Exception:
+            return ImageFont.load_default()
+
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> List[str]:
+    lines = []
+    for paragraph in (text or "").split("\n"):
+        words = paragraph.split(" ")
+        cur = ""
+        for w in words:
+            test = (cur + " " + w).strip()
+            bbox = draw.textbbox((0,0), test, font=font)
+            if (bbox[2] - bbox[0]) <= max_w:
+                cur = test
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        lines.append("")  # quebra de parágrafo
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image) -> Image.Image:
+    """Gera um 'poster' do relatório (texto + colagem) como uma imagem longa."""
+    W = 1240
+    P = 40   # padding
+    title_font = _get_font(28)
+    h2_font = _get_font(22)
+    body_font = _get_font(17)
+
+    # Primeiro, calculamos a altura necessária
+    dummy = Image.new("RGB", (W, 10), "white")
+    draw = ImageDraw.Draw(dummy)
+    height = P
+
+    # Título
+    height += 40
+    # Meta
+    meta_lines = _wrap_text(
+        draw,
+        f"Placa: {meta.get('placa') or '-'}  |  Empresa: {meta.get('empresa') or '-'}  |  Motorista/Gestor: {meta.get('nome') or '-'}  |  Tel: {meta.get('telefone') or '-'}  |  E-mail: {meta.get('email') or '-'}",
+        body_font, W - 2*P
+    )
+    height += (len(meta_lines) * 22) + 10
+
+    # Resumo
+    if laudo.get("resumo_geral"):
+        res_lines = _wrap_text(draw, laudo.get("resumo_geral",""), body_font, W - 2*P)
+        height += 30 + len(res_lines) * 22 + 10
+
+    # Qualidade
+    q = laudo.get("qualidade_imagens") or {}
+    if q:
+        q_text = f"Qualidade das imagens: score {q.get('score','-')} | Problemas: {', '.join(q.get('problemas') or []) or '-'} | Faltantes: {', '.join(q.get('faltantes') or []) or '-'}"
+        q_lines = _wrap_text(draw, q_text, body_font, W - 2*P)
+        height += 30 + len(q_lines)*22
+
+    # Eixos (relatórios)
+    for eixo in laudo.get("eixos", []):
+        rel = eixo.get("relatorio") or ""
+        rel_lines = _wrap_text(draw, f"{eixo.get('titulo', eixo.get('tipo','Eixo'))}: {rel}", body_font, W - 2*P)
+        height += 30 + len(rel_lines)*22
+
+    # Recomendações
+    if laudo.get("recomendacoes_finais"):
+        rec_text = "Recomendações finais: " + " • ".join(laudo.get("recomendacoes_finais"))
+        rec_lines = _wrap_text(draw, rec_text, body_font, W - 2*P)
+        height += 30 + len(rec_lines)*22
+
+    # Observação motorista
+    if obs:
+        obs_lines = _wrap_text(draw, f"Observação do motorista: {obs}", body_font, W - 2*P)
+        height += 30 + len(obs_lines)*22
+
+    # Colagem
+    col_w = W - 2*P
+    scale = min(1.0, col_w / collage.width)
+    col_h = int(collage.height * scale)
+    height += 30 + col_h + P
+
+    # Criar canvas final
+    out = Image.new("RGB", (W, height), "white")
+    d = ImageDraw.Draw(out)
+
+    y = P
+    d.text((P, y), "Laudo de Análise de Pneus — AVP", font=title_font, fill=(0,0,0))
+    y += 40
+
+    for line in meta_lines:
+        d.text((P, y), line, font=body_font, fill=(0,0,0))
+        y += 22
+    y += 10
+
+    if laudo.get("resumo_geral"):
+        d.text((P, y), "Resumo", font=h2_font, fill=(0,0,0)); y += 30
+        for line in res_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+        y += 10
+
+    if q:
+        d.text((P, y), "Qualidade das imagens", font=h2_font, fill=(0,0,0)); y += 30
+        for line in q_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+
+    for eixo in laudo.get("eixos", []):
+        y += 30
+        d.text((P, y), eixo.get("titulo", eixo.get("tipo","Eixo")), font=h2_font, fill=(0,0,0)); y += 30
+        rel = eixo.get("relatorio") or ""
+        for line in _wrap_text(d, rel, body_font, W - 2*P):
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+
+    if laudo.get("recomendacoes_finais"):
+        y += 30
+        d.text((P, y), "Recomendações finais", font=h2_font, fill=(0,0,0)); y += 30
+        for line in rec_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+
+    if obs:
+        y += 30
+        d.text((P, y), "Observação do motorista", font=h2_font, fill=(0,0,0)); y += 30
+        for line in obs_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+
+    # Colagem (redimensionada)
+    y += 30
+    if scale < 1.0:
+        col_resized = collage.resize((col_w, col_h), Image.LANCZOS)
+    else:
+        col_resized = collage.copy()
+    out.paste(col_resized, (P, y))
+    return out
+
+def _build_pdf_bytes(report_img: Image.Image) -> bytes:
+    """Converte a imagem do relatório para PDF (1 página)."""
+    buf = io.BytesIO()
+    # Pillow salva imagem única como PDF sem dependências
+    report_img.save(buf, format="PDF", resolution=150.0)
+    return buf.getvalue()
+
 # =========================
 # OpenAI / Prompt
 # =========================
@@ -434,6 +582,8 @@ def app():
 
         # Empilha tudo numa imagem única
         colagem_final = _stack_vertical_center(collages, titles)
+        # Guardamos para exportação posterior
+        st.session_state["ultima_colagem"] = colagem_final
 
     data_url = _img_to_dataurl(colagem_final)
     meta = {
@@ -511,6 +661,27 @@ def app():
         st.markdown("## 🔧 Recomendações finais")
         st.write("• " + "\n• ".join(laudo["recomendacoes_finais"]))
 
+    # ---- Exportar PDF ----
+    st.markdown("---")
+    col_exp1, col_exp2 = st.columns([1, 3])
+    with col_exp1:
+        if st.button("📄 Exportar PDF"):
+            try:
+                collage = st.session_state.get("ultima_colagem")
+                if collage is None:
+                    st.error("Não foi possível localizar a colagem final para exportação.")
+                else:
+                    report_img = _render_report_image(laudo, meta, obs, collage)
+                    pdf_bytes = _build_pdf_bytes(report_img)
+                    st.download_button(
+                        "⬇️ Baixar PDF do Laudo",
+                        data=pdf_bytes,
+                        file_name=f"laudo_{meta.get('placa') or 'veiculo'}.pdf",
+                        mime="application/pdf",
+                    )
+            except Exception as e:
+                st.error(f"Falha ao gerar PDF: {e}")
+
     # ---- WhatsApp (mensagem do cliente para a empresa) ----
     from urllib.parse import quote
     resumo_wpp = laudo.get("whatsapp_resumo") or (laudo.get("resumo_geral") or "")
@@ -518,12 +689,13 @@ def app():
     msg = (
         "Olá! Fiz o teste de análise de pneus e gostaria de conversar sobre a manutenção do veículo.\n\n"
         f"{resumo_wpp}\n\n"
-        f"Caminhão/Placa: {placa}\n"
-        f"Empresa: {empresa}\n"
-        f"Motorista/Gestor: {nome}\n"
-        f"Telefone: {telefone}\n"
-        f"E-mail: {email}\n"
+        f"Caminhão/Placa: {meta.get('placa')}\n"
+        f"Empresa: {meta.get('empresa')}\n"
+        f"Motorista/Gestor: {meta.get('nome')}\n"
+        f"Telefone: {meta.get('telefone')}\n"
+        f"E-mail: {meta.get('email')}\n"
         f"Observação: {obs or '-'}"
     )
     link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(msg)}"
-    st.markdown(f"[📲 Enviar resultado via WhatsApp]({link_wpp})")
+    with col_exp2:
+        st.markdown(f"[📲 Enviar resultado via WhatsApp]({link_wpp})")
