@@ -32,7 +32,7 @@ def app():
         st.error("Falha ao conectar ao banco de dados.")
         st.stop()
 
-    # --- PAINEL DE EDIÇÃO DE EMPRESA ---
+    # --- PAINEL DE EDIÇÃO DE EMPRESA (LÓGICA EXISTENTE MANTIDA) ---
     if st.session_state.rp_editing_company_for_vehicle_id:
         veiculo_id_para_editar = st.session_state.rp_editing_company_for_vehicle_id
         df_v_edit = pd.read_sql("SELECT placa, empresa, cliente_id FROM veiculos WHERE id = %s", conn, params=(int(veiculo_id_para_editar),))
@@ -150,7 +150,7 @@ def app():
                     st.session_state.pop('rp_busca_empresa_edit', None)
                     st.rerun()
 
-    # --- SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE VEÍCULO ---
+    # --- SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE VEÍCULO (LÓGICA EXISTENTE MANTIDA) ---
     if st.session_state.rp_editing_vehicle_id:
         veiculo_id = st.session_state.rp_editing_vehicle_id
         df_v = pd.read_sql("SELECT * FROM veiculos WHERE id = %s", conn, params=(int(veiculo_id),))
@@ -182,7 +182,33 @@ def app():
                         st.rerun()
 
     st.markdown("---")
-    intervalo_revisao_km = st.number_input("Avisar a cada (KM)", min_value=1000, max_value=100000, value=10000, step=1000)
+    
+    # --- NOVA INTERFACE DE SELEÇÃO DE MODO ---
+    st.subheader("1. Selecione o Modo de Busca")
+    modo_busca = st.radio(
+        "Buscar veículos por:",
+        ("Quilometragem", "Tempo desde a Última Visita"),
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
+    # --- LÓGICA CONDICIONAL PARA EXIBIR OS FILTROS CORRETOS ---
+    if modo_busca == "Quilometragem":
+        intervalo_revisao_km = st.number_input(
+            "Avisar a cada (KM)",
+            min_value=1000, max_value=100000, value=10000, step=1000
+        )
+    else: # Modo "Tempo"
+        col1, col2 = st.columns(2)
+        intervalo_tempo_valor = col1.number_input(
+            "Tempo desde a última visita",
+            min_value=1, value=6, step=1
+        )
+        intervalo_tempo_unidade = col2.selectbox(
+            "Unidade de Tempo",
+            ("meses", "dias")
+        )
+
     st.markdown("---")
 
     try:
@@ -228,12 +254,23 @@ def app():
         df['km_atual_estimada'] = df['km_ultima_visita'] + (df['dias_desde_ultima_visita'] * df['media_km_diaria'])
         df['km_rodados'] = df['km_atual_estimada'] - df['km_ultima_visita']
         
-        veiculos_para_contatar = df[df['km_atual_estimada'] >= (df['km_ultima_visita'] + intervalo_revisao_km)].copy()
+        # --- LÓGICA DE FILTRAGEM ADAPTATIVA ---
+        if modo_busca == "Quilometragem":
+            st.subheader(f"Veículos Sugeridos para Contato (KM rodados > {intervalo_revisao_km})")
+            veiculos_para_contatar = df[df['km_rodados'] >= intervalo_revisao_km].copy()
+            veiculos_para_contatar.sort_values(by='km_rodados', ascending=False, inplace=True)
+        else: # Modo "Tempo"
+            if intervalo_tempo_unidade == "meses":
+                dias_limite = intervalo_tempo_valor * 30 
+                st.subheader(f"Veículos Sugeridos para Contato ({intervalo_tempo_valor} {intervalo_tempo_unidade} sem visita)")
+            else: # dias
+                dias_limite = intervalo_tempo_valor
+                st.subheader(f"Veículos Sugeridos para Contato ({intervalo_tempo_valor} {intervalo_tempo_unidade} sem visita)")
+
+            veiculos_para_contatar = df[df['dias_desde_ultima_visita'] >= dias_limite].copy()
+            veiculos_para_contatar.sort_values(by='dias_desde_ultima_visita', ascending=False, inplace=True)
         
-        # --- MUDANÇA PRINCIPAL: ORDENAÇÃO POR KM RODADOS ---
-        veiculos_para_contatar.sort_values(by='km_rodados', ascending=False, inplace=True)
-        
-        st.subheader(f"Veículos Sugeridos para Contato ({len(veiculos_para_contatar)}):")
+        st.subheader(f"Encontrados: {len(veiculos_para_contatar)} veículos")
 
         if veiculos_para_contatar.empty:
             st.success("🎉 Nenhum veículo atendeu aos critérios para o contato proativo no momento.")
@@ -253,7 +290,12 @@ def app():
                         st.warning(f"**Gestor Frota:** {veiculo['nome_responsavel'] or 'N/A'} | **Contato:** {veiculo['contato_responsavel'] or 'N/A'}")
                         st.markdown(f"**Últimos Serviços:** *{veiculo['servicos_anteriores'] or 'Nenhum serviço registrado na última visita.'}*")
                     with col2:
-                        st.metric("KM Estimada Atual", f"{int(veiculo['km_atual_estimada']):,}".replace(',', '.'))
+                        # --- Exibição condicional da métrica principal ---
+                        if modo_busca == "Quilometragem":
+                             st.metric("KM Rodados Desde a Última Visita", f"{int(veiculo['km_rodados']):,}".replace(',', '.'))
+                        else:
+                             st.metric("Dias Desde a Última Visita", f"{int(veiculo['dias_desde_ultima_visita'])}")
+
                     
                     cap_col1, cap_col2 = st.columns([0.7, 0.3])
                     with cap_col1:
@@ -271,27 +313,45 @@ def app():
                         if len(num_limpo) < 12: return None
                         return f"https://wa.me/{num_limpo}?text={quote_plus(msg_text)}"
                     
-                    km_ultima_visita_str = f"{int(veiculo['km_ultima_visita']):,}".replace(',', '.')
-                    km_atual_estimada_str = f"{int(veiculo['km_atual_estimada']):,}".replace(',', '.')
-                    km_rodados_str = f"{int(veiculo['km_rodados']):,}".replace(',', '.')
-                    data_ultima_visita_str = veiculo['data_ultima_visita'].strftime('%d/%m/%Y')
-                    
-                    msg_motorista = (
-                        f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
-                        f"Aqui é da Capital Truck Center. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
-                        f"A última foi com {km_ultima_visita_str} km e, com base no histórico de rodagem dele aqui no sistema, ele já rodou aproximadamente {km_rodados_str} km desde então, estando agora com cerca de {km_atual_estimada_str} km.\n\n"
-                        f"Para garantir a segurança e o bom funcionamento do veículo, é importante fazer uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!\n\n"
-                        f"Um abraço!"
-                    )
+                    # --- GERAÇÃO DE MENSAGEM CONDICIONAL ---
+                    if modo_busca == "Quilometragem":
+                        km_ultima_visita_str = f"{int(veiculo['km_ultima_visita']):,}".replace(',', '.')
+                        km_atual_estimada_str = f"{int(veiculo['km_atual_estimada']):,}".replace(',', '.')
+                        km_rodados_str = f"{int(veiculo['km_rodados']):,}".replace(',', '.')
+                        
+                        msg_motorista = (
+                            f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
+                            f"Aqui é da Capital Truck Center. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
+                            f"A última foi com {km_ultima_visita_str} km e, com base no histórico de rodagem dele, já rodou aproximadamente {km_rodados_str} km desde então, estando agora com cerca de {km_atual_estimada_str} km.\n\n"
+                            f"Para garantir a segurança e o bom funcionamento do veículo, é importante fazer uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!"
+                        )
+                        msg_gestor = (
+                            f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
+                            f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
+                            f"A última manutenção foi em {veiculo['data_ultima_visita'].strftime('%d/%m/%Y')} com {km_ultima_visita_str} km. Com base no histórico de rodagem, o veículo rodou aproximadamente {km_rodados_str} km desde então, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
+                            f"Para manter a manutenção preventiva em dia, gostaríamos de alinhar os próximos passos."
+                        )
+                    else: # Modo "Tempo"
+                        dias_sem_visita = int(veiculo['dias_desde_ultima_visita'])
+                        data_ultima_visita_str = veiculo['data_ultima_visita'].strftime('%d/%m/%Y')
+                        
+                        if dias_sem_visita > 45:
+                            tempo_str = f"mais de {dias_sem_visita // 30} meses"
+                        else:
+                            tempo_str = f"{dias_sem_visita} dias"
 
-                    msg_gestor = (
-                        f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
-                        f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
-                        f"A última manutenção foi em {data_ultima_visita_str} com {km_ultima_visita_str} km. Com base no histórico de rodagem registrado em nosso sistema, o veículo rodou aproximadamente {km_rodados_str} km desde então, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
-                        f"Para manter a manutenção preventiva em dia e garantir a performance do ativo, gostaríamos de alinhar os próximos passos. Por favor, responda esta mensagem para organizarmos o serviço.\n\n"
-                        f"Atenciosamente,\nEquipe Capital Truck Center."
-                    )
-                    
+                        msg_motorista = (
+                            f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
+                            f"Aqui é da Capital Truck Center. Estamos entrando em contato pois notamos que já faz um tempo desde a última manutenção do seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
+                            f"A última visita dele aqui conosco foi em {data_ultima_visita_str}, ou seja, há {tempo_str}.\n\n"
+                            f"Para manter a manutenção preventiva em dia e garantir a segurança, gostaríamos de agendar uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!"
+                        )
+                        msg_gestor = (
+                            f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
+                            f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, notamos que o veículo {veiculo['modelo']}, placa {veiculo['placa']}, não passa por uma revisão em nossa oficina há {tempo_str} (desde {data_ultima_visita_str}).\n\n"
+                            f"Para manter a manutenção preventiva em dia e garantir a performance e segurança do ativo, gostaríamos de alinhar os próximos passos para uma nova revisão."
+                        )
+
                     link_motorista = create_whatsapp_link(veiculo['contato_motorista'], msg_motorista)
                     link_gestor = create_whatsapp_link(veiculo['contato_responsavel'], msg_gestor)
 
