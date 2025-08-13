@@ -73,7 +73,7 @@ def _draw_label(canvas: Image.Image, text: str, xy=(8, 8), bg=(34, 167, 240), fg
         font = None
     pad = 8
 
-    # Pillow novo: usar textbbox; se falhar, faz um fallback aproximado
+    # Pillow novo: usar textbbox; se falhar, fallback aproximado
     try:
         bbox = draw.textbbox((0, 0), text, font=font)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -179,15 +179,16 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
     )
 
     escopo = (
-        "Tarefa: atue como especialista em pneus de caminhões. Investigue e explique de forma objetiva:\n"
-        "- Tipos de desgaste (lateral interno/externo, serrilhamento/dente de serra, cunha, conicidade, cupping, feathering),\n"
-        "  diferenças entre lados/pares, recap solta, trincas/ressecamento, cortes/bolhas.\n"
-        "- Hipóteses de geometria (toe, camber, caster) e suspensão (amortecedor, buchas, rolamentos) quando aplicável.\n"
-        "- Pressão incorreta (baixa/alta) e necessidade de balanceamento.\n"
-        "- Risco e severidade (0–5) por eixo; recomendações práticas e priorizadas.\n"
-        "- Se fotos forem insuficientes, liste exatamente o que faltou (ângulo, foco, luz, distância).\n"
+        "Atue como especialista em pneus de caminhões pesados. As fotos podem estar com ângulo/foco/iluminação imperfeitos; "
+        "seja tolerante e registre limitações. Faça análise pneu a pneu **e** forneça um texto fluido por eixo, "
+        "como um relatório profissional (sem bullets), mencionando quando aplicável: "
+        "convergência **positiva/negativa**, cambagem **positiva/negativa**, caster, pressão **alta/baixa/ok**, "
+        "indícios de recapagem solta, trincas/fissuras superficiais, cortes, bolhas e diferenças entre pares. "
+        "Relacione causas prováveis e impacto prático (segurança/durabilidade). "
+        "Se a imagem não permitir avaliar, explique exatamente o que faltou (ângulo/foco/luz/distância)."
     )
 
+    # IMPORTANTE: uso de termos em PT-BR (convergência/cambagem/caster)
     formato = (
         "Responda SOMENTE em JSON válido com o formato:\n"
         "{\n"
@@ -197,14 +198,24 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         '    {\n'
         '      "titulo": "Eixo Dianteiro 1",\n'
         '      "tipo": "Dianteiro|Traseiro",\n'
-        '      "lados": {\n'
-        '        "motorista": {"achados": ["..."], "inflacao": "baixa|alta|ok|indef", "severidade": 0-5},\n'
-        '        "oposto":    {"achados": ["..."], "inflacao": "baixa|alta|ok|indef", "severidade": 0-5}\n'
+        '      "relatorio": "texto corrido e profissional sobre o eixo (convergência/cambagem/caster/pressão e achados)",\n'
+        '      "diagnostico_geometria": {\n'
+        '        "convergencia": "positiva|negativa|ok|indef",\n'
+        '        "cambagem": "positiva|negativa|ok|indef",\n'
+        '        "caster": "avancado|recuado|ok|indef"\n'
         '      },\n'
-        '      "suspeitas_geometria": {"toe": "provável|possível|improvável", "camber": "...", "caster": "..."},\n'
-        '      "balanceamento": "necessário|avaliar|ok",\n'
-        '      "risco": "baixo|médio|alto",\n'
-        '      "observacoes": "string opcional"\n'
+        '      "avaliacao_pressao": {"motorista":"baixa|alta|ok|indef","oposto":"baixa|alta|ok|indef"},\n'
+        '      "pneus": [\n'
+        '        {\n'
+        '          "posicao": "Motorista Frente|Motorista Trás|Oposto Frente|Oposto Trás",\n'
+        '          "achados": ["descrição detalhada"],\n'
+        '          "inflacao": "baixa|alta|ok|indef",\n'
+        '          "severidade": 0-5,\n'
+        '          "causas_provaveis": ["..."]\n'
+        '        }\n'
+        '      ],\n'
+        '      "observacoes_gerais_eixo": "Resumo técnico do eixo (opcional)",\n'
+        '      "risco_eixo": "baixo|médio|alto"\n'
         '    }\n'
         '  ],\n'
         '  "recomendacoes_finais": ["ações curtas e priorizadas"],\n'
@@ -221,7 +232,7 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         f"- Empresa: {meta.get('empresa')}\n"
         f"- Observação do motorista: {obs}\n"
         f"- Dados da placa/API: {json.dumps(meta.get('placa_info') or {}, ensure_ascii=False)}\n\n"
-        f"{layout}\n{escopo}\n{formato}"
+        f"{layout}\n{escopo}\n\n{formato}"
     )
 
     return [
@@ -454,26 +465,47 @@ def app():
         score = q.get("score")
         probs = ", ".join(q.get("problemas") or [])
         falt = ", ".join(q.get("faltantes") or [])
-        st.caption(f"Qualidade estimada: {score if score is not None else '-'} | Problemas: {probs or '-'} | Faltantes: {falt or '-'}")
+        st.caption(
+            f"Qualidade estimada: {score if score is not None else '-'} | "
+            f"Problemas: {probs or '-'} | Faltantes: {falt or '-'}"
+        )
 
+    # Render: formato novo (com relatório fluido e termos PT-BR) ou fallback
     for eixo in laudo.get("eixos", []):
         with st.container(border=True):
-            st.markdown(f"### {eixo.get('titulo', eixo.get('tipo','Eixo'))}")
-            lados = eixo.get("lados") or {}
-            for lado_nome in ("motorista", "oposto"):
-                det = lados.get(lado_nome) or {}
-                st.markdown(f"**Lado {lado_nome.capitalize()}**")
-                ach = det.get("achados") or []
-                if ach:
-                    st.write("• " + "\n• ".join(ach))
-                st.write(f"Inflação: {det.get('inflacao', '-')}")
-                st.write(f"Severidade: {det.get('severidade', '-')}/5")
-                st.markdown("---")
-            sg = eixo.get("suspeitas_geometria") or {}
-            st.write(f"**Hipóteses de geometria** — Toe: {sg.get('toe','-')} | Camber: {sg.get('camber','-')} | Caster: {sg.get('caster','-')}")
-            st.write(f"**Balanceamento**: {eixo.get('balanceamento','-')} | **Risco**: {eixo.get('risco','-')}")
-            if eixo.get("observacoes"):
-                st.caption(eixo["observacoes"])
+            titulo = eixo.get("titulo", eixo.get("tipo", "Eixo"))
+            st.markdown(f"### {titulo}")
+
+            # 1) Se vier o novo campo 'relatorio' (texto corrido), priorizamos
+            rel = eixo.get("relatorio")
+            if isinstance(rel, str) and rel.strip():
+                st.write(rel.strip())
+            else:
+                # 2) Caso não venha, tentamos montar com dados estruturados (compat)
+                dg = eixo.get("diagnostico_geometria") or eixo.get("suspeitas_geometria") or {}
+                conv = dg.get("convergencia") or dg.get("toe") or "-"
+                camb = dg.get("cambagem") or dg.get("camber") or "-"
+                cas  = dg.get("caster") or "-"
+                st.write(
+                    f"Neste eixo, a convergência foi classificada como **{conv}**, "
+                    f"a cambagem como **{camb}** e o caster como **{cas}**."
+                )
+
+            # 3) Detalhes pneu-a-pneu se existirem
+            pneus = eixo.get("pneus")
+            if isinstance(pneus, list) and pneus:
+                st.markdown("**Detalhes por pneu**")
+                for p in pneus:
+                    pos = p.get("posicao", "Pneu")
+                    ach = p.get("achados") or []
+                    ach_txt = " • ".join(ach) if ach else "sem anomalias marcantes nas imagens."
+                    st.write(f"- {pos}: {ach_txt} [pressão: {p.get('inflacao','-')}; severidade: {p.get('severidade','-')}/5].")
+
+            # 4) Observações e risco
+            if eixo.get("observacoes_gerais_eixo"):
+                st.caption(eixo["observacoes_gerais_eixo"])
+            if eixo.get("risco_eixo"):
+                st.write(f"**Risco do eixo:** {eixo.get('risco_eixo')}")
 
     if laudo.get("recomendacoes_finais"):
         st.markdown("## 🔧 Recomendações finais")
