@@ -19,10 +19,14 @@ from pages import (
     mesclar_historico,
     gerar_termos,
     ajustar_media_km,
-    analise_pneus      # <-- NOVO: página de análise de pneus
+    analise_pneus      # página de análise de pneus
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
+
+# --- FLAGS DE INTEGRAÇÃO (via secrets do Streamlit) ---
+OPENAI_READY   = bool(st.secrets.get("OPENAI_API_KEY"))
+TELEGRAM_READY = bool(st.secrets.get("TELEGRAM_BOT_TOKEN")) and bool(st.secrets.get("TELEGRAM_CHAT_ID"))
 
 # --- CSS DEFINITIVO PARA LAYOUT PROFISSIONAL E RESPONSIVO ---
 st.markdown("""
@@ -61,6 +65,17 @@ user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key=
 # --- SIDEBAR ---
 with st.sidebar:
     st.success(f"Logado como: **{st.session_state.get('user_name')}**")
+
+    # Status das integrações (meramente informativo)
+    st.markdown("### Integrações")
+    st.write(f"OpenAI: {'✅' if OPENAI_READY else '❌'}")
+    st.write(f"Telegram: {'✅' if TELEGRAM_READY else '❌'}")
+
+    if not OPENAI_READY:
+        st.caption("Configure `OPENAI_API_KEY` em Secrets para habilitar **Análise de Pneus**.")
+    if not TELEGRAM_READY:
+        st.caption("Opcional: `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` para receber laudos no grupo.")
+
     if st.button("Logout", use_container_width=True, type="secondary"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
@@ -74,8 +89,14 @@ st.markdown('<div class="menu-container">', unsafe_allow_html=True)
 
 if IS_MOBILE:
     # --- MENU (MOBILE) ---
-    mobile_options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes", "Análise de Pneus"]
-    mobile_icons   = ["truck-front", "card-list", "card-checklist", "view-stacked", "camera"]
+    mobile_options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"]
+    mobile_icons   = ["truck-front", "card-list", "card-checklist", "view-stacked"]
+
+    # acrescenta Análise de Pneus se OpenAI estiver configurado
+    if OPENAI_READY:
+        mobile_options.append("Análise de Pneus")
+        mobile_icons.append("camera")
+
     if st.session_state.get('user_role') == 'admin':
         mobile_options.extend(["Controle de Feedback", "Revisão Proativa"])
         mobile_icons.extend(["telephone-outbound", "arrow-repeat"])
@@ -94,14 +115,18 @@ else:
         "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços",
         "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos",
         "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa",
-        "Análise de Pneus"   # <-- NOVO
     ]
     pc_icons = [
         "truck-front", "people", "card-list",
         "card-checklist", "view-stacked", "check-circle",
         "clock-history", "telephone-outbound", "arrow-repeat",
-        "camera"         # <-- NOVO
     ]
+
+    # acrescenta Análise de Pneus se OpenAI estiver configurado
+    if OPENAI_READY:
+        pc_options.append("Análise de Pneus")
+        pc_icons.append("camera")
+
     if st.session_state.get('user_role') == 'admin':
         pc_options.extend(["Gerenciar Usuários", "Relatórios", "Mesclar Históricos"])
         pc_icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
@@ -147,7 +172,7 @@ elif selected_page == "Controle de Feedback":
 elif selected_page == "Revisão Proativa":
     revisao_proativa.app()
 elif selected_page == "Análise de Pneus":
-    # <-- NOVO: chama a página de análise de pneus
+    # chama a página de análise (só aparece no menu se OPENAI_READY for True)
     analise_pneus.app()
 elif selected_page == "Gerenciar Usuários":
     gerenciar_usuarios.app()
