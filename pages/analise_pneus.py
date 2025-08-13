@@ -316,23 +316,23 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         "Recomenda-se inspeção presencial por profissional qualificado."
     )
 
-    # Orientação de fotografia para reduzir recusas por 'baixa visibilidade'
+    # Orientação de fotografia com novo padrão: Frente (câmera paralela à banda) + 45°
     orientacao_foto = (
-        "Orientações de leitura das imagens (considere-as ao julgar qualidade/limites): "
-        "As fotos podem vir de motoristas com celular. O alvo é mostrar VOLUME da banda: "
-        "preferir ângulo de 30–45° em relação ao plano da banda e distância ~0,8–1,2 m; "
-        "enquadrar banda + ombros (interno e externo) e um pouco de flanco; "
-        "evitar sombras duras / contraluz; manter foco nítido; se o pneu estiver fora do caminhão, "
-        "posicionar a câmera levemente acima da banda para ver profundidade dos sulcos; "
-        "evitar foto completamente reta (ortogonal) que achata os sulcos."
+        "Orientações para leitura e qualidade: As fotos vêm de motoristas via celular. "
+        "Para cada lado do eixo, enviar **duas fotos**: (1) **de frente** para o pneu, com a câmera **paralela à banda**; "
+        "(2) em **~45°** para evidenciar a profundidade dos sulcos. Distância ~0,8–1,2 m. "
+        "Enquadrar banda + dois ombros e um pouco do flanco. Evitar sombras duras/contraluz; manter foco nítido. "
+        "Se o pneu estiver fora do caminhão, a foto em 45° pode ser levemente de cima."
     )
 
     layout = (
         "Você receberá UMA imagem com uma SEQUÊNCIA de colagens 2×2 empilhadas verticalmente. "
         "Cada colagem possui um rótulo no canto superior (ex.: 'Eixo Dianteiro 1', 'Eixo Traseiro 2'). "
-        "Em TODAS as colagens: coluna ESQUERDA = lado MOTORISTA, coluna DIREITA = lado OPOSTO. "
-        "• Em eixos DIANTEIROS: LINHA de CIMA = TRÁS→FRENTE; LINHA de BAIXO = FRENTE→TRÁS (é 1 pneu por lado). "
-        "• Em eixos TRASEIROS (conjunto geminado): LINHA de CIMA = FRENTE do conjunto; LINHA de BAIXO = TRÁS do conjunto. "
+        "Em TODAS as colagens: coluna ESQUERDA = lado MOTORISTA; coluna DIREITA = lado OPOSTO. "
+        "Padrão por colagem 2×2:\n"
+        "• **Linha de CIMA** = fotos **de frente** (câmera paralela à banda) — Motorista (esq), Oposto (dir);\n"
+        "• **Linha de BAIXO** = fotos **em ~45°** — Motorista (esq), Oposto (dir).\n"
+        "Para eixos traseiros **germinados**, considere a foto 'de frente' e 'em 45°' do **conjunto** do lado Motorista e do lado Oposto. "
         f"Ordem de cima para baixo: {', '.join(axis_titles)}."
     )
 
@@ -347,7 +347,6 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         "Quando as fotos limitarem a avaliação, aponte exatamente o que faltou (ângulo/foco/luz/distância)."
     )
 
-    # Formato reduzido e mais objetivo para custo baixo, mas rico o suficiente
     formato = (
         "Responda SOMENTE em JSON válido no formato:\n"
         "{\n"
@@ -455,15 +454,16 @@ def app():
 
     st.markdown("---")
 
-    # Guia rápido de fotografia (resolve o caso 'foto muito reta na banda')
+    # Guia rápido de fotografia — NOVO PADRÃO (Frente + 45°)
     with st.expander("📸 Como fotografar para melhor leitura (dica rápida)"):
         st.write(
-            "- Use **ângulo de 30–45°** em relação à banda (evite foto totalmente reta).\n"
-            "- Fique a **~1 metro**; enquadre **banda + dois ombros** e um pouco do flanco.\n"
+            "- Para **cada lado**, tire **duas fotos** do pneu:\n"
+            "  1) **De frente**: câmera **paralela à banda** (visão frontal da banda de rodagem);\n"
+            "  2) **Em ~45°**: para evidenciar profundidade dos sulcos.\n"
+            "- Distância **~1 metro**; enquadre **banda + dois ombros** e um pouco do flanco.\n"
             "- Evite **contraluz** e sombras fortes; garanta foco nítido.\n"
-            "- Se o pneu estiver **fora do caminhão**, fotografe levemente **de cima** para mostrar profundidade dos sulcos.\n"
-            "- Dianteiro: faça uma foto **trás→frente** e outra **frente→trás** de cada lado.\n"
-            "- Traseiro (germinado): uma foto **de frente** do conjunto e outra **por trás** de cada lado."
+            "- **Traseiro (germinado)**: faça a dupla (**frente** e **45°**) do **conjunto** do lado Motorista e do lado Oposto.\n"
+            "- Se o pneu estiver **fora do caminhão**, a foto em 45° pode ser levemente **de cima**."
         )
 
     observacao = st.text_area(
@@ -474,7 +474,7 @@ def app():
 
     # ------- Controle dinâmico de eixos -------
     if "axes" not in st.session_state:
-        st.session_state.axes: List[Dict] = []  # cada item: {"tipo": "Dianteiro|Traseiro", "files": {...}}
+        st.session_state.axes: List[Dict] = []  # cada item: {"tipo": "Dianteiro|Traseiro", "files": {}}
 
     cA, cB, cC = st.columns(3)
     with cA:
@@ -491,51 +491,51 @@ def app():
         st.info("Adicione pelo menos um eixo (Dianteiro/Traseiro).")
         return
 
-    # Uploaders por eixo
+    # Uploaders por eixo — NOVO PADRÃO
     for idx, eixo in enumerate(st.session_state.axes, start=1):
         with st.container(border=True):
             st.subheader(f"Eixo {idx} — {eixo['tipo']}")
-            # 4 fotos por eixo, com rótulos diferentes por tipo
+            # 4 fotos por eixo: Motorista (Frente, 45°) | Oposto (Frente, 45°)
             if eixo["tipo"] == "Dianteiro":
-                st.caption("MOTORISTA: (1) TRÁS→FRENTE, (2) FRENTE→TRÁS — OPOSTO: (1) TRÁS→FRENTE, (2) FRENTE→TRÁS")
+                st.caption("MOTORISTA: (1) FRENTE, (2) 45° — OPOSTO: (1) FRENTE, (2) 45°")
                 cm, co = st.columns(2)
                 with cm:
                     eixo["files"]["lt"] = st.file_uploader(
-                        f"Motorista — Foto 1 (trás→frente)  — Dianteiro {idx}",
+                        f"Motorista — Foto 1 (FRENTE) — Dianteiro {idx}",
                         type=["jpg","jpeg","png"], key=f"d_dm1_{idx}"
                     )
                     eixo["files"]["lb"] = st.file_uploader(
-                        f"Motorista — Foto 2 (frente→trás) — Dianteiro {idx}",
+                        f"Motorista — Foto 2 (45°) — Dianteiro {idx}",
                         type=["jpg","jpeg","png"], key=f"d_dm2_{idx}"
                     )
                 with co:
                     eixo["files"]["rt"] = st.file_uploader(
-                        f"Oposto — Foto 1 (trás→frente)   — Dianteiro {idx}",
+                        f"Oposto — Foto 1 (FRENTE) — Dianteiro {idx}",
                         type=["jpg","jpeg","png"], key=f"d_do1_{idx}"
                     )
                     eixo["files"]["rb"] = st.file_uploader(
-                        f"Oposto — Foto 2 (frente→trás)  — Dianteiro {idx}",
+                        f"Oposto — Foto 2 (45°) — Dianteiro {idx}",
                         type=["jpg","jpeg","png"], key=f"d_do2_{idx}"
                     )
             else:
-                st.caption("MOTORISTA: (1) FRENTE, (2) TRÁS — OPOSTO: (1) FRENTE, (2) TRÁS")
+                st.caption("MOTORISTA: (1) FRENTE (conjunto), (2) 45° (conjunto) — OPOSTO: (1) FRENTE (conjunto), (2) 45° (conjunto)")
                 cm, co = st.columns(2)
                 with cm:
                     eixo["files"]["lt"] = st.file_uploader(
-                        f"Motorista — Frente (conjunto) — Traseiro {idx}",
+                        f"Motorista — Frente (conjunto germinado) — Traseiro {idx}",
                         type=["jpg","jpeg","png"], key=f"t_tm1_{idx}"
                     )
                     eixo["files"]["lb"] = st.file_uploader(
-                        f"Motorista — Trás  (conjunto) — Traseiro {idx}",
+                        f"Motorista — 45° (conjunto germinado) — Traseiro {idx}",
                         type=["jpg","jpeg","png"], key=f"t_tm2_{idx}"
                     )
                 with co:
                     eixo["files"]["rt"] = st.file_uploader(
-                        f"Oposto — Frente (conjunto) — Traseiro {idx}",
+                        f"Oposto — Frente (conjunto germinado) — Traseiro {idx}",
                         type=["jpg","jpeg","png"], key=f"t_to1_{idx}"
                     )
                     eixo["files"]["rb"] = st.file_uploader(
-                        f"Oposto — Trás  (conjunto) — Traseiro {idx}",
+                        f"Oposto — 45° (conjunto germinado) — Traseiro {idx}",
                         type=["jpg","jpeg","png"], key=f"t_to2_{idx}"
                     )
 
@@ -567,18 +567,18 @@ def app():
             if eixo["tipo"] == "Dianteiro":
                 labels = dict(
                     title=f"Eixo Dianteiro {i}",
-                    left_top="Motorista — Trás→Frente",
-                    left_bottom="Motorista — Frente→Trás",
-                    right_top="Oposto — Trás→Frente",
-                    right_bottom="Oposto — Frente→Trás",
+                    left_top="Motorista — Frente",
+                    left_bottom="Motorista — 45°",
+                    right_top="Oposto — Frente",
+                    right_bottom="Oposto — 45°",
                 )
             else:
                 labels = dict(
                     title=f"Eixo Traseiro {i}",
-                    left_top="Motorista — Frente",
-                    left_bottom="Motorista — Trás",
-                    right_top="Oposto — Frente",
-                    right_bottom="Oposto — Trás",
+                    left_top="Motorista — Frente (conjunto)",
+                    left_bottom="Motorista — 45° (conjunto)",
+                    right_top="Oposto — Frente (conjunto)",
+                    right_bottom="Oposto — 45° (conjunto)",
                 )
             col = _grid_2x2_labeled(lt, lb, rt, rb, labels)
             collages.append(col)
@@ -639,7 +639,6 @@ def app():
             if isinstance(diag, str) and diag.strip():
                 st.write(diag.strip())
             else:
-                # fallback bem simples se o modelo não retornou o novo campo
                 st.write("Diagnóstico do eixo não informado pelo modelo.")
 
             # Pressão por pneu (opcional, conciso)
@@ -661,7 +660,6 @@ def app():
             if linha:
                 st.caption(" | ".join(linha))
             if ach:
-                # mostrar como frase única para manter fluidez
                 st.caption("Achados-chave: " + "; ".join(ach))
 
     if laudo.get("recomendacoes_finais"):
