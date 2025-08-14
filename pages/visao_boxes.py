@@ -87,7 +87,7 @@ def render_box(conn, box_data, catalogo_servicos):
             st.markdown(f"**KM de Entrada:** {int(box_data['quilometragem']):,} km".replace(',', '.'))
 
         c_unassign, _ = st.columns([0.5, 0.5])
-        if c_unassign.button("↩️ Retirar do Box (voltar para pendente)", key=f"unassign_block_{box_id}", use_container_width=True):
+        if c_unassign.button("↩️ Retirar do Box", key=f"unassign_block_{box_id}", use_container_width=True):
             desalocar_bloco_do_box(conn, box_id, int(execucao_id))
             st.session_state.box_states = {}
             st.rerun()
