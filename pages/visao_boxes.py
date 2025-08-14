@@ -198,8 +198,8 @@ def adicionar_servico_extra(conn, box_id, execucao_id, tipo, qtd, catalogo):
 # === Botão ÚNICO: retirar bloco inteiro do box (voltar tudo para pendente)
 def desalocar_bloco_do_box(conn, box_id, execucao_id):
     """
-    Devolve TODOS os serviços da execução para 'pendente' e remove associação com o box/execução,
-    sem cancelar a execução (execucao_servico volta para 'pendente' e limpa vínculos).
+    Retira a execução do box devolvendo TODOS os serviços para 'pendente' e
+    removendo a linha de execucao_servico (evita colisão com constraints).
     """
     try:
         with conn.cursor() as cursor:
@@ -218,21 +218,15 @@ def desalocar_bloco_do_box(conn, box_id, execucao_id):
                     (datetime.now(MS_TZ), execucao_id)
                 )
 
-            # 2) Execução -> pendente (remove box/funcionário, limpa fim_execucao)
-            cursor.execute(
-                """UPDATE execucao_servico
-                      SET status = 'pendente',
-                          fim_execucao = NULL
-                    WHERE id = %s""",
-                (execucao_id,)
-            )
+            # 2) Remove a execução (não deixa pendente para não violar constraints)
+            cursor.execute("DELETE FROM execucao_servico WHERE id = %s", (execucao_id,))
 
             # 3) Libera o box
             cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
 
             conn.commit()
 
-        st.info(f"Execução removida do Box {box_id}. Serviços voltaram para a fila (pendente).")
+        st.info(f"Execução retirada do Box {box_id}. Serviços voltaram para a fila (pendente).")
     except Exception as e:
         conn.rollback()
         st.error(f"Erro ao retirar bloco do box: {e}")
