@@ -17,7 +17,11 @@ def gerar_texto_termo(dados_veiculo, selecoes):
     """Gera o texto completo do termo de responsabilidade com base nas seleções."""
     
     # --- DADOS DO VEÍCULO ---
-    nome_motorista = dados_veiculo.get('nome_motorista', '').upper()
+    # Adicionamos uma verificação para garantir que dados_veiculo não é None
+    if not dados_veiculo:
+        return "Erro: Dados do veículo não encontrados.", "", ""
+
+    nome_motorista = dados_veiculo.get('nome_motorista', '').upper() if dados_veiculo.get('nome_motorista') else ''
     placa = dados_veiculo.get('placa', '').upper()
     cliente = dados_veiculo.get('empresa', '').upper()
     
@@ -101,7 +105,7 @@ def app():
         st.error("Falha ao conectar ao banco de dados.")
         st.stop()
 
-    dados_veiculo = {}
+    dados_veiculo = None # Inicializa como None
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             query = """
@@ -121,6 +125,10 @@ def app():
     finally:
         release_connection(conn)
     
+    if not dados_veiculo:
+        st.error("Não foi possível carregar os dados do veículo.")
+        st.stop()
+
     st.markdown("---")
     st.subheader("Selecione as Condições e Avarias")
     
@@ -161,34 +169,28 @@ def app():
         
         /* --- INÍCIO DAS REGRAS DE IMPRESSÃO CORRIGIDAS --- */
         @media print {{
-            /* Define o tamanho da página e as margens */
             @page {{
                 size: A4 portrait;
                 margin: 1.5cm;
             }}
 
-            /* Esconde elementos indesejados do Streamlit e o nosso botão */
             body > #root > div:not(.stApp), .stApp > header, .stSidebar, .print-button-container {{
                 display: none !important;
                 visibility: hidden !important;
             }}
 
-            /* Garante que a área principal seja visível para que as regras de filhos funcionem */
             .main {{
                 visibility: visible !important;
             }}
 
-            /* Esconde tudo dentro da área principal por padrão */
             .main * {{
                 visibility: hidden;
             }}
 
-            /* Mostra APENAS o nosso contêiner de impressão e seu conteúdo */
             #printable-area, #printable-area * {{
                 visibility: visible;
             }}
 
-            /* Estrutura o contêiner de impressão para ocupar a página inteira */
             #printable-area {{
                 position: fixed;
                 left: 0;
@@ -199,15 +201,12 @@ def app():
                 padding: 0 !important;
                 color: #000 !important;
                 background-color: #fff !important;
-
-                /* Ativa o Flexbox para controlar o layout vertical */
                 display: flex;
                 flex-direction: column;
             }}
             
-            /* Ajusta o conteúdo para preencher o espaço */
             .termo-body {{
-                flex-grow: 1; /* Faz o corpo do texto crescer para ocupar o espaço livre */
+                flex-grow: 1;
                 text-align: justify;
                 font-family: sans-serif;
                 font-size: 11pt;
