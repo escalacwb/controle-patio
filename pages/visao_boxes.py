@@ -175,9 +175,12 @@ def adicionar_servico_extra(conn, box_id, execucao_id, tipo, qtd, catalogo):
             return
 
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            usuario_finalizacao_id = st.session_state.get('user_id')
+            usuario_finalizacao_nome = st.session_state.get('user_name')
+
             cursor.execute("SELECT veiculo_id, quilometragem FROM execucao_servico WHERE id = %s", (execucao_id,))
             result = cursor.fetchone()
-            veiculo_id, quilometragem = result['veiculo_id'], result['quilometragem']
+            veiculo_id, quilometragem, nome_motorista = result['veiculo_id'], result['quilometragem'], result['nome_motorista']
             
             tabela = f"servicos_solicitados_{area_servico}"
             query = f"""
