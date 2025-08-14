@@ -87,28 +87,23 @@ def render_box(conn, box_data, catalogo_servicos):
         if pd.notna(box_data['quilometragem']):
             st.markdown(f"**KM de Entrada:** {int(box_data['quilometragem']):,} km".replace(',', '.'))
 
+        # ⬅️ Botão ÚNICO DO BOX: retirar bloco inteiro (voltar tudo para pendente)
+        c_unassign, _ = st.columns([0.5, 0.5])
+        if c_unassign.button("↩️ Retirar do Box (voltar para pendente)", key=f"unassign_block_{box_id}", use_container_width=True):
+            desalocar_bloco_do_box(conn, box_id, int(execucao_id))
+            st.session_state.box_states = {}
+            st.rerun()
+
     st.subheader("Serviços em Execução")
     for unique_id, servico in list(box_state.get('servicos', {}).items()):
         if servico.get('status') != 'removido':
-            # 4 colunas: nome, qtd, retirar (volta pendente), cancelar (cancela definitivamente)
-            c1, c2, c3, c4 = st.columns([0.55, 0.15, 0.15, 0.15])
+            # Apenas nome e quantidade (sem botões por serviço)
+            c1, c2 = st.columns([0.75, 0.25])
             c1.write(servico['tipo'])
             nova_qtd = c2.number_input("Qtd", value=servico['qtd_executada'], min_value=0,
                                        key=f"qtd_{unique_id}", label_visibility="collapsed")
             if nova_qtd != servico['qtd_executada']:
                 st.session_state.box_states[box_id]['servicos'][unique_id]['qtd_executada'] = nova_qtd
-                st.rerun()
-
-            # ↩️ Tirar do box -> volta para pendente (sem cancelar)
-            if c3.button("↩️", key=f"unassign_{unique_id}", help=f"Retirar do box e voltar para pendente"):
-                devolver_servico_pendente(conn, servico['db_id'], servico['area'])
-                st.session_state.box_states = {}  # força resync
-                st.rerun()
-
-            # ✖ Cancelar serviço -> marca como cancelado (não volta para fila)
-            if c4.button("✖", key=f"del_{unique_id}", help=f"Cancelar definitivamente"):
-                cancelar_servico_individual(conn, servico['db_id'], servico['area'])
-                st.session_state.box_states = {}  # força resync
                 st.rerun()
 
     st.subheader("Adicionar Serviço Extra")
@@ -136,11 +131,9 @@ def render_box(conn, box_data, catalogo_servicos):
         st.rerun()
 
     st.markdown("---")
-    col2, col3 = st.columns(2)
-    if col2.button("✅ Finalizar Box", key=f"finish_{box_id}", type="primary", use_container_width=True):
+    # ✅ Apenas um botão: Finalizar Box
+    if st.button("✅ Finalizar Box", key=f"finish_{box_id}", type="primary", use_container_width=True):
         finalizar_execucao(conn, box_id, int(execucao_id))
-    if col3.button("❌ Cancelar Serviço", key=f"cancel_{box_id}", use_container_width=True):
-        cancelar_execucao(conn, box_id, int(execucao_id))
 
 def sync_box_state_from_db(conn, box_id, veiculo_id):
     query = """
@@ -202,48 +195,58 @@ def adicionar_servico_extra(conn, box_id, execucao_id, tipo, qtd, catalogo):
         conn.rollback()
         st.error(f"Erro ao adicionar serviço: {e}")
 
-# === NOVO: devolver serviço à fila (pendente) sem cancelar ===
-def devolver_servico_pendente(conn, db_id, area):
+# === Botão ÚNICO: retirar bloco inteiro do box (voltar tudo para pendente)
+def desalocar_bloco_do_box(conn, box_id, execucao_id):
+    """
+    Devolve TODOS os serviços da execução para 'pendente' e remove associação com o box/execução,
+    sem cancelar a execução (execucao_servico volta para 'pendente' e limpa vínculos).
+    """
     try:
-        tabela = f"servicos_solicitados_{area}"
         with conn.cursor() as cursor:
+            # 1) Serviços -> pendente (limpa vínculos)
+            for tabela in ["servicos_solicitados_borracharia",
+                           "servicos_solicitados_alinhamento",
+                           "servicos_solicitados_manutencao"]:
+                cursor.execute(
+                    f"""UPDATE {tabela}
+                           SET status = 'pendente',
+                               box_id = NULL,
+                               funcionario_id = NULL,
+                               execucao_id = NULL,
+                               data_atualizacao = %s
+                         WHERE execucao_id = %s""",
+                    (datetime.now(MS_TZ), execucao_id)
+                )
+
+            # 2) Execução -> pendente (remove box/funcionário, limpa fim_execucao)
             cursor.execute(
-                f"""UPDATE {tabela}
-                        SET status = 'pendente',
-                            box_id = NULL,
-                            funcionario_id = NULL,
-                            execucao_id = NULL,
-                            data_atualizacao = %s
-                      WHERE id = %s""",
-                (datetime.now(MS_TZ), db_id)
+                """UPDATE execucao_servico
+                      SET status = 'pendente',
+                          box_id = NULL,
+                          funcionario_id = NULL,
+                          fim_execucao = NULL
+                    WHERE id = %s""",
+                (execucao_id,)
             )
+
+            # 3) Libera o box
+            cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
+
             conn.commit()
-            st.toast("Serviço devolvido para a fila (pendente).", icon="↩️")
+
+        st.info(f"Execução removida do Box {box_id}. Serviços voltaram para a fila (pendente).")
     except Exception as e:
         conn.rollback()
-        st.error(f"Erro ao devolver serviço para pendente: {e}")
+        st.error(f"Erro ao retirar bloco do box: {e}")
 
-# (Mantém a opção de cancelar apenas um serviço da lista)
-def cancelar_servico_individual(conn, db_id, area):
-    try:
-        tabela = f"servicos_solicitados_{area}"
-        with conn.cursor() as cursor:
-            cursor.execute(
-                f"UPDATE {tabela} SET status = 'cancelado', data_atualizacao = %s WHERE id = %s",
-                (datetime.now(MS_TZ), db_id)
-            )
-            conn.commit()
-            st.toast("Serviço cancelado.", icon="❌")
-    except Exception as e:
-        conn.rollback()
-        st.error(f"Erro ao cancelar serviço: {e}")
-
-def _salvar_alteracoes_finais(conn, box_id, execucao_id, status_final):
-    box_state = st.session_state.box_states.get(box_id, {})
-    obs_final = box_state.get('obs_final', '')
+def _salvar_alteracoes_finais(conn, box_id, execucao_id, status_final, obs_final):
+    """
+    Atualiza todas as linhas de serviço desse box com a quantidade executada e status_final,
+    gravando a observação final da execução. Retorna True/False.
+    """
     try:
         with conn.cursor() as cursor:
-            for servico in box_state.get('servicos', {}).values():
+            for servico in st.session_state.box_states.get(box_id, {}).get('servicos', {}).values():
                 tabela = f"servicos_solicitados_{servico['area']}"
                 cursor.execute(
                     f"""UPDATE {tabela}
@@ -260,72 +263,45 @@ def _salvar_alteracoes_finais(conn, box_id, execucao_id, status_final):
         return False
 
 def finalizar_execucao(conn, box_id, execucao_id):
-    # finaliza serviços em 'finalizado' e fecha a execução
-    if not _salvar_alteracoes_finais(conn, box_id, execucao_id, 'finalizado'):
-        conn.rollback()
-        return
+    """
+    Sempre FINALIZA a execução, mesmo com quantidades = 0 (registra passagem pelo box sem serviço).
+    O botão '↩️ Retirar do Box' é o único que devolve para pendente.
+    """
+    box_state = st.session_state.box_states.get(box_id, {})
+    obs_final = box_state.get('obs_final', '')
 
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # 1) Finaliza todos os serviços (inclusive qty 0) com a observação final
+            if not _salvar_alteracoes_finais(conn, box_id, execucao_id, 'finalizado', obs_final):
+                conn.rollback()
+                return
+
+            # 2) Marca a execução como 'finalizado'
             usuario_finalizacao_id = st.session_state.get('user_id')
             cursor.execute(
-                "UPDATE execucao_servico SET status = 'finalizado', fim_execucao = %s, usuario_finalizacao_id = %s WHERE id = %s RETURNING veiculo_id",
+                "UPDATE execucao_servico "
+                "   SET status = 'finalizado', fim_execucao = %s, usuario_finalizacao_id = %s "
+                " WHERE id = %s "
+                " RETURNING veiculo_id",
                 (datetime.now(MS_TZ), usuario_finalizacao_id, execucao_id)
             )
             veiculo_id = cursor.fetchone()['veiculo_id']
-            cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
-            conn.commit()
-            st.success(f"Box {box_id} finalizado com sucesso!")
-            
-            with st.spinner("Atualizando média e enviando notificações..."):
-                recalcular_media_veiculo(conn, veiculo_id)
-                # (Notificações se aplicável)
-
-            st.session_state.box_states = {}
-            st.rerun()
-    except Exception as e:
-        conn.rollback()
-        st.error(f"Erro ao finalizar Box {box_id}: {e}")
-
-def cancelar_execucao(conn, box_id, execucao_id):
-    """
-    Cancela a execução do box **sem perder os serviços**:
-    - execucao_servico.status = 'cancelado' (fim_execucao registrado; box_id NULL para não “colar” em box)
-    - boxes.ocupado = FALSE (libera o box)
-    - TODOS os serviços dessa execução voltam para a FILA: status='pendente', e limpamos box_id, funcionario_id, execucao_id
-    """
-    try:
-        with conn.cursor() as cursor:
-            # 1) Devolve TODOS os serviços (de qualquer área) para pendente
-            for tabela in ["servicos_solicitados_borracharia",
-                           "servicos_solicitados_alinhamento",
-                           "servicos_solicitados_manutencao"]:
-                cursor.execute(
-                    f"""UPDATE {tabela}
-                           SET status = 'pendente',
-                               box_id = NULL,
-                               funcionario_id = NULL,
-                               execucao_id = NULL,
-                               data_atualizacao = %s
-                         WHERE execucao_id = %s""",
-                    (datetime.now(MS_TZ), execucao_id)
-                )
-
-            # 2) Cancela a execução e solta associação com o box
-            cursor.execute(
-                "UPDATE execucao_servico SET status = 'cancelado', fim_execucao = %s, box_id = NULL WHERE id = %s",
-                (datetime.now(MS_TZ), execucao_id)
-            )
 
             # 3) Libera o box
             cursor.execute("UPDATE boxes SET ocupado = FALSE WHERE id = %s", (box_id,))
-
             conn.commit()
 
-        st.warning(f"Execução do Box {box_id} cancelada. Serviços devolvidos para a fila (pendente).")
-        st.session_state.box_states = {}
-        st.rerun()
+            st.success(f"Box {box_id} finalizado com sucesso!")
+
+            # 4) Atualizações adicionais (média de KM etc.)
+            with st.spinner("Atualizando média e enviando notificações..."):
+                recalcular_media_veiculo(conn, veiculo_id)
+                # (Notificações se desejar)
+
+            st.session_state.box_states = {}
+            st.rerun()
 
     except Exception as e:
         conn.rollback()
-        st.error(f"Erro ao cancelar execução do Box {box_id}: {e}")
+        st.error(f"Erro ao finalizar Box {box_id}: {e}")
