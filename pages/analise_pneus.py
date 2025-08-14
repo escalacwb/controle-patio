@@ -234,7 +234,7 @@ def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image
         q_lines = _wrap_text(draw, q_text, body_font, W - 2*P)
         height += 30 + len(q_lines)*22
 
-    # Eixos (diagnóstico global + campos extras)
+    # Eixos (diagnóstico global + extras)
     eixos = laudo.get("eixos", [])
     eixos_blocks = []
     for eixo in eixos:
@@ -375,73 +375,69 @@ def _build_pdf_bytes(report_img: Image.Image) -> bytes:
     return buf.getvalue()
 
 # =========================
-# OpenAI / Prompt (ANÁLISE GLOBAL POR EIXO)
+# OpenAI / Prompt helpers
 # =========================
 def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: List[str]) -> list:
-    # —— perfil do especialista e contexto
+    """
+    Prompt para imagem única contendo TODAS as colagens.
+    Exige N itens em 'eixos' = len(axis_titles) e plano de rodízio detalhado.
+    """
     especialista = (
         "Você é um especialista brasileiro em pneus de caminhões (borracharia/alinhamento) com prática em "
         "diagnóstico por desgaste, geometria (convergência, cambagem, cáster), pressão, balanceamento e rodízio "
         "em 4x2 (toco), 6x2 (trucado), 6x4 (traçado), 8x2/8x4 (quarto eixo/bitruck/duplo direcional), "
-        "carretas (bi/tritem, rodotrem) e eixos de apoio (pusher/tag). Escreva em português do Brasil, claro para leigos, "
-        "sem jargão desnecessário e objetivo. Se a imagem não permitir certeza, diga o que faltou e forneça hipótese com "
-        "confiabilidade 0–1. Nunca invente medidas; baseie-se apenas no que as fotos mostram."
+        "carretas (bi/tritem, rodotrem) e eixos de apoio (pusher/tag). "
+        "Escreva em PT-BR claro para leigos e objetivo. Se a imagem não permitir certeza, diga o que faltou e dê hipótese com confiabilidade 0–1. "
+        "Nunca invente medidas; baseie-se apenas no que as fotos mostram."
     )
 
     aviso = (
-        "Laudo auxiliar por imagem — AVP. ⚠️ Este laudo é auxiliar e pode conter erros. "
-        "Não usar como única base de decisão. Recomenda-se inspeção presencial por profissional qualificado."
+        "Laudo auxiliar por imagem — AVP. ⚠️ Pode conter erros. Não usar como única base de decisão; "
+        "recomenda-se inspeção presencial."
     )
 
-    # Padrão de fotos e layout da colagem
     orientacao_foto = (
-        "As fotos chegam em colagens 2×2 por eixo:\n"
-        "• Linha de CIMA (Frente, câmera paralela à banda): esquerda = Motorista (lt), direita = Oposto (rt)\n"
-        "• Linha de BAIXO (~45°): esquerda = Motorista (lb), direita = Oposto (rb)\n"
-        f"• De cima para baixo, os eixos aparecem na ordem adicionada no app: {', '.join(axis_titles)}.\n"
-        "• Em eixos traseiros germinados, a dupla (Frente e 45°) mostra o conjunto por lado.\n"
-        "Boas práticas: 0,8–1,2 m; enquadrar banda + dois ombros; evitar contraluz/sombra dura; foco nítido."
+        "As fotos chegam em colagens 2×2 por eixo: CIMA = Frente (câmera paralela à banda); BAIXO = ~45°. "
+        "Coluna ESQ = Motorista; DIR = Oposto. De cima para baixo, a ordem dos eixos é: "
+        + ", ".join(axis_titles) + ". Em traseiros germinados, a dupla (Frente e 45°) mostra o conjunto por lado. "
+        "Boas práticas: 0,8–1,2 m; enquadrar banda + dois ombros; evitar contraluz/sombra; foco nítido."
     )
 
-    # Heurísticas resumidas
     heuristicas = (
-        "Direcional: ombros internos (ambos) ⇒ divergência; ombros externos (ambos) ⇒ convergência; "
-        "um lado do mesmo pneu ⇒ cambagem (interno=negativa, externo=positiva); serrilhamento ⇒ rodízio/pressão/cáster; "
-        "vibração/ondas ⇒ desbalanceamento. Tração: escamação ⇒ pressão baixa + arraste; centro mais liso ⇒ pressão alta; "
-        "diferença entre germinados ⇒ pressões desiguais/rolamento/suspensão/cambagem/desalinhamento. "
-        "Apoio/carretas: desgaste irregular ⇒ altura/baixar eixo, carga desigual ou geometria fora; "
-        "arraste (último eixo) ⇒ quebra de esquadro/desalinhamento do conjunto. "
+        "Direcional: ombros internos ⇒ divergência; ombros externos ⇒ convergência; um lado do mesmo pneu ⇒ cambagem; "
+        "serrilhamento ⇒ rodízio/pressão/cáster; vibração/ondas ⇒ desbalanceamento. "
+        "Tração: escamação ⇒ pressão baixa + arraste; centro liso ⇒ pressão alta; diferença entre germinados ⇒ pressões desiguais/rolamento/suspensão/alinhamento. "
+        "Apoio/carretas: desgaste irregular ⇒ altura/baixar eixo, carga desigual ou geometria fora; último eixo arrastando ⇒ quebra de esquadro. "
         "Pressão visual: centro>ombros=alta; ombros>centro=baixa; germinados diferentes=pressões desiguais."
     )
 
+    rodizio = (
+        "Plano de rodízio (OBRIGATÓRIO e DETALHADO):\n"
+        "- Forneça um mapa de posições do MELHOR ao PIOR pneu (ex.: Melhor → Dianteiro Esq; 2º → Dianteiro Dir; ...),\n"
+        "- Informe quando **virar o pneu na roda**, quando **trocar de lado (direita↔esquerda)** e quando **fazer ambos**;\n"
+        "- Considere o **caimento da via no Brasil** (pista mais alta no centro e caída para a direita) ao sugerir as posições finais;\n"
+        "- Adapte para 4x2, 6x2, 6x4, 8x2/8x4 e carretas conforme o caso."
+    )
+
     tarefas = (
-        "Tarefas: (1) Detectar configuração (4x2, 6x2, 6x4, 8x2/8x4, carreta, etc.). "
-        "(2) Por eixo, escrever diagnóstico GLOBAL (texto corrido) integrando os quatro quadrantes e causas prováveis "
-        "(convergência, cambagem, cáster, pressão, balanceamento, sobrecarga, rolamento/suspensão) e dizer se precisa alinhar, "
-        "indicando parâmetros suspeitos com confiança 0–1. "
-        "(3) Estimar pressão por lado (alta/baixa/ok/indefinida) com justificativa curta. "
-        "(4) Sugerir balanceamento quando aplicável. "
-        "(5) Indicar rodízio conforme a configuração. "
-        "(6) Listar limitações das fotos. "
-        "(7) Atribuir severidade_eixo (0–5) e prioridade_manutencao (baixa/média/alta). "
-        "(8) Fechar com recomendações_finais, resumo_geral (2–4 frases) e whatsapp_resumo (≤ 450 caracteres)."
+        "Tarefas: detectar configuração do conjunto; para CADA colagem 2×2 (um eixo), escrever diagnóstico GLOBAL integrando os 4 quadrantes "
+        "(desgaste/causas prováveis), dizer se precisa alinhar e listar parâmetros suspeitos com confiança 0–1; "
+        "estimar pressão por lado com justificativa; indicar balanceamento quando aplicável; sugerir rodízio DETALHADO; listar limitações; "
+        "definir severidade_eixo (0–5) e prioridade (baixa/média/alta)."
     )
 
     formato = (
-        "Responda SOMENTE em JSON válido exatamente neste formato:\n"
+        "Responda SOMENTE em JSON válido. O array 'eixos' deve conter EXATAMENTE "
+        f"{len(axis_titles)} itens, um para cada colagem, na mesma ordem: {', '.join(axis_titles)}.\n"
         "{\n"
         f'  "placa": "{meta.get("placa")}",\n'
-        '  "configuracao_detectada": "ex.: 6x4 (traçado) | 8x2 (quarto eixo/bitruck) | carreta 3 eixos | indefinida",\n'
-        '  "qualidade_imagens": {\n'
-        '    "score": 0.0,\n'
-        '    "problemas": ["lista de problemas objetivos ou vazia"],\n'
-        '    "faltantes": ["ângulos/itens que impediram diagnóstico ou vazia"]\n'
-        '  },\n'
+        '  "configuracao_detectada": "ex.: 6x4 (traçado) | 8x2 (bitruck) | carreta 3 eixos | indefinida",\n'
+        '  "qualidade_imagens": {"score": 0.0, "problemas": [], "faltantes": []},\n'
         '  "eixos": [\n'
         '    {\n'
-        '      "titulo": "Eixo Dianteiro 1",\n'
+        '      "titulo": "Eixo ...",\n'
         '      "tipo": "Dianteiro|Traseiro",\n'
-        '      "diagnostico_global": "texto corrido integrando a leitura dos quatro quadrantes",\n'
+        '      "diagnostico_global": "texto corrido integrando os quatro quadrantes",\n'
         '      "necessita_alinhamento": true,\n'
         '      "parametros_suspeitos": [\n'
         '        {"parametro": "convergência", "tendencia": "aberta|fechada|indefinida", "confianca": 0.0},\n'
@@ -453,15 +449,15 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         '        "oposto": "provável baixa|alta|ok|indefinida (justificativa curta)"\n'
         '      },\n'
         '      "balanceamento_sugerido": "sim|não|indefinido (com justificativa)",\n'
-        '      "achados_chave": ["bullets curtas, se houver"],\n'
+        '      "achados_chave": [],\n'
         '      "severidade_eixo": 0,\n'
         '      "prioridade_manutencao": "baixa|média|alta",\n'
-        '      "rodizio_recomendado": "passos objetivos"\n'
+        '      "rodizio_recomendado": "plano detalhado com mapa de posições, virar na roda/trocar de lado e observação do caimento da via"\n'
         '    }\n'
         '  ],\n'
-        '  "recomendacoes_finais": ["itens práticos priorizados"],\n'
-        '  "resumo_geral": "2–4 frases claras para o motorista",\n'
-        '  "whatsapp_resumo": "até 450 caracteres, direto e acionável"\n'
+        '  "recomendacoes_finais": [],\n'
+        '  "resumo_geral": "",\n'
+        '  "whatsapp_resumo": "até 450 caracteres"\n'
         "}\n"
     )
 
@@ -471,7 +467,7 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         f"- Nome: {meta.get('nome')} | Empresa: {meta.get('empresa')} | Tel: {meta.get('telefone')} | E-mail: {meta.get('email')} | Placa: {meta.get('placa')}\n"
         f"- Dados da placa/API: {json.dumps(meta.get('placa_info') or {}, ensure_ascii=False)}\n"
         f"- Observação do motorista: {obs}\n\n"
-        f"{orientacao_foto}\n\n{heuristicas}\n\n{tarefas}\n\n{formato}"
+        f"{orientacao_foto}\n\n{heuristicas}\n\n{rodizio}\n\n{tarefas}\n\n{formato}"
     )
 
     return [
@@ -479,7 +475,44 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
         {"type": "image_url", "image_url": {"url": data_url}},
     ]
 
+def _build_single_axis_message(data_url: str, meta: dict, obs: str, axis_title: str) -> list:
+    """
+    Prompt alternativo para fallback: imagem contendo APENAS UMA colagem (um eixo).
+    Pede para retornar exatamente 1 item no array 'eixos' correspondente a esse título.
+    """
+    header = (
+        "Imagem com UMA colagem 2×2 referente a UM eixo do veículo.\n"
+        f"Título do eixo: {axis_title}.\n"
+        "CIMA = Frente (câmera paralela à banda); BAIXO = ~45°; ESQ = Motorista; DIR = Oposto. "
+        "Entregue JSON com EXATAMENTE 1 item em 'eixos' (esse eixo), incluindo diagnóstico global, "
+        "necessidade de alinhamento com parâmetros suspeitos (e confiança 0–1), pressão por lado com justificativa, "
+        "balanceamento quando aplicável e RODÍZIO DETALHADO (mapa de posições melhor→pior, quando virar na roda, trocar de lado ou ambos, "
+        "considerando caimento da via no Brasil)."
+        "\nFormato de resposta (JSON válido):\n"
+        "{\n"
+        f'  "placa": "{meta.get("placa")}",\n'
+        '  "configuracao_detectada": "ou indefinida",\n'
+        '  "qualidade_imagens": {"score": 0.0, "problemas": [], "faltantes": []},\n'
+        '  "eixos": [ { "titulo": "' + axis_title + '", "tipo": "Dianteiro|Traseiro", '
+        '"diagnostico_global": "", "necessita_alinhamento": true, '
+        '"parametros_suspeitos":[{"parametro":"convergência","tendencia":"aberta|fechada|indefinida","confianca":0.0}, '
+        '{"parametro":"cambagem","tendencia":"positiva|negativa|indefinida","confianca":0.0}, '
+        '{"parametro":"cáster","tendencia":"avançado|recuado|indefinido","confianca":0.0}], '
+        '"pressao_pneus":{"motorista":"...","oposto":"..."}, '
+        '"balanceamento_sugerido":"...", "achados_chave":[], "severidade_eixo":0, '
+        '"prioridade_manutencao":"baixa|média|alta", '
+        '"rodizio_recomendado":"plano detalhado para este eixo" } ],\n'
+        '  "recomendacoes_finais": [], "resumo_geral": "", "whatsapp_resumo": ""\n'
+        "}\n"
+    )
+    return [
+        {"type": "text", "text": header},
+        {"type": "image_url", "image_url": {"url": data_url}},
+    ]
 
+# =========================
+# OpenAI callers
+# =========================
 def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: str, axis_titles: List[str]) -> dict:
     api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -496,9 +529,8 @@ def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: s
                     "role": "system",
                     "content": (
                         "Você é um especialista brasileiro em pneus de caminhões com prática em diagnóstico por desgaste, "
-                        "geometria (convergência, cambagem, cáster), pressão, balanceamento e rodízio em 4x2, 6x2, 6x4, 8x2/8x4 e carretas. "
-                        "Escreva em PT-BR claro para leigos. Não invente medidas; baseie-se só nas fotos. "
-                        "Se faltar evidência, explique o que faltou e dê hipótese com confiabilidade 0–1."
+                        "geometria (convergência, cambagem, cáster), pressão, balanceamento e rodízio. "
+                        "Escreva em PT-BR claro para leigos; não invente medidas; se faltar evidência, diga o que faltou e dê hipótese com confiança 0–1."
                     )
                 },
                 {"role": "user", "content": content},
@@ -519,6 +551,51 @@ def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: s
             return {"erro": "Modelo não retornou JSON válido", "raw": text}
     except Exception as e:
         return {"erro": f"Falha na API: {e}"}
+
+def _call_openai_single_axis(collage: Image.Image, meta: dict, obs: str, model_name: str, axis_title: str) -> dict:
+    """Fallback: analisa UMA colagem (um eixo) e retorna JSON com 1 item em 'eixos'."""
+    api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"erro": "OPENAI_API_KEY ausente em Secrets/variável de ambiente."}
+    client = OpenAI(api_key=api_key)
+
+    # Data URL a partir da colagem unitária
+    buf = io.BytesIO()
+    collage.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    data_url = f"data:image/jpeg;base64,{b64}"
+
+    content = _build_single_axis_message(data_url, meta, obs, axis_title)
+    try:
+        resp = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Você é um especialista brasileiro em pneus de caminhões com prática em diagnóstico por desgaste, "
+                        "geometria (convergência, cambagem, cáster), pressão, balanceamento e rodízio. "
+                        "Escreva em PT-BR claro para leigos; não invente medidas; se faltar evidência, diga o que faltou e dê hipótese com confiança 0–1."
+                    )
+                },
+                {"role": "user", "content": content},
+            ],
+            temperature=0,
+        )
+        text = resp.choices[0].message.content or ""
+        try:
+            return json.loads(text)
+        except Exception:
+            import re
+            m = re.search(r"\{[\s\S]*\}", text)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    pass
+            return {"erro": "Modelo (fallback) não retornou JSON válido", "raw": text}
+    except Exception as e:
+        return {"erro": f"Falha na API (fallback): {e}"}
 
 # =========================
 # UI
@@ -693,8 +770,10 @@ def app():
 
         # Empilha tudo numa imagem única
         colagem_final = _stack_vertical_center(collages, titles)
-        # Guardamos para exportação posterior
+        # Guardamos para exportação posterior e fallback
         st.session_state["ultima_colagem"] = colagem_final
+        st.session_state["collages"] = collages
+        st.session_state["titles"] = titles
 
     data_url = _img_to_dataurl(colagem_final)
     meta = {
@@ -706,9 +785,57 @@ def app():
     with st.spinner("Analisando com IA…"):
         laudo = _call_openai_single_image(data_url, meta, obs, modelo, titles)
 
+    # ===== Fallback robusto por eixo (se vier menos eixos do que o esperado) =====
+    expected_n = len(titles)
+    got_n = len(laudo.get("eixos", [])) if isinstance(laudo, dict) else 0
+
+    if "erro" in laudo or got_n != expected_n:
+        if "erro" in laudo and DEBUG:
+            st.warning("Tentando fallback por eixo devido a erro no JSON único.")
+        elif got_n != expected_n and DEBUG:
+            st.warning(f"JSON veio com {got_n} eixos; esperado {expected_n}. Ativando fallback por eixo.")
+
+        # Agrega resultados por colagem
+        agreg = {
+            "placa": meta.get("placa"),
+            "configuracao_detectada": laudo.get("configuracao_detectada") if isinstance(laudo, dict) else None,
+            "qualidade_imagens": laudo.get("qualidade_imagens") if isinstance(laudo, dict) else {"score": None,"problemas":[],"faltantes":[]},
+            "eixos": [],
+            "recomendacoes_finais": [],
+            "resumo_geral": "",
+            "whatsapp_resumo": ""
+        }
+
+        eixos_ok = []
+        for cimg, atitle in zip(st.session_state["collages"], st.session_state["titles"]):
+            sub = _call_openai_single_axis(cimg, meta, obs, modelo, atitle)
+            if isinstance(sub, dict) and isinstance(sub.get("eixos"), list) and sub["eixos"]:
+                eixos_ok.extend(sub["eixos"])
+                # Tenta pegar config/qualidade mais informativas
+                if not agreg.get("configuracao_detectada") and sub.get("configuracao_detectada"):
+                    agreg["configuracao_detectada"] = sub.get("configuracao_detectada")
+                if sub.get("qualidade_imagens"):
+                    q = agreg.get("qualidade_imagens") or {}
+                    q2 = sub.get("qualidade_imagens") or {}
+                    # Estratégia simples de merge textual
+                    probs = list(set((q.get("problemas") or []) + (q2.get("problemas") or [])))
+                    falt = list(set((q.get("faltantes") or []) + (q2.get("faltantes") or [])))
+                    agreg["qualidade_imagens"] = {"score": q.get("score") or q2.get("score"), "problemas": probs, "faltantes": falt}
+                # Recomendações finais (concat)
+                if sub.get("recomendacoes_finais"):
+                    agreg["recomendacoes_finais"].extend([r for r in sub["recomendacoes_finais"] if isinstance(r, str)])
+
+                # Resumos (mantém o primeiro que for preenchido)
+                if not agreg.get("resumo_geral") and sub.get("resumo_geral"):
+                    agreg["resumo_geral"] = sub.get("resumo_geral")
+                if not agreg.get("whatsapp_resumo") and sub.get("whatsapp_resumo"):
+                    agreg["whatsapp_resumo"] = sub.get("whatsapp_resumo")
+
+        agreg["eixos"] = eixos_ok
+        laudo = agreg
+
     if "erro" in laudo:
         st.error(laudo["erro"])
-        # Resposta bruta só em debug
         if DEBUG and laudo.get("raw"):
             with st.expander("Resposta bruta do modelo"):
                 st.code(laudo["raw"])
@@ -736,19 +863,18 @@ def app():
             f"Problemas: {probs or '-'} | Faltantes: {falt or '-'}"
         )
 
-    # Render: novo formato (diagnóstico global por eixo), com campos adicionais
+    # Render por eixo, agora com maior chance de vir completo e com rodízio detalhado
     for eixo in laudo.get("eixos", []):
         with st.container(border=True):
             titulo = eixo.get("titulo", eixo.get("tipo", "Eixo"))
             st.markdown(f"### {titulo}")
 
-            # Diagnóstico global (texto corrido)
             diag = eixo.get("diagnostico_global") or eixo.get("relatorio")
             st.write(diag.strip() if isinstance(diag, str) and diag.strip() else "Diagnóstico do eixo não informado pelo modelo.")
 
-            # Necessidade de alinhamento e parâmetros suspeitos
             if eixo.get("necessita_alinhamento") is not None:
                 st.caption(f"Necessita alinhamento: {'sim' if eixo.get('necessita_alinhamento') else 'não'}")
+
             ps = eixo.get("parametros_suspeitos") or []
             if isinstance(ps, list) and ps:
                 parts = []
@@ -760,22 +886,18 @@ def app():
                 if parts:
                     st.caption("Parâmetros suspeitos: " + " | ".join(parts))
 
-            # Pressão por lado (texto pode vir com justificativa curta)
             press = eixo.get("pressao_pneus") or {}
             if press:
                 st.caption(f"Pressão — Motorista: {press.get('motorista','-')} | Oposto: {press.get('oposto','-')}")
 
-            # Balanceamento sugerido
             bal = eixo.get("balanceamento_sugerido")
             if isinstance(bal, str) and bal.strip():
                 st.caption(f"Balanceamento: {bal}")
 
-            # Achados-chave
             ach = eixo.get("achados_chave") or []
             if ach:
                 st.caption("Achados-chave: " + "; ".join(ach))
 
-            # Severidade e Prioridade
             sev = eixo.get("severidade_eixo")
             pri = eixo.get("prioridade_manutencao")
             linha = []
@@ -786,9 +908,9 @@ def app():
             if linha:
                 st.caption(" | ".join(linha))
 
-            # Rodízio recomendado
             rod = eixo.get("rodizio_recomendado")
             if isinstance(rod, str) and rod.strip():
+                # Agora deve vir detalhado (mapa de posições, virar na roda, troca de lado, caimento da via)
                 st.caption(f"Rodízio recomendado: {rod}")
 
     if laudo.get("recomendacoes_finais"):
@@ -819,7 +941,7 @@ def app():
     # ---- WhatsApp (mensagem do cliente para a empresa) ----
     from urllib.parse import quote
     resumo_wpp = laudo.get("whatsapp_resumo") or (laudo.get("resumo_geral") or "")
-    # Limite exigido na prompt: 450 caracteres
+    # Limite exigido: 450 caracteres
     resumo_wpp = (resumo_wpp[:450] + "…") if len(resumo_wpp) > 450 else resumo_wpp
     msg = (
         "Olá! Fiz o teste de análise de pneus e gostaria de conversar sobre a manutenção do veículo.\n\n"
