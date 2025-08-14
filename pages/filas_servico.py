@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 
 def app():
     # --- CONFIGURAÇÕES DA PÁGINA ---
-    st.set_page_config(layout="wide")
+    
     
     # Atualiza a página a cada 30 segundos
     st_autorefresh(interval=30000, key="datarefresh")

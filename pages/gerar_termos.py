@@ -86,7 +86,7 @@ def gerar_texto_termo(dados_veiculo, selecoes):
     return "<br><br>".join(partes_texto), nome_motorista.strip(), data_extenso
 
 def app():
-    st.set_page_config(layout="centered")
+    
     st.title("📄 Gerador de Termo de Responsabilidade")
     st.markdown("Selecione as condições observadas para gerar o termo para impressão.")
 

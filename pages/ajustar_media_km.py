@@ -6,7 +6,7 @@ from database import get_connection, release_connection
 from datetime import datetime
 
 def app():
-    st.set_page_config(layout="centered")
+    
     st.title("🛠️ Ajuste de Média de KM")
 
     # --- Pega o ID do veículo da URL ---
