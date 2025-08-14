@@ -222,7 +222,6 @@ def desalocar_bloco_do_box(conn, box_id, execucao_id):
             cursor.execute(
                 """UPDATE execucao_servico
                       SET status = 'pendente',
-                          funcionario_id = NULL,
                           fim_execucao = NULL
                     WHERE id = %s""",
                 (execucao_id,)
