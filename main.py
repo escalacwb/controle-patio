@@ -31,7 +31,20 @@ TELEGRAM_READY = bool(st.secrets.get("TELEGRAM_BOT_TOKEN")) and bool(st.secrets.
 # --- CSS ---
 st.markdown("""
 <style>
-    /* Seu CSS aqui, sem alterações */
+    /* 1. REMOÇÃO DE ELEMENTOS NATIVOS DO STREAMLIT */
+    [data-testid="stToolbar"] { visibility: hidden; height: 0%; position: fixed; }
+    header[data-testid="stHeader"] { display: none !important; }
+    footer { visibility: hidden; height: 0%; }
+
+    /* 2. MENU RESPONSIVO PARA CELULAR */
+    @media (max-width: 767px) {
+        .main .block-container { padding-bottom: 6rem !important; }
+        .menu-container div[data-testid="stOptionMenu"] {
+            position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important;
+            width: 100% !important; background-color: #292929 !important; border-top: 1px solid #444 !important;
+            z-index: 9999 !important; box-shadow: 0 -2px 10px rgba(0,0,0,0.5) !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
