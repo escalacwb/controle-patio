@@ -3,7 +3,8 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
 from streamlit_js_eval import streamlit_js_eval
-import login
+# REMOVIDO: import login
+from auth_utils import initialize_authenticator  # NOVO: Importa o novo autenticador
 from pages import (
     cadastro_servico,
     alocar_servicos,
@@ -24,11 +25,11 @@ from pages import (
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
 
-# --- FLAGS DE INTEGRAÇÃO (via secrets do Streamlit) ---
+# --- FLAGS DE INTEGRAÇÃO (sem alterações) ---
 OPENAI_READY   = bool(st.secrets.get("OPENAI_API_KEY"))
 TELEGRAM_READY = bool(st.secrets.get("TELEGRAM_BOT_TOKEN")) and bool(st.secrets.get("TELEGRAM_CHAT_ID"))
 
-# --- CSS DEFINITIVO PARA LAYOUT PROFISSIONAL E RESPONSIVO ---
+# --- CSS (sem alterações) ---
 st.markdown("""
 <style>
     /* 1. REMOÇÃO DE ELEMENTOS NATIVOS DO STREAMLIT */
@@ -48,25 +49,42 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- LOGIN ---
-if not st.session_state.get('logged_in'):
-    login.render_login_page()
+# --- NOVA LÓGICA DE AUTENTICAÇÃO ---
+authenticator = initialize_authenticator()
+
+if authenticator is None:
+    st.error("Falha ao inicializar o sistema de autenticação.")
     st.stop()
 
-# --- ESTADO DE SESSÃO ---
+name, authentication_status, username = authenticator.login('main')
+
+if st.session_state["authentication_status"] is False:
+    st.error('Usuário ou senha incorretos')
+    st.stop()
+elif st.session_state["authentication_status"] is None:
+    st.title("Sistema de Controle de Pátio")
+    st.warning('Por favor, insira seu usuário e senha para continuar.')
+    st.stop()
+
+# Se o login for bem-sucedido, o app continua.
+user_role = authenticator.credentials['usernames'][username]['role']
+st.session_state['user_role'] = user_role
+# O nome do usuário e o username já são salvos pela biblioteca em st.session_state
+
+
+# --- ESTADO DE SESSÃO (sem alterações) ---
 def initialize_session_state():
     if 'box_states' not in st.session_state:
         st.session_state.box_states = {}
 initialize_session_state()
 
-# --- DETECTAR DISPOSITIVO ---
+# --- DETECTAR DISPOSITIVO (sem alterações) ---
 user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key='USER_AGENT', want_output=True) or ""
 
-# --- SIDEBAR ---
+# --- SIDEBAR (atualizado) ---
 with st.sidebar:
-    st.success(f"Logado como: **{st.session_state.get('user_name')}**")
+    st.success(f"Logado como: **{st.session_state.get('name')}**")
 
-    # Status das integrações (meramente informativo)
     st.markdown("### Integrações")
     st.write(f"OpenAI: {'✅' if OPENAI_READY else '❌'}")
     st.write(f"Telegram: {'✅' if TELEGRAM_READY else '❌'}")
@@ -75,16 +93,14 @@ with st.sidebar:
         st.caption("Configure `OPENAI_API_KEY` em Secrets para habilitar **Análise de Pneus**.")
     if not TELEGRAM_READY:
         st.caption("Opcional: `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` para receber laudos no grupo.")
+    
+    # O botão de logout agora usa o método da biblioteca
+    authenticator.logout('Logout', 'main', key='unique_key')
 
-    if st.button("Logout", use_container_width=True, type="secondary"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
 
-# --- RENDERIZAÇÃO CONDICIONAL ---
+# --- RENDERIZAÇÃO CONDICIONAL (sem alterações) ---
 IS_MOBILE = 'Android' in user_agent or 'iPhone' in user_agent
 
-# Envolve o menu para aplicar CSS
 st.markdown('<div class="menu-container">', unsafe_allow_html=True)
 
 if IS_MOBILE:
@@ -92,7 +108,6 @@ if IS_MOBILE:
     mobile_options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"]
     mobile_icons   = ["truck-front", "card-list", "card-checklist", "view-stacked"]
 
-    # acrescenta Análise de Pneus se OpenAI estiver configurado
     if OPENAI_READY:
         mobile_options.append("Análise de Pneus")
         mobile_icons.append("camera")
@@ -122,7 +137,6 @@ else:
         "clock-history", "telephone-outbound", "arrow-repeat",
     ]
 
-    # acrescenta Análise de Pneus se OpenAI estiver configurado
     if OPENAI_READY:
         pc_options.append("Análise de Pneus")
         pc_icons.append("camera")
@@ -152,7 +166,7 @@ selected_page = option_menu(
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- ROTEAMENTO ---
+# --- ROTEAMENTO (sem alterações) ---
 if selected_page == "Alocar Serviços":
     alocar_servicos.alocar_servicos()
 elif selected_page == "Cadastro de Serviço":
@@ -172,14 +186,22 @@ elif selected_page == "Controle de Feedback":
 elif selected_page == "Revisão Proativa":
     revisao_proativa.app()
 elif selected_page == "Análise de Pneus":
-    # chama a página de análise (só aparece no menu se OPENAI_READY for True)
-    analise_pneus.app()
+    if OPENAI_READY:
+        analise_pneus.app()
+    else:
+        st.error("Integração com OpenAI não configurada.")
 elif selected_page == "Gerenciar Usuários":
-    gerenciar_usuarios.app()
+    if user_role == 'admin':
+        gerenciar_usuarios.app()
+    else:
+        st.error("Acesso negado. Apenas administradores podem acessar esta página.")
 elif selected_page == "Relatórios":
-    relatorios.app()
+    if user_role == 'admin':
+        relatorios.app()
+    else:
+        st.error("Acesso negado. Apenas administradores podem acessar esta página.")
 elif selected_page == "Mesclar Históricos":
-    mesclar_historico.app()
-
-# Páginas acessadas via link direto (gerar_termos / ajustar_media_km)
-# continuam sem rota direta aqui, seguindo o seu padrão atual.
+    if user_role == 'admin':
+        mesclar_historico.app()
+    else:
+        st.error("Acesso negado. Apenas administradores podem acessar esta página.")
