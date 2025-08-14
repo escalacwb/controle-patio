@@ -33,7 +33,9 @@ def visao_boxes():
         df_boxes = get_estado_atual_boxes(conn)
         
         if not df_boxes.empty:
-            cols = st.columns(len(df_boxes))
+            # Garante que as colunas tenham um tamanho mínimo para melhor visualização
+            num_cols = len(df_boxes)
+            cols = st.columns(num_cols)
             for i, (box_id, box_data) in enumerate(df_boxes.iterrows()):
                 with cols[i]:
                     render_box(conn, box_data, catalogo_servicos)
@@ -101,7 +103,7 @@ def render_box(conn, box_data, catalogo_servicos):
             c1, c2 = st.columns([0.75, 0.25])
             c1.write(servico['tipo'])
             nova_qtd = c2.number_input("Qtd", value=servico['qtd_executada'], min_value=0,
-                                       key=f"qtd_{unique_id}", label_visibility="collapsed")
+                                      key=f"qtd_{unique_id}", label_visibility="collapsed")
             if nova_qtd != servico['qtd_executada']:
                 st.session_state.box_states[box_id]['servicos'][unique_id]['qtd_executada'] = nova_qtd
                 st.rerun()
@@ -117,7 +119,7 @@ def render_box(conn, box_data, catalogo_servicos):
     novo_servico_tipo = c_add1.selectbox("Selecione o serviço", [""] + servicos_disponiveis,
                                          key=f"new_srv_tipo_{box_id}", label_visibility="collapsed")
     novo_servico_qtd = c_add2.number_input("Qtd", min_value=1, value=1, key=f"new_srv_qtd_{box_id}",
-                                           label_visibility="collapsed")
+                                            label_visibility="collapsed")
     if c_add3.button("➕", key=f"add_{box_id}", help="Adicionar à lista"):
         if novo_servico_tipo:
             adicionar_servico_extra(conn, box_id, int(execucao_id), novo_servico_tipo, novo_servico_qtd, catalogo_servicos)
@@ -125,7 +127,7 @@ def render_box(conn, box_data, catalogo_servicos):
             st.rerun()
 
     obs_final_value = st.text_area("Observações Finais da Execução", key=f"obs_final_{box_id}",
-                                   value=box_state.get('obs_final', ''))
+                                     value=box_state.get('obs_final', ''))
     if obs_final_value != box_state.get('obs_final', ''):
         st.session_state.box_states[box_id]['obs_final'] = obs_final_value
         st.rerun()
@@ -188,7 +190,7 @@ def adicionar_servico_extra(conn, box_id, execucao_id, tipo, qtd, catalogo):
                     (%s, %s, %s, 'em_andamento', %s, %s, %s, %s, %s)
             """
             cursor.execute(query, (veiculo_id, tipo, qtd, box_id, execucao_id,
-                                   datetime.now(MS_TZ), datetime.now(MS_TZ), quilometragem))
+                                    datetime.now(MS_TZ), datetime.now(MS_TZ), quilometragem))
             conn.commit()
             st.toast(f"Serviço '{tipo}' adicionado ao Box {box_id}.", icon="➕")
     except Exception as e:
@@ -256,8 +258,8 @@ def _salvar_alteracoes_finais(conn, box_id, execucao_id, status_final, obs_final
 
 def finalizar_execucao(conn, box_id, execucao_id):
     """
-    Sempre FINALIZA a execução, mesmo com quantidades = 0 (registra passagem pelo box sem serviço).
-    O botão '↩️ Retirar do Box' é o único que devolve para pendente.
+    Sempre FINALIZA a execução, mesmo com quantidades = 0.
+    Envia notificações para os grupos de Telegram definidos.
     """
     box_state = st.session_state.box_states.get(box_id, {})
     obs_final = box_state.get('obs_final', '')
@@ -286,10 +288,54 @@ def finalizar_execucao(conn, box_id, execucao_id):
 
             st.success(f"Box {box_id} finalizado com sucesso!")
 
-            # 4) Atualizações adicionais (média de KM etc.)
+            # 4) Atualizações adicionais e envio de notificações
             with st.spinner("Atualizando média e enviando notificações..."):
                 recalcular_media_veiculo(conn, veiculo_id)
-                # (Notificações se desejar)
+
+                # --- INÍCIO: LÓGICA DE NOTIFICAÇÃO DO TELEGRAM ---
+                try:
+                    # Busca dados do veículo para a mensagem
+                    cursor.execute("SELECT placa, empresa FROM veiculos WHERE id = %s", (veiculo_id,))
+                    veiculo_info = cursor.fetchone()
+                    placa = veiculo_info['placa'] if veiculo_info else 'N/A'
+                    empresa = veiculo_info['empresa'] if veiculo_info else 'N/A'
+
+                    # Mensagem 1 (Detalhada, para grupo de operação)
+                    servicos_realizados = box_state.get('servicos', {}).values()
+                    servicos_filtrados = [s for s in servicos_realizados if s.get('qtd_executada', 0) > 0]
+                    
+                    if servicos_filtrados:
+                        lista_servicos_str = ""
+                        for servico in servicos_filtrados:
+                            lista_servicos_str += f"- {servico['tipo']}: {servico['qtd_executada']} unid.\n"
+
+                        mensagem_operacao = (
+                            f"✅ *Serviço Finalizado no Box {box_id}*\n\n"
+                            f"🚚 *Veículo:* `{placa}` ({empresa})\n\n"
+                            f"*Serviços Executados:*\n{lista_servicos_str}"
+                        )
+                        if obs_final:
+                            mensagem_operacao += f"\n*Observações:*\n_{obs_final}_"
+                    
+                        # Mensagem 2 (Simples, para grupo de liberação)
+                        mensagem_liberacao = f"➡️ Veículo *{placa}* ({empresa}) finalizado e liberado do Box {box_id}."
+                        
+                        # Use st.secrets para buscar os IDs dos grupos
+                        # Você deve configurar estes segredos no seu ambiente Streamlit
+                        # Ex: [telegram]
+                        # chat_id_operacao = "-10012345678"
+                        # chat_id_liberacao = "-10087654321"
+                        id_grupo_operacao = st.secrets["telegram"]["chat_id_operacao"]
+                        id_grupo_liberacao = st.secrets["telegram"]["chat_id_liberacao"]
+
+                        enviar_notificacao_telegram(mensagem_operacao, id_grupo_operacao)
+                        enviar_notificacao_telegram(mensagem_liberacao, id_grupo_liberacao)
+                        
+                        st.toast("Notificações enviadas!", icon="📢")
+
+                except Exception as e:
+                    st.warning(f"O serviço foi finalizado, mas houve um erro ao enviar a notificação do Telegram: {e}")
+                # --- FIM: LÓGICA DE NOTIFICAÇÃO DO TELEGRAM ---
 
             st.session_state.box_states = {}
             st.rerun()
