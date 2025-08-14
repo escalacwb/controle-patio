@@ -1,10 +1,9 @@
 # /main.py
 
-# Alteração para forçar o redeploy no Streamlit Cloud
 import streamlit as st
 from streamlit_option_menu import option_menu
 from streamlit_js_eval import streamlit_js_eval
-from auth_utils import initialize_authenticator
+import login
 from pages import (
     cadastro_servico,
     alocar_servicos,
@@ -20,16 +19,16 @@ from pages import (
     mesclar_historico,
     gerar_termos,
     ajustar_media_km,
-    analise_pneus
+    analise_pneus      # página de análise de pneus
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
 
-# --- FLAGS DE INTEGRAÇÃO ---
+# --- FLAGS DE INTEGRAÇÃO (via secrets do Streamlit) ---
 OPENAI_READY   = bool(st.secrets.get("OPENAI_API_KEY"))
 TELEGRAM_READY = bool(st.secrets.get("TELEGRAM_BOT_TOKEN")) and bool(st.secrets.get("TELEGRAM_CHAT_ID"))
 
-# --- CSS ---
+# --- CSS DEFINITIVO PARA LAYOUT PROFISSIONAL E RESPONSIVO ---
 st.markdown("""
 <style>
     /* 1. REMOÇÃO DE ELEMENTOS NATIVOS DO STREAMLIT */
@@ -49,58 +48,59 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- LÓGICA DE AUTENTICAÇÃO ---
-authenticator = initialize_authenticator()
-
-if authenticator is None:
-    st.error("Falha ao inicializar o sistema de autenticação.")
+# --- LOGIN ---
+if not st.session_state.get('logged_in'):
+    login.render_login_page()
     st.stop()
 
-# Chamada de login correta para a versão estável
-name, authentication_status, username = authenticator.login('Login', 'main')
-
-if st.session_state["authentication_status"] is False:
-    st.error('Usuário ou senha incorretos')
-    st.stop()
-elif st.session_state["authentication_status"] is None:
-    st.title("Sistema de Controle de Pátio")
-    st.warning('Por favor, insira seu usuário e senha para continuar.')
-    st.stop()
-
-user_role = authenticator.credentials['usernames'][username]['role']
-st.session_state['user_role'] = user_role
-
-# --- O RESTO DO SEU CÓDIGO (sem alterações) ---
+# --- ESTADO DE SESSÃO ---
 def initialize_session_state():
     if 'box_states' not in st.session_state:
         st.session_state.box_states = {}
 initialize_session_state()
 
+# --- DETECTAR DISPOSITIVO ---
 user_agent = streamlit_js_eval(js_expressions='window.navigator.userAgent', key='USER_AGENT', want_output=True) or ""
 
+# --- SIDEBAR ---
 with st.sidebar:
-    st.success(f"Logado como: **{st.session_state.get('name')}**")
+    st.success(f"Logado como: **{st.session_state.get('user_name')}**")
+
+    # Status das integrações (meramente informativo)
     st.markdown("### Integrações")
     st.write(f"OpenAI: {'✅' if OPENAI_READY else '❌'}")
     st.write(f"Telegram: {'✅' if TELEGRAM_READY else '❌'}")
+
     if not OPENAI_READY:
         st.caption("Configure `OPENAI_API_KEY` em Secrets para habilitar **Análise de Pneus**.")
     if not TELEGRAM_READY:
         st.caption("Opcional: `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` para receber laudos no grupo.")
-    authenticator.logout('Logout', 'main', key='unique_key')
 
+    if st.button("Logout", use_container_width=True, type="secondary"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+# --- RENDERIZAÇÃO CONDICIONAL ---
 IS_MOBILE = 'Android' in user_agent or 'iPhone' in user_agent
+
+# Envolve o menu para aplicar CSS
 st.markdown('<div class="menu-container">', unsafe_allow_html=True)
 
 if IS_MOBILE:
+    # --- MENU (MOBILE) ---
     mobile_options = ["Cadastro de Serviço", "Alocar Serviços", "Filas de Serviço", "Visão dos Boxes"]
     mobile_icons   = ["truck-front", "card-list", "card-checklist", "view-stacked"]
+
+    # acrescenta Análise de Pneus se OpenAI estiver configurado
     if OPENAI_READY:
         mobile_options.append("Análise de Pneus")
         mobile_icons.append("camera")
-    if user_role == 'admin':
+
+    if st.session_state.get('user_role') == 'admin':
         mobile_options.extend(["Controle de Feedback", "Revisão Proativa"])
         mobile_icons.extend(["telephone-outbound", "arrow-repeat"])
+
     options_to_show = mobile_options
     icons_to_show   = mobile_icons
     menu_styles = {
@@ -110,6 +110,7 @@ if IS_MOBILE:
         "icon": {"font-size": "20px", "margin-bottom": "4px"}
     }
 else:
+    # --- MENU (PC) ---
     pc_options = [
         "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços",
         "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos",
@@ -120,12 +121,16 @@ else:
         "card-checklist", "view-stacked", "check-circle",
         "clock-history", "telephone-outbound", "arrow-repeat",
     ]
+
+    # acrescenta Análise de Pneus se OpenAI estiver configurado
     if OPENAI_READY:
         pc_options.append("Análise de Pneus")
         pc_icons.append("camera")
-    if user_role == 'admin':
+
+    if st.session_state.get('user_role') == 'admin':
         pc_options.extend(["Gerenciar Usuários", "Relatórios", "Mesclar Históricos"])
         pc_icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
+
     options_to_show = pc_options
     icons_to_show   = pc_icons
     menu_styles = {
@@ -136,30 +141,45 @@ else:
     }
 
 selected_page = option_menu(
-    menu_title=None, options=options_to_show, icons=icons_to_show,
-    menu_icon="cast", default_index=0, orientation="horizontal", styles=menu_styles
+    menu_title=None,
+    options=options_to_show,
+    icons=icons_to_show,
+    menu_icon="cast",
+    default_index=0,
+    orientation="horizontal",
+    styles=menu_styles
 )
+
 st.markdown('</div>', unsafe_allow_html=True)
 
 # --- ROTEAMENTO ---
-if selected_page == "Alocar Serviços": alocar_servicos.alocar_servicos()
-elif selected_page == "Cadastro de Serviço": cadastro_servico.app()
-elif selected_page == "Dados de Clientes": dados_clientes.app()
-elif selected_page == "Filas de Serviço": filas_servico.app()
-elif selected_page == "Visão dos Boxes": visao_boxes.visao_boxes()
-elif selected_page == "Serviços Concluídos": servicos_concluidos.app()
-elif selected_page == "Histórico por Veículo": historico_veiculo.app()
-elif selected_page == "Controle de Feedback": feedback_servicos.app()
-elif selected_page == "Revisão Proativa": revisao_proativa.app()
+if selected_page == "Alocar Serviços":
+    alocar_servicos.alocar_servicos()
+elif selected_page == "Cadastro de Serviço":
+    cadastro_servico.app()
+elif selected_page == "Dados de Clientes":
+    dados_clientes.app()
+elif selected_page == "Filas de Serviço":
+    filas_servico.app()
+elif selected_page == "Visão dos Boxes":
+    visao_boxes.visao_boxes()
+elif selected_page == "Serviços Concluídos":
+    servicos_concluidos.app()
+elif selected_page == "Histórico por Veículo":
+    historico_veiculo.app()
+elif selected_page == "Controle de Feedback":
+    feedback_servicos.app()
+elif selected_page == "Revisão Proativa":
+    revisao_proativa.app()
 elif selected_page == "Análise de Pneus":
-    if OPENAI_READY: analise_pneus.app()
-    else: st.error("Integração com OpenAI não configurada.")
+    # chama a página de análise (só aparece no menu se OPENAI_READY for True)
+    analise_pneus.app()
 elif selected_page == "Gerenciar Usuários":
-    if user_role == 'admin': gerenciar_usuarios.app()
-    else: st.error("Acesso negado.")
+    gerenciar_usuarios.app()
 elif selected_page == "Relatórios":
-    if user_role == 'admin': relatorios.app()
-    else: st.error("Acesso negado.")
+    relatorios.app()
 elif selected_page == "Mesclar Históricos":
-    if user_role == 'admin': mesclar_historico.app()
-    else: st.error("Acesso negado.")
+    mesclar_historico.app()
+
+# Páginas acessadas via link direto (gerar_termos / ajustar_media_km)
+# continuam sem rota direta aqui, seguindo o seu padrão atual.
