@@ -1,22 +1,3 @@
-Com certeza! Integrar a nova lógica de análise e o formato de laudo aprimorado no seu código existente é o próximo passo.
-
-Abaixo, apresento o código do arquivo analise_pneus.py modificado. As alterações foram concentradas nas seguintes áreas para não afetar o funcionamento geral do sistema:
-
-_build_multimodal_message: Esta função foi completamente atualizada para usar os novos prompts (tanto o de sistema quanto o de usuário) que detalham o perfil do especialista e a estrutura de dados exigida.
-
-_render_laudo_ui: Atualizada para renderizar na tela do Streamlit o novo formato do laudo, com a estrutura de Resumo Executivo, Diagnóstico Global, Análise por Eixo/Pneu e Recomendações categorizadas.
-
-_render_report_image: Similarmente, foi modificada para gerar a imagem do PDF seguindo o novo template profissional, extraindo os dados da nova estrutura JSON.
-
-Lógica de Fallback: A lógica que agrega os resultados, caso a análise por eixo seja necessária, foi ajustada para montar a nova estrutura de dados de forma coesa.
-
-As demais funções, como o processamento de imagens, upload de arquivos e a estrutura principal do app, foram mantidas intactas para garantir a estabilidade.
-
-Código analise_pneus.py Atualizado
-Copie e cole este conteúdo para substituir o seu arquivo analise_pneus.py existente.
-
-Python
-
 # pages/analise_pneus.py
 import os
 import io
@@ -41,7 +22,7 @@ JPEG_QUALITY = 85                   # compressão
 DEBUG = bool(st.secrets.get("DEBUG_ANALISE_PNEUS", False))
 
 # =========================
-# Utilitários de imagem (Sem alterações)
+# Utilitários de imagem
 # =========================
 def _open_and_prepare(file) -> Optional[Image.Image]:
     """Abre imagem, corrige EXIF, converte RGB e redimensiona para MAX_SIDE."""
@@ -92,6 +73,7 @@ def _draw_label(canvas: Image.Image, text: str, xy=(8, 8), bg=(34, 167, 240), fg
         font = None
     pad = 8
 
+    # Pillow novo: usar textbbox; se falhar, fallback aproximado
     try:
         bbox = draw.textbbox((0, 0), text, font=font)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -165,6 +147,7 @@ def _stack_vertical_center(collages: List[Image.Image], titles: List[str]) -> Im
     y = 0
     for idx, c in enumerate(centered):
         out.paste(c, (0, y))
+        # rótulo de faixa
         _draw_label(out, titles[idx], xy=(10, y + 10))
         y += c.height
     return out
@@ -176,9 +159,7 @@ def _img_to_dataurl(img: Image.Image) -> str:
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return f"data:image/jpeg;base64,{b64}"
 
-# =========================
-# Utilitários de PDF e Relatório (Funções Atualizadas)
-# =========================
+# -------- Helpers para exportação PDF (renderizando texto em imagem) --------
 def _get_font(size=16):
     try:
         return ImageFont.truetype("arial.ttf", size)
@@ -204,142 +185,188 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> List[s
                 cur = w
         if cur:
             lines.append(cur)
+        lines.append("")  # quebra de parágrafo
+    if lines and lines[-1] == "":
+        lines.pop()
     return lines
 
-def _render_report_image(laudo: dict, meta: dict, collage: Image.Image) -> Image.Image:
-    """Gera uma imagem longa do relatório para conversão em PDF, usando a nova estrutura de laudo."""
+def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image) -> Image.Image:
+    """Gera um 'poster' do relatório (texto + colagem) como uma imagem longa, incluindo campos extras."""
     W = 1240
     P = 40   # padding
-    H_PAD = 15 # Espaçamento vertical
-    
     title_font = _get_font(28)
-    h2_font = _get_font(24)
-    h3_font = _get_font(20)
+    h2_font = _get_font(22)
     body_font = _get_font(17)
-    bold_body_font = _get_font(17) # Simulação, ideal seria carregar fonte bold
-    
-    # Canvas inicial para cálculo de altura
-    dummy_draw = ImageDraw.Draw(Image.new("RGB", (W, 10), "white"))
-    
-    def get_text_height(text, font, max_w):
-        return len(_wrap_text(dummy_draw, text, font, max_w)) * (font.size + 5)
 
+    # Primeiro, calculamos a altura necessária
+    dummy = Image.new("RGB", (W, 10), "white")
+    draw = ImageDraw.Draw(dummy)
     height = P
 
-    # 1. Cabeçalho
-    height += get_text_height("Laudo Técnico de Análise Visual de Pneus", title_font, W - 2*P) + H_PAD
-    meta_text = f"Placa: {meta.get('placa') or '-'} | Empresa: {meta.get('empresa') or '-'} | Motorista: {meta.get('nome') or '-'}"
-    height += get_text_height(meta_text, body_font, W - 2*P) + H_PAD * 2
+    # Título
+    height += 40
+    # Meta
+    meta_lines = _wrap_text(
+        draw,
+        f"Placa: {meta.get('placa') or '-'}  |  Empresa: {meta.get('empresa') or '-'}  |  Motorista/Gestor: {meta.get('nome') or '-'}  |  Tel: {meta.get('telefone') or '-'}  |  E-mail: {meta.get('email') or '-'}",
+        body_font, W - 2*P
+    )
+    height += (len(meta_lines) * 22) + 10
 
-    # 2. Resumo Executivo
-    height += get_text_height("2. RESUMO EXECUTIVO", h2_font, W - 2*P) + H_PAD
-    height += get_text_height(laudo.get('resumo_executivo', 'N/A'), body_font, W - 2*P) + H_PAD * 2
+    # Configuração detectada (se houver)
+    cfg = laudo.get("configuracao_detectada")
+    cfg_lines = []
+    if isinstance(cfg, str) and cfg.strip():
+        cfg_lines = _wrap_text(draw, f"Configuração detectada: {cfg}", body_font, W - 2*P)
+        height += len(cfg_lines)*22 + 10
 
-    # 3. Diagnóstico Global
-    height += get_text_height("3. DIAGNÓSTICO GLOBAL DO VEÍCULO", h2_font, W - 2*P) + H_PAD
-    dg = laudo.get('diagnostico_global_veiculo', {})
-    for title, key in [("Problemas Sistêmicos:", 'problemas_sistemicos'), 
-                       ("Problemas Isolados:", 'problemas_isolados'), 
-                       ("Componentes para Inspeção Prioritária:", 'componentes_mecanicos_suspeitos')]:
-        items = dg.get(key, [])
-        if items:
-            height += get_text_height(title, h3_font, W-2*P)
-            for item in items:
-                height += get_text_height(f"• {item}", body_font, W - 2*P)
-            height += H_PAD
-    height += H_PAD
+    # Resumo
+    res_lines = []
+    if laudo.get("resumo_geral"):
+        res_lines = _wrap_text(draw, laudo.get("resumo_geral",""), body_font, W - 2*P)
+        height += 30 + len(res_lines) * 22 + 10
 
-    # 4. Análise por Eixo
-    height += get_text_height("4. ANÁLISE DETALHADA POR EIXO", h2_font, W - 2*P) + H_PAD
-    for eixo in laudo.get('analise_eixos', []):
-        height += get_text_height(eixo.get('titulo_eixo', 'Eixo Desconhecido'), h2_font, W-2*P) + H_PAD
-        height += get_text_height(f"Diagnóstico do Eixo: {eixo.get('diagnostico_geral_eixo', 'N/A')}", body_font, W - 2*P) + H_PAD
-        
-        for pneu in eixo.get('analise_pneus', []):
-            height += get_text_height(f"Lado: {pneu.get('posicao', '-')}", h3_font, W-2*P)
-            height += get_text_height(f"  Estado Geral: {pneu.get('estado_geral', '-')}", body_font, W-2*P)
-            height += get_text_height("  Defeitos Observados:", body_font, W-2*P)
-            for d in pneu.get('defeitos_observados',[]):
-                height += get_text_height(f"    • {d.get('defeito')} (Gravidade: {d.get('gravidade')})", body_font, W-2*P)
-            height += get_text_height("  Causas Prováveis:", body_font, W-2*P)
-            for c in pneu.get('causas_provaveis',[]):
-                height += get_text_height(f"    • Para '{c.get('defeito')}': {c.get('causa')}", body_font, W-2*P)
-            height += get_text_height(f"  Ação Recomendada: {pneu.get('acao_recomendada_especifica', '-')}", body_font, W-2*P) + H_PAD
-        height += H_PAD
+    # Qualidade
+    q = laudo.get("qualidade_imagens") or {}
+    q_lines = []
+    if q:
+        q_text = f"Qualidade das imagens: score {q.get('score','-')} | Problemas: {', '.join(q.get('problemas') or []) or '-'} | Faltantes: {', '.join(q.get('faltantes') or []) or '-'}"
+        q_lines = _wrap_text(draw, q_text, body_font, W - 2*P)
+        height += 30 + len(q_lines)*22
 
-    # 5. Recomendações Finais
-    height += get_text_height("5. RECOMENDAÇÕES FINAIS", h2_font, W - 2*P) + H_PAD
-    rf = laudo.get('recomendacoes_finais', {})
-    for title, key in [("Ações Corretivas Imediatas:", 'corretivas_imediatas'),
-                       ("Manutenções Preventivas:", 'preventivas'),
-                       ("Orientações Operacionais:", 'operacionais')]:
-        items = rf.get(key, [])
-        if items:
-            height += get_text_height(title, h3_font, W-2*P)
-            for item in items:
-                height += get_text_height(f"• {item}", body_font, W-2*P)
-            height += H_PAD
-    height += H_PAD
+    # Eixos (diagnóstico global + extras)
+    eixos = laudo.get("eixos", [])
+    eixos_blocks = []
+    for eixo in eixos:
+        bloco = []
+        titulo = eixo.get("titulo", eixo.get("tipo","Eixo"))
+        diag = eixo.get("diagnostico_global") or eixo.get("relatorio") or ""
+        bloco.append(("H2", titulo))
+        bloco.append(("TXT", diag))
+
+        if eixo.get("necessita_alinhamento") is not None:
+            bloco.append(("TXT", f"Necessita alinhamento: {'sim' if eixo.get('necessita_alinhamento') else 'não'}"))
+
+        ps = eixo.get("parametros_suspeitos") or []
+        if isinstance(ps, list) and ps:
+            parts = []
+            for p in ps:
+                try:
+                    parts.append(f"{p.get('parametro','-')}: {p.get('tendencia','indefinida')} (confiança {p.get('confianca',0):.2f})")
+                except Exception:
+                    pass
+            if parts:
+                bloco.append(("TXT", "Parâmetros suspeitos: " + " | ".join(parts)))
+
+        press = eixo.get("pressao_pneus") or {}
+        if press:
+            bloco.append(("TXT", f"Pressão — Motorista: {press.get('motorista','-')} | Oposto: {press.get('oposto','-')}"))
+
+        bal = eixo.get("balanceamento_sugerido")
+        if isinstance(bal, str) and bal.strip():
+            bloco.append(("TXT", f"Balanceamento: {bal}"))
+
+        ach = eixo.get("achados_chave") or []
+        if ach:
+            bloco.append(("TXT", "Achados-chave: " + "; ".join(ach)))
+
+        sev = eixo.get("severidade_eixo")
+        pri = eixo.get("prioridade_manutencao")
+        sp = []
+        if sev is not None:
+            sp.append(f"Severidade do eixo: {sev}/5")
+        if pri:
+            sp.append(f"Prioridade: {pri}")
+        if sp:
+            bloco.append(("TXT", " | ".join(sp)))
+
+        rod = eixo.get("rodizio_recomendado")
+        if isinstance(rod, str) and rod.strip():
+            bloco.append(("TXT", f"Rodízio recomendado: {rod}"))
+
+        eixos_blocks.append(bloco)
+
+    for bloco in eixos_blocks:
+        height += 30
+        for kind, text in bloco:
+            if kind == "H2":
+                height += 30
+            lines = _wrap_text(draw, text, body_font, W - 2*P)
+            height += len(lines)*22
+
+    # Recomendações
+    rec_lines = []
+    if laudo.get("recomendacoes_finais"):
+        rec_text = "Recomendações finais: " + " • ".join(laudo.get("recomendacoes_finais"))
+        rec_lines = _wrap_text(draw, rec_text, body_font, W - 2*P)
+        height += 30 + len(rec_lines)*22
+
+    # Observação motorista
+    obs_lines = []
+    if obs:
+        obs_lines = _wrap_text(draw, f"Observação do motorista: {obs}", body_font, W - 2*P)
+        height += 30 + len(obs_lines)*22
 
     # Colagem
-    scale = (W - 2*P) / collage.width
-    height += int(collage.height * scale) + P
+    col_w = W - 2*P
+    scale = min(1.0, col_w / collage.width)
+    col_h = int(collage.height * scale)
+    height += 30 + col_h + P
 
-    # Desenhar no canvas final
-    out = Image.new("RGB", (W, int(height)), "white")
-    draw = ImageDraw.Draw(out)
+    # Criar canvas final
+    out = Image.new("RGB", (W, height), "white")
+    d = ImageDraw.Draw(out)
+
     y = P
+    d.text((P, y), "Laudo de Análise de Pneus — AVP", font=title_font, fill=(0,0,0))
+    y += 40
 
-    def draw_wrapped_text(text, font, y_pos):
-        lines = _wrap_text(draw, text, font, W - 2*P)
-        for line in lines:
-            draw.text((P, y_pos), line, font=font, fill=(0,0,0))
-            y_pos += font.size + 5
-        return y_pos
+    for line in meta_lines:
+        d.text((P, y), line, font=body_font, fill=(0,0,0))
+        y += 22
+    y += 10
 
-    y = draw_wrapped_text("Laudo Técnico de Análise Visual de Pneus", title_font, y)
-    y = draw_wrapped_text(meta_text, body_font, y)
-    y += H_PAD * 2
+    for line in cfg_lines:
+        d.text((P, y), line, font=body_font, fill=(0,0,0))
+        y += 22
 
-    y = draw_wrapped_text("2. RESUMO EXECUTIVO", h2_font, y) + H_PAD
-    y = draw_wrapped_text(laudo.get('resumo_executivo', 'N/A'), body_font, y) + H_PAD * 2
-    
-    y = draw_wrapped_text("3. DIAGNÓSTICO GLOBAL DO VEÍCULO", h2_font, y) + H_PAD
-    for title, key in [("Problemas Sistêmicos:", 'problemas_sistemicos'), ("Problemas Isolados:", 'problemas_isolados'), ("Componentes para Inspeção Prioritária:", 'componentes_mecanicos_suspeitos')]:
-        items = dg.get(key, [])
-        if items:
-            y = draw_wrapped_text(title, h3_font, y)
-            for item in items: y = draw_wrapped_text(f"• {item}", body_font, y)
-            y += H_PAD
+    if res_lines:
+        d.text((P, y), "Resumo", font=h2_font, fill=(0,0,0)); y += 30
+        for line in res_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+        y += 10
 
-    y = draw_wrapped_text("4. ANÁLISE DETALHADA POR EIXO", h2_font, y) + H_PAD
-    for eixo in laudo.get('analise_eixos', []):
-        y = draw_wrapped_text(eixo.get('titulo_eixo', 'Eixo Desconhecido'), h2_font, y) + H_PAD
-        y = draw_wrapped_text(f"Diagnóstico do Eixo: {eixo.get('diagnostico_geral_eixo', 'N/A')}", body_font, y) + H_PAD
-        for pneu in eixo.get('analise_pneus', []):
-            y = draw_wrapped_text(f"Lado: {pneu.get('posicao', '-')}", h3_font, y)
-            y = draw_wrapped_text(f"  Estado Geral: {pneu.get('estado_geral', '-')}", body_font, y)
-            y = draw_wrapped_text("  Defeitos Observados:", body_font, y)
-            for d in pneu.get('defeitos_observados',[]): y = draw_wrapped_text(f"    • {d.get('defeito')} (Gravidade: {d.get('gravidade')})", body_font, y)
-            y = draw_wrapped_text("  Causas Prováveis:", body_font, y)
-            for c in pneu.get('causas_provaveis',[]): y = draw_wrapped_text(f"    • Para '{c.get('defeito')}': {c.get('causa')}", body_font, y)
-            y = draw_wrapped_text(f"  Ação Recomendada: {pneu.get('acao_recomendada_especifica', '-')}", body_font, y) + H_PAD
-        y += H_PAD
+    if q_lines:
+        d.text((P, y), "Qualidade das imagens", font=h2_font, fill=(0,0,0)); y += 30
+        for line in q_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
 
-    y = draw_wrapped_text("5. RECOMENDAÇÕES FINAIS", h2_font, y) + H_PAD
-    for title, key in [("Ações Corretivas Imediatas:", 'corretivas_imediatas'), ("Manutenções Preventivas:", 'preventivas'), ("Orientações Operacionais:", 'operacionais')]:
-        items = rf.get(key, [])
-        if items:
-            y = draw_wrapped_text(title, h3_font, y)
-            for item in items: y = draw_wrapped_text(f"• {item}", body_font, y)
-            y += H_PAD
+    for bloco in eixos_blocks:
+        y += 30
+        for kind, text in bloco:
+            if kind == "H2":
+                d.text((P, y), text, font=h2_font, fill=(0,0,0)); y += 30
+            else:
+                for line in _wrap_text(d, text, body_font, W - 2*P):
+                    d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
 
-    # Colagem
-    col_resized = collage.resize((int(collage.width * scale), int(collage.height * scale)), Image.LANCZOS)
+    if rec_lines:
+        y += 30
+        d.text((P, y), "Recomendações finais", font=h2_font, fill=(0,0,0)); y += 30
+        for line in rec_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+
+    if obs_lines:
+        y += 30
+        d.text((P, y), "Observação do motorista", font=h2_font, fill=(0,0,0)); y += 30
+        for line in obs_lines:
+            d.text((P, y), line, font=body_font, fill=(0,0,0)); y += 22
+
+    # Colagem (redimensionada)
+    y += 30
+    col_resized = collage.resize((col_w, col_h), Image.LANCZOS) if scale < 1.0 else collage.copy()
     out.paste(col_resized, (P, y))
-    
     return out
-
 
 def _build_pdf_bytes(report_img: Image.Image) -> bytes:
     """Converte a imagem do relatório para PDF (1 página)."""
@@ -347,438 +374,611 @@ def _build_pdf_bytes(report_img: Image.Image) -> bytes:
     report_img.save(buf, format="PDF", resolution=150.0)
     return buf.getvalue()
 
-
 # =========================
-# OpenAI / Prompt helpers (Funções Atualizadas)
+# OpenAI / Prompt helpers
 # =========================
 def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: List[str]) -> list:
-    """Constrói o prompt de usuário detalhado para a API da OpenAI."""
-    # O prompt de sistema é enviado separadamente na chamada da API
-    prompt_usuario = f"""
-### CONTEXTO DO VEÍCULO E ANÁLISE
+    """
+    Prompt para imagem única contendo TODAS as colagens.
+    Exige N itens em 'eixos' = len(axis_titles) e plano de rodízio detalhado.
+    """
+    especialista = (
+        "Você é um especialista brasileiro em pneus de caminhões (borracharia/alinhamento) com prática em "
+        "diagnóstico por desgaste, geometria (convergência, cambagem, cáster), pressão, balanceamento e rodízio "
+        "em 4x2 (toco), 6x2 (trucado), 6x4 (traçado), 8x2/8x4 (quarto eixo/bitruck/duplo direcional), "
+        "carretas (bi/tritem, rodotrem) e eixos de apoio (pusher/tag). "
+        "Escreva em PT-BR claro para leigos e objetivo. Se a imagem não permitir certeza, diga o que faltou e dê hipótese com confiabilidade 0–1. "
+        "Nunca invente medidas; baseie-se apenas no que as fotos mostram."
+    )
 
-**Dados do Veículo:**
-- **Placa:** {meta.get('placa', 'N/A')}
-- **Empresa:** {meta.get('empresa', 'N/A')}
-- **Motorista/Gestor:** {meta.get('nome', 'N/A')}
-- **Telefone:** {meta.get('telefone', 'N/A')}
-- **E-mail:** {meta.get('email', 'N/A')}
-- **Informações da Placa (API):** {json.dumps(meta.get('placa_info', {}), ensure_ascii=False)}
+    aviso = (
+        "Laudo auxiliar por imagem — AVP. ⚠️ Pode conter erros. Não usar como única base de decisão; "
+        "recomenda-se inspeção presencial."
+    )
 
-**Observação do Motorista:**
-> {obs}
+    orientacao_foto = (
+        "As fotos chegam em colagens 2×2 por eixo: CIMA = Frente (câmera paralela à banda); BAIXO = ~45°. "
+        "Coluna ESQ = Motorista; DIR = Oposto. De cima para baixo, a ordem dos eixos é: "
+        + ", ".join(axis_titles) + ". Em traseiros germinados, a dupla (Frente e 45°) mostra o conjunto por lado. "
+        "Boas práticas: 0,8–1,2 m; enquadrar banda + dois ombros; evitar contraluz/sombra; foco nítido."
+    )
 
----
+    heuristicas = (
+        "Direcional: ombros internos ⇒ divergência; ombros externos ⇒ convergência; um lado do mesmo pneu ⇒ cambagem; "
+        "serrilhamento ⇒ rodízio/pressão/cáster; vibração/ondas ⇒ desbalanceamento. "
+        "Tração: escamação ⇒ pressão baixa + arraste; centro liso ⇒ pressão alta; diferença entre germinados ⇒ pressões desiguais/rolamento/suspensão/alinhamento. "
+        "Apoio/carretas: desgaste irregular ⇒ altura/baixar eixo, carga desigual ou geometria fora; último eixo arrastando ⇒ quebra de esquadro. "
+        "Pressão visual: centro>ombros=alta; ombros>centro=baixa; germinados diferentes=pressões desiguais."
+    )
 
-### ORGANIZAÇÃO DAS FOTOS
+    rodizio = (
+        "Plano de rodízio (OBRIGATÓRIO e DETALHADO):\n"
+        "- Forneça um mapa de posições do MELHOR ao PIOR pneu (ex.: Melhor → Dianteiro Esq; 2º → Dianteiro Dir; ...),\n"
+        "- Informe quando **virar o pneu na roda**, quando **trocar de lado (direita↔esquerda)** e quando **fazer ambos**;\n"
+        "- Considere o **caimento da via no Brasil** (pista mais alta no centro e caída para a direita) ao sugerir as posições finais;\n"
+        "- Adapte para 4x2, 6x2, 6x4, 8x2/8x4 e carretas conforme o caso."
+    )
 
-**IMPORTANTE:** A imagem fornecida é uma montagem vertical de várias colagens 2x2.
-- **Ordem dos Eixos:** Cada colagem 2x2 representa um eixo, e elas estão empilhadas na seguinte ordem, de cima para baixo: **{", ".join(axis_titles)}**.
-- **Estrutura da Colagem 2x2 (para cada eixo):**
-  - **Canto Superior Esquerdo:** Pneu do lado do **Motorista**, foto **de Frente** (paralela à banda).
-  - **Canto Inferior Esquerdo:** Pneu do lado do **Motorista**, foto **em 45 graus**.
-  - **Canto Superior Direito:** Pneu do lado **Oposto** (passageiro), foto **de Frente**.
-  - **Canto Inferior Direito:** Pneu do lado **Oposto** (passageiro), foto **em 45 graus**.
-- **Pneus Germinados (Traseiros):** As fotos mostram o conjunto (interno e externo) de cada lado. Sua análise deve considerar a dupla de pneus.
+    tarefas = (
+        "Tarefas: detectar configuração do conjunto; para CADA colagem 2×2 (um eixo), escrever diagnóstico GLOBAL integrando os 4 quadrantes "
+        "(desgaste/causas prováveis), dizer se precisa alinhar e listar parâmetros suspeitos com confiança 0–1; "
+        "estimar pressão por lado com justificativa; indicar balanceamento quando aplicável; sugerir rodízio DETALHADO; listar limitações; "
+        "definir severidade_eixo (0–5) e prioridade (baixa/média/alta)."
+    )
 
----
+    formato = (
+        "Responda SOMENTE em JSON válido. O array 'eixos' deve conter EXATAMENTE "
+        f"{len(axis_titles)} itens, um para cada colagem, na mesma ordem: {', '.join(axis_titles)}.\n"
+        "{\n"
+        f'  "placa": "{meta.get("placa")}",\n'
+        '  "configuracao_detectada": "ex.: 6x4 (traçado) | 8x2 (bitruck) | carreta 3 eixos | indefinida",\n'
+        '  "qualidade_imagens": {"score": 0.0, "problemas": [], "faltantes": []},\n'
+        '  "eixos": [\n'
+        '    {\n'
+        '      "titulo": "Eixo ...",\n'
+        '      "tipo": "Dianteiro|Traseiro",\n'
+        '      "diagnostico_global": "texto corrido integrando os quatro quadrantes",\n'
+        '      "necessita_alinhamento": true,\n'
+        '      "parametros_suspeitos": [\n'
+        '        {"parametro": "convergência", "tendencia": "aberta|fechada|indefinida", "confianca": 0.0},\n'
+        '        {"parametro": "cambagem", "tendencia": "positiva|negativa|indefinida", "confianca": 0.0},\n'
+        '        {"parametro": "cáster", "tendencia": "avançado|recuado|indefinido", "confianca": 0.0}\n'
+        '      ],\n'
+        '      "pressao_pneus": {\n'
+        '        "motorista": "provável baixa|alta|ok|indefinida (justificativa curta)",\n'
+        '        "oposto": "provável baixa|alta|ok|indefinida (justificativa curta)"\n'
+        '      },\n'
+        '      "balanceamento_sugerido": "sim|não|indefinido (com justificativa)",\n'
+        '      "achados_chave": [],\n'
+        '      "severidade_eixo": 0,\n'
+        '      "prioridade_manutencao": "baixa|média|alta",\n'
+        '      "rodizio_recomendado": "plano detalhado com mapa de posições, virar na roda/trocar de lado e observação do caimento da via"\n'
+        '    }\n'
+        '  ],\n'
+        '  "recomendacoes_finais": [],\n'
+        '  "resumo_geral": "",\n'
+        '  "whatsapp_resumo": "até 450 caracteres"\n'
+        "}\n"
+    )
 
-### BASE DE CONHECIMENTO (HEURÍSTICAS)
+    header = (
+        f"{especialista}\n\n{aviso}\n\n"
+        "Contexto do veículo (se fornecido):\n"
+        f"- Nome: {meta.get('nome')} | Empresa: {meta.get('empresa')} | Tel: {meta.get('telefone')} | E-mail: {meta.get('email')} | Placa: {meta.get('placa')}\n"
+        f"- Dados da placa/API: {json.dumps(meta.get('placa_info') or {}, ensure_ascii=False)}\n"
+        f"- Observação do motorista: {obs}\n\n"
+        f"{orientacao_foto}\n\n{heuristicas}\n\n{rodizio}\n\n{tarefas}\n\n{formato}"
+    )
 
-- **Desgaste e Geometria:**
-  - **Ombros internos gastos (Divergência):** Rodas apontando para fora.
-  - **Ombros externos gastos (Convergência):** Rodas apontando para dentro.
-  - **Desgaste em um lado do pneu (Cambagem):** Inclinação da roda.
-  - **Serrilhamento/Dente de serra:** Geralmente desalinhamento (cáster), folgas ou amortecedores.
-- **Pressão:**
-  - **Centro liso/gasto:** Pressão excessiva.
-  - **Ombros gastos com centro preservado:** Pressão baixa.
-  - **Diferença de desgaste entre pneus germinados:** Calibragem desigual entre eles.
-- **Falhas e Suspensão:**
-  - **Escalonamento/Escamação:** Arraste, pressão baixa, problemas de suspensão (molas, amortecedores).
-  - **Flat spots (áreas planas):** Travamento de freios.
-  - **Ondulações:** Desbalanceamento ou falha estrutural interna.
-
----
-
-### TAREFAS DE ANÁLISE
-
-Com base nas imagens e no contexto, execute as seguintes tarefas e estruture sua resposta **exclusivamente** no formato JSON especificado abaixo.
-
-1.  **Resumo Executivo:** Forneça um parágrafo inicial com as conclusões mais críticas e o estado geral do veículo.
-2.  **Análise por Eixo e Pneu:** Para cada eixo (colagem 2x2), realize uma análise detalhada.
-    - **Diagnóstico do Eixo:** Um resumo do comportamento do eixo como um todo.
-    - **Análise Individual dos Pneus (Motorista e Oposto):** Para cada lado, detalhe:
-        - **Estado Geral:** Novo, semi-novo, fim de vida, recapado, etc.
-        - **Defeitos Observados:** Liste *cada* defeito visível (ex: "Desgaste no ombro externo", "Serrilhamento leve").
-        - **Causas Prováveis:** Para *cada* defeito listado, explique a causa técnica mais provável, vinculando-a a problemas de geometria, suspensão, pressão ou operação.
-        - **Ação Recomendada Específica:** Ação para aquele pneu/lado específico.
-3.  **Diagnóstico Global do Veículo:** Após a análise individual, cruze os dados.
-    - **Problemas Sistêmicos:** Identifique padrões que se repetem entre os eixos (ex: todos os dianteiros com convergência).
-    - **Problemas Isolados:** Defeitos que ocorrem em apenas um pneu.
-    - **Componentes Mecânicos Suspeitos:** Liste os componentes que precisam de inspeção prioritária (ex: "Amortecedores dianteiros", "Buchas da barra estabilizadora").
-4.  **Recomendações Finais (Categorizadas):** Crie uma lista de ações claras, divididas em três categorias:
-    - **Ações Corretivas Imediatas:** O que precisa ser feito com urgência para garantir a segurança.
-    - **Manutenções Preventivas:** O que fazer para evitar que os problemas retornem.
-    - **Orientações Operacionais:** Dicas para o motorista/gestor (calibragem, condução).
-
----
-
-### FORMATO DE SAÍDA OBRIGATÓRIO (JSON)
-
-Responda **APENAS** com um objeto JSON válido, sem nenhum texto ou explicação adicional fora dele. A estrutura deve seguir este modelo:
-```json
-{{
-  "resumo_executivo": "...",
-  "diagnostico_global_veiculo": {{
-    "problemas_sistemicos": ["..."],
-    "problemas_isolados": ["..."],
-    "componentes_mecanicos_suspeitos": ["..."]
-  }},
-  "analise_eixos": [
-    {{
-      "titulo_eixo": "Eixo Dianteiro 1",
-      "diagnostico_geral_eixo": "O eixo apresenta sinais claros de desalinhamento por convergência...",
-      "analise_pneus": [
-        {{
-          "posicao": "Motorista",
-          "estado_geral": "Semi-novo, recapado.",
-          "defeitos_observados": [
-            {{"defeito": "Desgaste acentuado no ombro externo", "gravidade": "Severa"}},
-            {{"defeito": "Leves fissuras na banda de rodagem", "gravidade": "Baixa"}}
-          ],
-          "causas_provaveis": [
-            {{"defeito": "Desgaste acentuado no ombro externo", "causa": "Indica excesso de convergência (toe-in), fazendo com que a parte externa do pneu arraste mais. Pode também ser agravado por folgas em pivôs de direção."}},
-            {{"defeito": "Leves fissuras na banda de rodagem", "causa": "Sinal de envelhecimento do composto de borracha ou exposição prolongada a altas temperaturas."}}
-          ],
-          "acao_recomendada_especifica": "Verificar alinhamento e geometria. Monitorar fissuras."
-        }},
-        {{
-          "posicao": "Oposto",
-          "estado_geral": "Semi-novo, original.",
-          "defeitos_observados": [
-            {{"defeito": "Desgaste acentuado no ombro externo", "gravidade": "Severa"}}
-          ],
-          "causas_provaveis": [
-            {{"defeito": "Desgaste acentuado no ombro externo", "causa": "Confirma o problema sistêmico de convergência no eixo. O desgaste similar em ambos os lados reforça o diagnóstico de desalinhamento."}}
-          ],
-          "acao_recomendada_especifica": "Verificar alinhamento e geometria."
-        }}
-      ]
-    }}
-  ],
-  "recomendacoes_finais": {{
-    "corretivas_imediatas": [
-      "Realizar alinhamento e balanceamento do eixo dianteiro com urgência.",
-      "Inspecionar pivôs e terminais de direção em busca de folgas."
-    ],
-    "preventivas": [
-      "Implementar rodízio de pneus a cada 20.000 km.",
-      "Verificar o alinhamento a cada 6 meses ou após impactos severos."
-    ],
-    "operacionais": [
-      "Realizar calibragem semanal com pneus frios, conforme especificação da carga."
+    return [
+        {"type": "text", "text": header},
+        {"type": "image_url", "image_url": {"url": data_url}},
     ]
-  }},
-  "whatsapp_resumo": "Detectamos um problema de desalinhamento no eixo dianteiro que está causando desgaste severo nos pneus. Ações corretivas são necessárias."
-}}
-"""
-return [
-{"type": "text", "text": prompt_usuario},
-{"type": "image_url", "image_url": {"url": data_url}},
-]
 
-=========================
-OpenAI callers (Sem alterações)
-=========================
+def _build_single_axis_message(data_url: str, meta: dict, obs: str, axis_title: str) -> list:
+    """
+    Prompt alternativo para fallback: imagem contendo APENAS UMA colagem (um eixo).
+    Pede para retornar exatamente 1 item no array 'eixos' correspondente a esse título.
+    """
+    header = (
+        "Imagem com UMA colagem 2×2 referente a UM eixo do veículo.\n"
+        f"Título do eixo: {axis_title}.\n"
+        "CIMA = Frente (câmera paralela à banda); BAIXO = ~45°; ESQ = Motorista; DIR = Oposto. "
+        "Entregue JSON com EXATAMENTE 1 item em 'eixos' (esse eixo), incluindo diagnóstico global, "
+        "necessidade de alinhamento com parâmetros suspeitos (e confiança 0–1), pressão por lado com justificativa, "
+        "balanceamento quando aplicável e RODÍZIO DETALHADO (mapa de posições melhor→pior, quando virar na roda, trocar de lado ou ambos, "
+        "considerando caimento da via no Brasil)."
+        "\nFormato de resposta (JSON válido):\n"
+        "{\n"
+        f'  "placa": "{meta.get("placa")}",\n'
+        '  "configuracao_detectada": "ou indefinida",\n'
+        '  "qualidade_imagens": {"score": 0.0, "problemas": [], "faltantes": []},\n'
+        '  "eixos": [ { "titulo": "' + axis_title + '", "tipo": "Dianteiro|Traseiro", '
+        '"diagnostico_global": "", "necessita_alinhamento": true, '
+        '"parametros_suspeitos":[{"parametro":"convergência","tendencia":"aberta|fechada|indefinida","confianca":0.0}, '
+        '{"parametro":"cambagem","tendencia":"positiva|negativa|indefinida","confianca":0.0}, '
+        '{"parametro":"cáster","tendencia":"avançado|recuado|indefinido","confianca":0.0}], '
+        '"pressao_pneus":{"motorista":"...","oposto":"..."}, '
+        '"balanceamento_sugerido":"...", "achados_chave":[], "severidade_eixo":0, '
+        '"prioridade_manutencao":"baixa|média|alta", '
+        '"rodizio_recomendado":"plano detalhado para este eixo" } ],\n'
+        '  "recomendacoes_finais": [], "resumo_geral": "", "whatsapp_resumo": ""\n'
+        "}\n"
+    )
+    return [
+        {"type": "text", "text": header},
+        {"type": "image_url", "image_url": {"url": data_url}},
+    ]
+
+# =========================
+# OpenAI callers
+# =========================
 def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: str, axis_titles: List[str]) -> dict:
-api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-if not api_key:
-return {"erro": "OPENAI_API_KEY ausente em Secrets/variável de ambiente."}
+    api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"erro": "OPENAI_API_KEY ausente em Secrets/variável de ambiente."}
 
-client = OpenAI(api_key=api_key)
-# NOVO: O prompt de sistema é definido aqui
-prompt_sistema = """
-Você é um especialista brasileiro em análise visual de pneus de caminhões, carretas e ônibus, com foco exclusivo na avaliação a partir de fotografias. Sua experiência combina conhecimento técnico aprofundado de mecânica pesada, geometria veicular (convergência, divergência, cambagem, cáster), suspensão, inflagem e padrões de desgaste.
-Sua missão é realizar um diagnóstico preciso, vinculando cada defeito visual à sua causa mecânica ou operacional mais provável. Você deve ter uma visão sistêmica, entendendo como um problema em um pneu pode indicar uma falha no conjunto.
-Use linguagem técnica, mas acessível. Seja objetivo e baseie-se estritamente nas evidências visuais. Se uma foto não permitir certeza, aponte a limitação e apresente a hipótese com um nível de confiança. Responda sempre em português do Brasil.
-"""
-content = _build_multimodal_message(data_url, meta, obs, axis_titles)
+    client = OpenAI(api_key=api_key)
+    content = _build_multimodal_message(data_url, meta, obs, axis_titles)
 
-try:
-    resp = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": prompt_sistema},
-            {"role": "user", "content": content},
-        ],
-        temperature=0,
-        response_format={"type": "json_object"}, # Exige saída em JSON
-    )
-    text = resp.choices[0].message.content or ""
     try:
-        return json.loads(text)
+        resp = client.chat.completions.create(
+            model=model_name,  # "gpt-4o-mini" (padrão) ou "gpt-4o"
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Você é um especialista brasileiro em pneus de caminhões com prática em diagnóstico por desgaste, "
+                        "geometria (convergência, cambagem, cáster), pressão, balanceamento e rodízio. "
+                        "Escreva em PT-BR claro para leigos; não invente medidas; se faltar evidência, diga o que faltou e dê hipótese com confiança 0–1."
+                    )
+                },
+                {"role": "user", "content": content},
+            ],
+            temperature=0,
+        )
+        text = resp.choices[0].message.content or ""
+        try:
+            return json.loads(text)
+        except Exception:
+            import re
+            m = re.search(r"\{[\s\S]*\}", text)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    pass
+            return {"erro": "Modelo não retornou JSON válido", "raw": text}
     except Exception as e:
-        return {"erro": f"Modelo não retornou JSON válido mesmo com a exigência. Erro: {e}", "raw": text}
-except Exception as e:
-    return {"erro": f"Falha na API: {e}"}
+        return {"erro": f"Falha na API: {e}"}
+
 def _call_openai_single_axis(collage: Image.Image, meta: dict, obs: str, model_name: str, axis_title: str) -> dict:
-"""Fallback: analisa UMA colagem (um eixo) - ADAPTADO."""
-api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-if not api_key: return {"erro": "OPENAI_API_KEY não configurada."}
+    """Fallback: analisa UMA colagem (um eixo) e retorna JSON com 1 item em 'eixos'."""
+    api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"erro": "OPENAI_API_KEY ausente em Secrets/variável de ambiente."}
+    client = OpenAI(api_key=api_key)
 
-client = OpenAI(api_key=api_key)
-data_url = _img_to_dataurl(collage)
+    # Data URL a partir da colagem unitária
+    buf = io.BytesIO()
+    collage.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    data_url = f"data:image/jpeg;base64,{b64}"
 
-# Prompt de fallback simplificado mas pedindo a nova estrutura
-prompt_usuario = f"""
-Análise de UM EIXO: {axis_title}.
-Contexto: Placa {meta.get('placa')}, Obs: {obs}
-Retorne JSON **APENAS** com a análise deste eixo, seguindo a estrutura completa do laudo (resumo_executivo, diagnostico_global_veiculo, analise_eixos, recomendacoes_finais, whatsapp_resumo).
-O array 'analise_eixos' deve conter apenas um item: a análise para '{axis_title}'.
-"""
-
-content = [
-    {"type": "text", "text": prompt_usuario},
-    {"type": "image_url", "image_url": {"url": data_url}}
-]
-
-try:
-    resp = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "Você é um especialista em pneus. Responda em JSON."},
-            {"role": "user", "content": content},
-        ],
-        temperature=0,
-        response_format={"type": "json_object"},
-    )
-    text = resp.choices[0].message.content or ""
-    return json.loads(text)
-except Exception as e:
-    return {"erro": f"Falha na API (fallback): {e}", "raw": locals().get("text", "")}
-=========================
-UI helpers (Função Atualizada)
-=========================
-def _render_laudo_ui(laudo: dict):
-st.success("Laudo recebido com sucesso!")
-
-# 2. Resumo Executivo
-st.markdown("## 🧾 2. Resumo Executivo")
-st.write(laudo.get('resumo_executivo', "Nenhum resumo executivo fornecido."))
-st.markdown("---")
-
-# 3. Diagnóstico Global
-st.markdown("## 🔬 3. Diagnóstico Global do Veículo")
-dg = laudo.get('diagnostico_global_veiculo', {})
-st.markdown("### Problemas Sistêmicos")
-st.write("• " + "\n• ".join(dg.get('problemas_sistemicos', ["Nenhum identificado."])))
-st.markdown("### Problemas Isolados")
-st.write("• " + "\n• ".join(dg.get('problemas_isolados', ["Nenhum identificado."])))
-st.markdown("### Componentes para Inspeção Prioritária")
-st.write("• " + "\n• ".join(dg.get('componentes_mecanicos_suspeitos', ["Nenhum identificado."])))
-st.markdown("---")
-
-# 4. Análise por Eixo
-st.markdown("## ⚙️ 4. Análise Detalhada por Eixo")
-for eixo in laudo.get('analise_eixos', []):
-    with st.container(border=True):
-        st.markdown(f"### {eixo.get('titulo_eixo', 'Eixo Desconhecido')}")
-        st.caption(f"**Diagnóstico do Eixo:** {eixo.get('diagnostico_geral_eixo', 'N/A')}")
-
-        for pneu in eixo.get('analise_pneus', []):
-            st.markdown(f"#### Lado: {pneu.get('posicao', 'N/A')}")
-            st.write(f"**Estado Geral:** {pneu.get('estado_geral', 'N/A')}")
-            
-            st.write("**Defeitos Observados:**")
-            for d in pneu.get('defeitos_observados', []):
-                st.write(f"- {d.get('defeito')} (Gravidade: {d.get('gravidade')})")
-
-            st.write("**Causas Prováveis:**")
-            for c in pneu.get('causas_provaveis', []):
-                st.write(f"- **Para '{c.get('defeito')}':** {c.get('causa')}")
-
-            st.write(f"**Ação Recomendada:** {pneu.get('acao_recomendada_especifica', 'N/A')}")
-st.markdown("---")
-
-# 5. Recomendações Finais
-st.markdown("## ✅ 5. Recomendações Finais")
-rf = laudo.get('recomendacoes_finais', {})
-st.markdown("### 🚨 Ações Corretivas Imediatas")
-st.write("• " + "\n• ".join(rf.get('corretivas_imediatas', ["Nenhuma."])))
-st.markdown("### 🛠️ Manutenções Preventivas")
-st.write("• " + "\n• ".join(rf.get('preventivas', ["Nenhuma."])))
-st.markdown("### 👨‍🏫 Orientações Operacionais")
-st.write("• " + "\n• ".join(rf.get('operacionais', ["Nenhuma."])))
-=========================
-UI (Função Principal)
-=========================
-def app():
-st.title("🛞 Análise de Pneus por Foto — AVP")
-st.caption("Laudo automático de apoio (sujeito a erros). Recomenda-se inspeção presencial.")
-
-col_m1, _ = st.columns([1, 3])
-with col_m1:
-    modo_detalhado = st.toggle("Análise detalhada (gpt-4o)", value=False)
-modelo = "gpt-4o" if modo_detalhado else "gpt-4o-mini"
-
-with st.form("form_ident"):
-    c1, c2 = st.columns(2)
-    with c1:
-        nome = st.text_input("Nome do motorista/gestor")
-        empresa = st.text_input("Empresa")
-        telefone = st.text_input("Telefone de contato")
-    with c2:
-        email = st.text_input("E-mail")
-        placa = st.text_input("Placa do veículo").upper()
-    buscar = st.form_submit_button("🔎 Buscar dados da placa")
-
-if 'placa_info' not in st.session_state:
-    st.session_state.placa_info = None
-
-if buscar and placa:
-    ok, data = utils.consultar_placa_comercial(placa)
-    if ok:
-        st.session_state.placa_info = data
-        st.success(f"Dados da placa: {json.dumps(st.session_state.placa_info, ensure_ascii=False)}")
-    else:
-        st.warning(data)
-        st.session_state.placa_info = {"erro": data}
-
-st.markdown("---")
-
-with st.expander("📸 Como fotografar para melhor leitura (dica rápida)"):
-    st.write(
-        "- Para **cada lado**, tire **duas fotos** do pneu:\n"
-        "  1) **De frente**: câmera **paralela à banda**;\n"
-        "  2) **Em ~45°**: para evidenciar profundidade dos sulcos.\n"
-        "- **Traseiro (germinado)**: faça a dupla de fotos do **conjunto**."
-    )
-
-observacao = st.text_area("Observação do motorista", max_chars=MAX_OBS, placeholder="Ex.: puxa para a direita…")
-
-if "axes" not in st.session_state:
-    st.session_state.axes: List[Dict] = []
-
-cA, cB, cC = st.columns(3)
-if cA.button("➕ Adicionar Dianteiro"): st.session_state.axes.append({"tipo": "Dianteiro", "files": {}})
-if cB.button("➕ Adicionar Traseiro"): st.session_state.axes.append({"tipo": "Traseiro", "files": {}})
-if st.session_state.axes and cC.button("🗑️ Remover último eixo"): st.session_state.axes.pop()
-
-if not st.session_state.axes and "laudo" not in st.session_state:
-    st.info("Adicione pelo menos um eixo para começar.")
-    return
-
-if st.session_state.axes:
-    for idx, eixo in enumerate(st.session_state.axes, start=1):
-        with st.container(border=True):
-            st.subheader(f"Eixo {idx} — {eixo['tipo']}")
-            cm, co = st.columns(2)
-            with cm:
-                eixo["files"]["lt"] = st.file_uploader(f"Motorista — Frente — Eixo {idx}", type=["jpg","jpeg","png"], key=f"f_m_{idx}")
-                eixo["files"]["lb"] = st.file_uploader(f"Motorista — 45° — Eixo {idx}", type=["jpg","jpeg","png"], key=f"a_m_{idx}")
-            with co:
-                eixo["files"]["rt"] = st.file_uploader(f"Oposto — Frente — Eixo {idx}", type=["jpg","jpeg","png"], key=f"f_o_{idx}")
-                eixo["files"]["rb"] = st.file_uploader(f"Oposto — 45° — Eixo {idx}", type=["jpg","jpeg","png"], key=f"a_o_{idx}")
-
-st.markdown("---")
-if st.button("🚀 Enviar para análise", disabled=not st.session_state.axes):
-    if not (st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")):
-        st.error("Defina OPENAI_API_KEY em Secrets/variável de ambiente.")
-        st.stop()
-
-    for i, eixo in enumerate(st.session_state.axes, start=1):
-        if not all(eixo["files"].get(k) for k in ("lt","lb","rt","rb")):
-            st.error(f"Envie as 4 fotos do eixo {i} — {eixo['tipo']}.")
-            st.stop()
-
-    with st.spinner("Preparando imagens…"):
-        collages, titles = [], []
-        for i, eixo in enumerate(st.session_state.axes, start=1):
-            lt, lb = _open_and_prepare(eixo["files"]["lt"]), _open_and_prepare(eixo["files"]["lb"])
-            rt, rb = _open_and_prepare(eixo["files"]["rt"]), _open_and_prepare(eixo["files"]["rb"])
-            labels = {
-                "title": f"Eixo {i} - {eixo['tipo']}",
-                "left_top": "Motorista - Frente", "left_bottom": "Motorista - 45°",
-                "right_top": "Oposto - Frente", "right_bottom": "Oposto - 45°"
-            }
-            collages.append(_grid_2x2_labeled(lt, lb, rt, rb, labels))
-            titles.append(labels["title"])
-        
-        colagem_final = _stack_vertical_center(collages, titles)
-        st.session_state["ultima_colagem"] = colagem_final
-        st.session_state["collages"] = collages
-        st.session_state["titles"] = titles
-
-    data_url = _img_to_dataurl(colagem_final)
-    meta = {
-        "placa": placa, "nome": nome, "empresa": empresa,
-        "telefone": telefone, "email": email, "placa_info": st.session_state.placa_info
-    }
-    obs = (observacao or "")[:MAX_OBS]
-
-    with st.spinner("Analisando com IA... Isso pode levar um minuto."):
-        laudo = _call_openai_single_image(data_url, meta, obs, modelo, titles)
-
-    expected_n = len(titles)
-    got_n = len(laudo.get("analise_eixos", [])) if isinstance(laudo, dict) else 0
-
-    if "erro" in laudo or got_n != expected_n:
-        st.warning("Análise principal falhou ou incompleta. Tentando fallback por eixo...")
-        agreg = { "analise_eixos": [], "recomendacoes_finais": {"corretivas_imediatas": [], "preventivas": [], "operacionais": []} }
-        
-        with st.spinner("Analisando eixo por eixo..."):
-            for cimg, atitle in zip(st.session_state["collages"], st.session_state["titles"]):
-                sub = _call_openai_single_axis(cimg, meta, obs, modelo, atitle)
-                if isinstance(sub, dict) and "erro" not in sub:
-                    if sub.get("analise_eixos"): agreg["analise_eixos"].extend(sub["analise_eixos"])
-                    # Agregar outras chaves
-                    for key in ["resumo_executivo", "whatsapp_resumo"]:
-                        if not agreg.get(key) and sub.get(key): agreg[key] = sub.get(key)
-                    if sub.get("diagnostico_global_veiculo"):
-                       if 'diagnostico_global_veiculo' not in agreg: agreg['diagnostico_global_veiculo'] = {"problemas_sistemicos": [], "problemas_isolados": [], "componentes_mecanicos_suspeitos": []}
-                       for k_dg in agreg['diagnostico_global_veiculo']:
-                           agreg['diagnostico_global_veiculo'][k_dg].extend(sub['diagnostico_global_veiculo'].get(k_dg,[]))
-                    if sub.get("recomendacoes_finais"):
-                        for k_rf in agreg['recomendacoes_finais']:
-                            agreg['recomendacoes_finais'][k_rf].extend(sub['recomendacoes_finais'].get(k_rf,[]))
-        laudo = agreg
-
-    if "erro" in laudo or not laudo.get("analise_eixos"):
-        st.error(f"A análise falhou. Detalhes: {laudo.get('erro', 'Resposta vazia.')}")
-        if DEBUG and laudo.get("raw"):
-            st.code(laudo["raw"])
-        st.stop()
-
-    st.session_state["laudo"] = laudo
-    st.session_state["meta"] = meta
-    st.session_state["obs"] = obs
-    
+    content = _build_single_axis_message(data_url, meta, obs, axis_title)
     try:
-        report_img = _render_report_image(laudo, meta, st.session_state["ultima_colagem"])
-        st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
+        resp = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Você é um especialista brasileiro em pneus de caminhões com prática em diagnóstico por desgaste, "
+                        "geometria (convergência, cambagem, cáster), pressão, balanceamento e rodízio. "
+                        "Escreva em PT-BR claro para leigos; não invente medidas; se faltar evidência, diga o que faltou e dê hipótese com confiança 0–1."
+                    )
+                },
+                {"role": "user", "content": content},
+            ],
+            temperature=0,
+        )
+        text = resp.choices[0].message.content or ""
+        try:
+            return json.loads(text)
+        except Exception:
+            import re
+            m = re.search(r"\{[\s\S]*\}", text)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    pass
+            return {"erro": "Modelo (fallback) não retornou JSON válido", "raw": text}
     except Exception as e:
-        st.warning(f"Não foi possível pré-gerar o PDF: {e}")
+        return {"erro": f"Falha na API (fallback): {e}"}
 
-if "laudo" in st.session_state:
-    _render_laudo_ui(st.session_state["laudo"])
+# =========================
+# UI helpers
+# =========================
+def _render_laudo_ui(laudo: dict, meta: dict, obs: str):
+    st.success("Laudo recebido.")
+
+    st.markdown("## 🧾 Resumo")
+    if laudo.get("resumo_geral"):
+        st.write(laudo["resumo_geral"])
+
+    cfg = laudo.get("configuracao_detectada")
+    if isinstance(cfg, str) and cfg.strip():
+        st.caption(f"Configuração detectada: {cfg}")
+
+    q = laudo.get("qualidade_imagens") or {}
+    if q:
+        score = q.get("score")
+        probs = ", ".join(q.get("problemas") or [])
+        falt = ", ".join(q.get("faltantes") or [])
+        st.caption(
+            f"Qualidade estimada: {score if score is not None else '-'} | "
+            f"Problemas: {probs or '-'} | Faltantes: {falt or '-'}"
+        )
+
+    for eixo in laudo.get("eixos", []):
+        with st.container(border=True):
+            titulo = eixo.get("titulo", eixo.get("tipo", "Eixo"))
+            st.markdown(f"### {titulo}")
+
+            diag = eixo.get("diagnostico_global") or eixo.get("relatorio")
+            st.write(diag.strip() if isinstance(diag, str) and diag.strip() else "Diagnóstico do eixo não informado pelo modelo.")
+
+            if eixo.get("necessita_alinhamento") is not None:
+                st.caption(f"Necessita alinhamento: {'sim' if eixo.get('necessita_alinhamento') else 'não'}")
+
+            ps = eixo.get("parametros_suspeitos") or []
+            if isinstance(ps, list) and ps:
+                parts = []
+                for p in ps:
+                    try:
+                        parts.append(f"{p.get('parametro','-')}: {p.get('tendencia','indefinida')} (confiança {p.get('confianca',0):.2f})")
+                    except Exception:
+                        pass
+                if parts:
+                    st.caption("Parâmetros suspeitos: " + " | ".join(parts))
+
+            press = eixo.get("pressao_pneus") or {}
+            if press:
+                st.caption(f"Pressão — Motorista: {press.get('motorista','-')} | Oposto: {press.get('oposto','-')}")
+
+            bal = eixo.get("balanceamento_sugerido")
+            if isinstance(bal, str) and bal.strip():
+                st.caption(f"Balanceamento: {bal}")
+
+            ach = eixo.get("achados_chave") or []
+            if ach:
+                st.caption("Achados-chave: " + "; ".join(ach))
+
+            sev = eixo.get("severidade_eixo")
+            pri = eixo.get("prioridade_manutencao")
+            linha = []
+            if sev is not None:
+                linha.append(f"Severidade do eixo: {sev}/5")
+            if pri:
+                linha.append(f"Prioridade: {pri}")
+            if linha:
+                st.caption(" | ".join(linha))
+
+            rod = eixo.get("rodizio_recomendado")
+            if isinstance(rod, str) and rod.strip():
+                st.caption(f"Rodízio recomendado: {rod}")
+
+    if laudo.get("recomendacoes_finais"):
+        st.markdown("## 🔧 Recomendações finais")
+        st.write("• " + "\n• ".join(laudo["recomendacoes_finais"]))
+
+# =========================
+# UI
+# =========================
+def app():
+    st.title("🛞 Análise de Pneus por Foto — AVP")
+    st.caption("Laudo automático de apoio (sujeito a erros). Recomenda-se inspeção presencial.")
+
+    # Toggle do modelo
+    col_m1, _ = st.columns([1, 3])
+    with col_m1:
+        modo_detalhado = st.toggle("Análise detalhada (gpt-4.0)", value=False)
+    modelo = "gpt-4o" if modo_detalhado else "gpt-4o-mini"
+
+    # Identificação
+    with st.form("form_ident"):
+        c1, c2 = st.columns(2)
+        with c1:
+            nome = st.text_input("Nome do motorista/gestor")
+            empresa = st.text_input("Empresa")
+            telefone = st.text_input("Telefone de contato")
+        with c2:
+            email = st.text_input("E-mail")
+            placa = st.text_input("Placa do veículo").upper()
+        buscar = st.form_submit_button("🔎 Buscar dados da placa")
+
+    placa_info = None
+    if buscar and placa:
+        ok, data = utils.consultar_placa_comercial(placa)
+        if ok:
+            placa_info = data
+            st.success(f"Dados da placa: {json.dumps(placa_info, ensure_ascii=False)}")
+        else:
+            st.warning(data)
 
     st.markdown("---")
-    col_exp1, col_exp2 = st.columns([1, 3])
-    if "ultima_colagem" in st.session_state:
-        if col_exp1.button("🔄 Regerar PDF") or "pdf_bytes" not in st.session_state:
-            try:
-                report_img = _render_report_image(st.session_state["laudo"], st.session_state["meta"], st.session_state["ultima_colagem"])
-                st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
-            except Exception as e: st.error(f"Falha ao gerar PDF: {e}")
-        
-        if "pdf_bytes" in st.session_state:
-            col_exp1.download_button("⬇️ Baixar PDF", data=st.session_state["pdf_bytes"], file_name=f"laudo_{st.session_state.get('meta',{}).get('placa')}.pdf", mime="application/pdf")
 
-    from urllib.parse import quote
-    resumo_wpp = st.session_state["laudo"].get("whatsapp_resumo", "")
-    msg = f"Olá! Segue resumo da análise de pneus para o veículo {st.session_state.get('meta',{}).get('placa')}:\n\n{resumo_wpp}"
-    link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(msg)}"
-    col_exp2.markdown(f"[📲 Enviar resumo via WhatsApp]({link_wpp})")
-if name == "main":
-app()
+    # Guia rápido de fotografia — NOVO PADRÃO (Frente + 45°)
+    with st.expander("📸 Como fotografar para melhor leitura (dica rápida)"):
+        st.write(
+            "- Para **cada lado**, tire **duas fotos** do pneu:\n"
+            "  1) **De frente**: câmera **paralela à banda** (visão frontal da banda de rodagem);\n"
+            "  2) **Em ~45°**: para evidenciar profundidade dos sulcos.\n"
+            "- Distância **~1 metro**; enquadre **banda + dois ombros** e um pouco do flanco.\n"
+            "- Evite **contraluz** e sombras fortes; garanta foco nítido.\n"
+            "- **Traseiro (germinado)**: faça a dupla (**frente** e **45°**) do **conjunto** do lado Motorista e do lado Oposto.\n"
+            "- Se o pneu estiver **fora do caminhão**, a foto em 45° pode ser levemente **de cima**."
+        )
+
+    observacao = st.text_area(
+        "Observação do motorista (máx. 150 caracteres)",
+        max_chars=MAX_OBS,
+        placeholder="Ex.: puxa para a direita, vibra acima de 80 km/h…"
+    )
+
+    # ------- Controle dinâmico de eixos -------
+    if "axes" not in st.session_state:
+        st.session_state.axes: List[Dict] = []  # cada item: {"tipo": "Dianteiro|Traseiro", "files": {}}
+
+    cA, cB, cC = st.columns(3)
+    with cA:
+        if st.button("➕ Adicionar Dianteiro"):
+            st.session_state.axes.append({"tipo": "Dianteiro", "files": {}})
+    with cB:
+        if st.button("➕ Adicionar Traseiro"):
+            st.session_state.axes.append({"tipo": "Traseiro", "files": {}})
+    with cC:
+        if st.session_state.axes and st.button("🗑️ Remover último eixo"):
+            st.session_state.axes.pop()
+
+    if not st.session_state.axes and "laudo" not in st.session_state:
+        st.info("Adicione pelo menos um eixo (Dianteiro/Traseiro).")
+        return
+
+    # Uploaders por eixo — NOVO PADRÃO
+    if st.session_state.axes:
+        for idx, eixo in enumerate(st.session_state.axes, start=1):
+            with st.container(border=True):
+                st.subheader(f"Eixo {idx} — {eixo['tipo']}")
+                # 4 fotos por eixo: Motorista (Frente, 45°) | Oposto (Frente, 45°)
+                if eixo["tipo"] == "Dianteiro":
+                    st.caption("MOTORISTA: (1) FRENTE, (2) 45° — OPOSTO: (1) FRENTE, (2) 45°")
+                    cm, co = st.columns(2)
+                    with cm:
+                        eixo["files"]["lt"] = st.file_uploader(
+                            f"Motorista — Foto 1 (FRENTE) — Dianteiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"d_dm1_{idx}"
+                        )
+                        eixo["files"]["lb"] = st.file_uploader(
+                            f"Motorista — Foto 2 (45°) — Dianteiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"d_dm2_{idx}"
+                        )
+                    with co:
+                        eixo["files"]["rt"] = st.file_uploader(
+                            f"Oposto — Foto 1 (FRENTE) — Dianteiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"d_do1_{idx}"
+                        )
+                        eixo["files"]["rb"] = st.file_uploader(
+                            f"Oposto — Foto 2 (45°) — Dianteiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"d_do2_{idx}"
+                        )
+                else:
+                    st.caption("MOTORISTA: (1) FRENTE (conjunto), (2) 45° (conjunto) — OPOSTO: (1) FRENTE (conjunto), (2) 45° (conjunto)")
+                    cm, co = st.columns(2)
+                    with cm:
+                        eixo["files"]["lt"] = st.file_uploader(
+                            f"Motorista — Frente (conjunto germinado) — Traseiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"t_tm1_{idx}"
+                        )
+                        eixo["files"]["lb"] = st.file_uploader(
+                            f"Motorista — 45° (conjunto germinado) — Traseiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"t_tm2_{idx}"
+                        )
+                    with co:
+                        eixo["files"]["rt"] = st.file_uploader(
+                            f"Oposto — Frente (conjunto germinado) — Traseiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"t_to1_{idx}"
+                        )
+                        eixo["files"]["rb"] = st.file_uploader(
+                            f"Oposto — 45° (conjunto germinado) — Traseiro {idx}",
+                            type=["jpg","jpeg","png"], key=f"t_to2_{idx}"
+                        )
+
+    st.markdown("---")
+    pronto = st.button("🚀 Enviar para análise")
+
+    # ⚠️ Não sair se já houver laudo salvo em sessão (p/ suportar rerun ao exportar PDF)
+    if not pronto and "laudo" not in st.session_state:
+        return
+
+    # ============= Rodar análise apenas quando 'pronto' = True =============
+    if pronto:
+        if not (st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")):
+            st.error("Defina OPENAI_API_KEY em Secrets/variável de ambiente.")
+            return
+
+        # Verificação de fotos por eixo
+        for i, eixo in enumerate(st.session_state.axes, start=1):
+            files = eixo["files"]
+            if not all(files.get(k) for k in ("lt","lb","rt","rb")):
+                st.error(f"Envie as 4 fotos do eixo {i} — {eixo['tipo']}.")
+                return
+
+        with st.spinner("Preparando imagens…"):
+            collages, titles = [], []
+            for i, eixo in enumerate(st.session_state.axes, start=1):
+                # abre e redimensiona
+                lt = _open_and_prepare(eixo["files"]["lt"])
+                lb = _open_and_prepare(eixo["files"]["lb"])
+                rt = _open_and_prepare(eixo["files"]["rt"])
+                rb = _open_and_prepare(eixo["files"]["rb"])
+
+                if eixo["tipo"] == "Dianteiro":
+                    labels = dict(
+                        title=f"Eixo Dianteiro {i}",
+                        left_top="Motorista — Frente",
+                        left_bottom="Motorista — 45°",
+                        right_top="Oposto — Frente",
+                        right_bottom="Oposto — 45°",
+                    )
+                else:
+                    labels = dict(
+                        title=f"Eixo Traseiro {i}",
+                        left_top="Motorista — Frente (conjunto)",
+                        left_bottom="Motorista — 45° (conjunto)",
+                        right_top="Oposto — Frente (conjunto)",
+                        right_bottom="Oposto — 45° (conjunto)",
+                    )
+                col = _grid_2x2_labeled(lt, lb, rt, rb, labels)
+                collages.append(col)
+                titles.append(labels["title"])
+
+            # Pré-visualização individual: apenas se DEBUG = True
+            if DEBUG:
+                for c, t in zip(collages, titles):
+                    st.image(c, caption=f"Pré-visualização — {t}", use_column_width=True)
+
+            # Empilha tudo numa imagem única
+            colagem_final = _stack_vertical_center(collages, titles)
+            # Guardamos para exportação posterior e fallback
+            st.session_state["ultima_colagem"] = colagem_final
+            st.session_state["collages"] = collages
+            st.session_state["titles"] = titles
+
+        data_url = _img_to_dataurl(colagem_final)
+        meta = {
+            "placa": placa, "nome": nome, "empresa": empresa,
+            "telefone": telefone, "email": email, "placa_info": placa_info
+        }
+        obs = (observacao or "")[:MAX_OBS]
+
+        with st.spinner("Analisando com IA…"):
+            laudo = _call_openai_single_image(data_url, meta, obs, modelo, titles)
+
+        # ===== Fallback robusto por eixo (se vier menos eixos do que o esperado) =====
+        expected_n = len(titles)
+        got_n = len(laudo.get("eixos", [])) if isinstance(laudo, dict) else 0
+
+        if "erro" in laudo or got_n != expected_n:
+            if "erro" in laudo and DEBUG:
+                st.warning("Tentando fallback por eixo devido a erro no JSON único.")
+            elif got_n != expected_n and DEBUG:
+                st.warning(f"JSON veio com {got_n} eixos; esperado {expected_n}. Ativando fallback por eixo.")
+
+            # Agrega resultados por colagem
+            agreg = {
+                "placa": meta.get("placa"),
+                "configuracao_detectada": laudo.get("configuracao_detectada") if isinstance(laudo, dict) else None,
+                "qualidade_imagens": laudo.get("qualidade_imagens") if isinstance(laudo, dict) else {"score": None,"problemas":[],"faltantes":[]},
+                "eixos": [],
+                "recomendacoes_finais": [],
+                "resumo_geral": "",
+                "whatsapp_resumo": ""
+            }
+
+            eixos_ok = []
+            for cimg, atitle in zip(st.session_state["collages"], st.session_state["titles"]):
+                sub = _call_openai_single_axis(cimg, meta, obs, modelo, atitle)
+                if isinstance(sub, dict) and isinstance(sub.get("eixos"), list) and sub["eixos"]:
+                    eixos_ok.extend(sub["eixos"])
+                    # Tenta pegar config/qualidade mais informativas
+                    if not agreg.get("configuracao_detectada") and sub.get("configuracao_detectada"):
+                        agreg["configuracao_detectada"] = sub.get("configuracao_detectada")
+                    if sub.get("qualidade_imagens"):
+                        q = agreg.get("qualidade_imagens") or {}
+                        q2 = sub.get("qualidade_imagens") or {}
+                        probs = list(set((q.get("problemas") or []) + (q2.get("problemas") or [])))
+                        falt = list(set((q.get("faltantes") or []) + (q2.get("faltantes") or [])))
+                        agreg["qualidade_imagens"] = {"score": q.get("score") or q2.get("score"), "problemas": probs, "faltantes": falt}
+                    # Recomendações finais (concat)
+                    if sub.get("recomendacoes_finais"):
+                        agreg["recomendacoes_finais"].extend([r for r in sub["recomendacoes_finais"] if isinstance(r, str)])
+
+                    # Resumos (mantém o primeiro que for preenchido)
+                    if not agreg.get("resumo_geral") and sub.get("resumo_geral"):
+                        agreg["resumo_geral"] = sub.get("resumo_geral")
+                    if not agreg.get("whatsapp_resumo") and sub.get("whatsapp_resumo"):
+                        agreg["whatsapp_resumo"] = sub.get("whatsapp_resumo")
+
+            agreg["eixos"] = eixos_ok
+            laudo = agreg
+
+        if "erro" in laudo:
+            st.error(laudo["erro"])
+            if DEBUG and laudo.get("raw"):
+                with st.expander("Resposta bruta do modelo"):
+                    st.code(laudo["raw"])
+            return
+
+        # Persistir na sessão para sobreviver a reruns
+        st.session_state["laudo"] = laudo
+        st.session_state["meta"] = meta
+        st.session_state["obs"] = obs
+
+        # Gera PDF e guarda os bytes para download imediato e para os próximos reruns
+        try:
+            report_img = _render_report_image(laudo, meta, obs, st.session_state["ultima_colagem"])
+            st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
+        except Exception as e:
+            st.warning(f"Não foi possível pré-gerar o PDF: {e}")
+
+    # ============= Renderização do laudo (novo ou da sessão) =============
+    if "laudo" in st.session_state:
+        _render_laudo_ui(st.session_state["laudo"], st.session_state.get("meta", {}), st.session_state.get("obs", ""))
+
+        # ---- Exportar PDF (persistente) ----
+        st.markdown("---")
+        col_exp1, col_exp2 = st.columns([1, 3])
+        with col_exp1:
+            if "ultima_colagem" in st.session_state and st.session_state.get("ultima_colagem") is not None:
+                regen = st.button("🔄 Regerar PDF")
+                if regen or ("pdf_bytes" not in st.session_state):
+                    try:
+                        report_img = _render_report_image(
+                            st.session_state["laudo"],
+                            st.session_state.get("meta", {}),
+                            st.session_state.get("obs", ""),
+                            st.session_state["ultima_colagem"]
+                        )
+                        st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
+                    except Exception as e:
+                        st.error(f"Falha ao gerar PDF: {e}")
+
+                if "pdf_bytes" in st.session_state:
+                    st.download_button(
+                        "⬇️ Baixar PDF do Laudo",
+                        data=st.session_state["pdf_bytes"],
+                        file_name=f"laudo_{st.session_state.get('meta',{}).get('placa') or 'veiculo'}.pdf",
+                        mime="application/pdf",
+                    )
+            else:
+                st.info("Faça a análise para habilitar a exportação do PDF.")
+
+        # ---- WhatsApp (mensagem do cliente para a empresa) ----
+        from urllib.parse import quote
+        resumo_wpp = (st.session_state["laudo"].get("whatsapp_resumo") or (st.session_state["laudo"].get("resumo_geral") or ""))
+        resumo_wpp = (resumo_wpp[:450] + "…") if len(resumo_wpp) > 450 else resumo_wpp  # limite 450
+        msg = (
+            "Olá! Fiz o teste de análise de pneus e gostaria de conversar sobre a manutenção do veículo.\n\n"
+            f"{resumo_wpp}\n\n"
+            f"Caminhão/Placa: {st.session_state.get('meta',{}).get('placa')}\n"
+            f"Empresa: {st.session_state.get('meta',{}).get('empresa')}\n"
+            f"Motorista/Gestor: {st.session_state.get('meta',{}).get('nome')}\n"
+            f"Telefone: {st.session_state.get('meta',{}).get('telefone')}\n"
+            f"E-mail: {st.session_state.get('meta',{}).get('email')}\n"
+            f"Observação: {st.session_state.get('obs','-') or '-'}"
+        )
+        link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(msg)}"
+        with col_exp2:
+            st.markdown(f"[📲 Enviar resultado via WhatsApp]({link_wpp})")
