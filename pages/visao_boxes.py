@@ -290,9 +290,80 @@ def finalizar_execucao(conn, box_id, execucao_id):
             with st.spinner("Atualizando média e enviando notificações..."):
                 recalcular_media_veiculo(conn, veiculo_id)
                 # (Notificações se desejar)
+            
+            chat_id_operacional = st.secrets.get("TELEGRAM_CHAT_ID")
+            chat_id_faturamento = st.secrets.get("TELEGRAM_FATURAMENTO_CHAT_ID")
 
-            st.session_state.box_states = {}
+            cursor.execute("SELECT v.placa, v.empresa, f.nome as funcionario_nome FROM execucao_servico es JOIN veiculos v ON es.veiculo_id = v.id LEFT JOIN funcionarios f ON es.funcionario_id = f.id WHERE es.id = %s", (execucao_id,))
+            info_execucao = cursor.fetchone()
+            
+            # --- MUDANÇA AQUI: Cria a lista de serviços desta etapa para a notificação operacional ---
+            servicos_realizados_etapa = []
+            for s in box_state.get('servicos', {}).values():
+                # Inclui serviços finalizados e os novos adicionados, mas não os removidos
+                if s.get('status') != 'removido':
+                    servicos_realizados_etapa.append(f"- {s['tipo']} (Qtd: {s['qtd_executada']})")
+            
+            servicos_etapa_str = "\n".join(servicos_realizados_etapa)
+            
+            # Monta a mensagem operacional já com a lista de serviços
+            mensagem_op = (
+                f"▶️ *Etapa Concluída!*\n\n"
+                f"*Serviços realizados no Box {box_id}:*\n"
+                f"{servicos_etapa_str}\n\n"
+                f"*Veículo:* `{info_execucao['placa']}`\n"
+                f"*Mecânico:* {info_execucao['funcionario_nome']}\n"
+                f"*Finalizado por:* {usuario_finalizacao_nome}"
+            )
+            
+            if obs_final:
+                mensagem_op += f"\n\n*Observação:* _{obs_final}_"
+
+            # Verifica se ainda há serviços pendentes para o veículo
+            query_pendentes = "SELECT COUNT(*) FROM (SELECT 1 FROM servicos_solicitados_borracharia WHERE veiculo_id = %s AND status = 'pendente' UNION ALL SELECT 1 FROM servicos_solicitados_alinhamento WHERE veiculo_id = %s AND status = 'pendente' UNION ALL SELECT 1 FROM servicos_solicitados_manutencao WHERE veiculo_id = %s AND status = 'pendente') as pending_services;"
+            cursor.execute(query_pendentes, (veiculo_id, veiculo_id, veiculo_id))
+            servicos_pendentes_restantes = cursor.fetchone()[0]
+
+            # Se for a última etapa, prepara a mensagem para o faturamento
+            if servicos_pendentes_restantes == 0:
+                mensagem_op += "\n\n✅ *TODOS OS SERVIÇOS CONCLUÍDOS. Encaminhar para faturamento.*"
+                
+                if chat_id_faturamento:
+                    query_resumo_total = """
+                        SELECT serv.tipo, serv.quantidade, serv.status, f.nome as funcionario_nome
+                        FROM execucao_servico es
+                        LEFT JOIN (
+                            SELECT execucao_id, tipo, quantidade, funcionario_id, status FROM servicos_solicitados_borracharia UNION ALL
+                            SELECT execucao_id, tipo, quantidade, funcionario_id, status FROM servicos_solicitados_alinhamento UNION ALL
+                            SELECT execucao_id, tipo, quantidade, funcionario_id, status FROM servicos_solicitados_manutencao
+                        ) serv ON es.id = serv.execucao_id
+                        LEFT JOIN funcionarios f ON serv.funcionario_id = f.id
+                        WHERE es.veiculo_id = %s AND es.quilometragem = %s AND serv.status = 'finalizado'
+                    """
+                    cursor.execute(query_resumo_total, (veiculo_id, quilometragem))
+                    resumo_servicos = cursor.fetchall()
+                    
+                    lista_servicos_str = "\n".join([f"- {s['tipo']} (Qtd: {s['quantidade']}) - *Mecânico: {s['funcionario_nome']}*" for s in resumo_servicos])
+                    
+                    mensagem_fat = (
+                        f"✅ *VEÍCULO LIBERADO PARA FATURAMENTO!*\n\n"
+                        f"*Placa:* `{info_execucao['placa']}`\n"
+                        f"*Empresa:* {info_execucao['empresa']}\n"
+                        f"*Motorista:* {nome_motorista or 'N/A'}\n"
+                        f"*KM:* {quilometragem}\n"
+                        f"*Finalizado por (Sistema):* {usuario_finalizacao_nome}\n\n"
+                        f"*Resumo de Todos os Serviços:*\n{lista_servicos_str}\n\n"
+                        f"✅ *AÇÃO:* Alterar venda e deixar pronto para assinar ou pagar!"
+                    )
+                    enviar_notificacao_telegram(mensagem_fat, chat_id_faturamento)
+
+            # Envia a notificação operacional (sempre)
+            if chat_id_operacional:
+                enviar_notificacao_telegram(mensagem_op, chat_id_operacional)
+            
+            if box_id in st.session_state.box_states: del st.session_state.box_states[box_id]
             st.rerun()
+
 
     except Exception as e:
         conn.rollback()
