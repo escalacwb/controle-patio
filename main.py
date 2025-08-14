@@ -56,7 +56,7 @@ if authenticator is None:
     st.error("Falha ao inicializar o sistema de autenticação.")
     st.stop()
 
-name, authentication_status, username = authenticator.login('Login', 'main')
+name, authentication_status, username = authenticator.login('Login')
 
 if st.session_state["authentication_status"] is False:
     st.error('Usuário ou senha incorretos')
