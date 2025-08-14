@@ -1,5 +1,6 @@
 # /main.py
 
+# Alteração para forçar o redeploy no Streamlit Cloud
 import streamlit as st
 from streamlit_option_menu import option_menu
 from streamlit_js_eval import streamlit_js_eval
