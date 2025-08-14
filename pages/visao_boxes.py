@@ -264,6 +264,8 @@ def finalizar_execucao(conn, box_id, execucao_id):
 
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            usuario_finalizacao_id = st.session_state.get('user_id')
+            usuario_finalizacao_nome = st.session_state.get('user_name')
             # 1) Finaliza todos os serviços (inclusive qty 0) com a observação final
             if not _salvar_alteracoes_finais(conn, box_id, execucao_id, 'finalizado', obs_final):
                 conn.rollback()
