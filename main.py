@@ -402,31 +402,31 @@ Execute uma análise completa e retorne a resposta **EXCLUSIVAMENTE** no formato
 ---
 **4. FORMATO DE SAÍDA JSON (OBRIGATÓRIO)**
 ```json
-{
+{{
   "resumo_executivo": "...",
   "tabela_visao_geral": [
-    {"posicao": "Eixo 1 - Motorista", "principal_defeito": "...", "urgencia": "Crítico"}
+    {{"posicao": "Eixo 1 - Motorista", "principal_defeito": "...", "urgencia": "Crítico"}}
   ],
   "analise_detalhada_eixos": [
-    {
+    {{
       "titulo_eixo": "Eixo Dianteiro 1",
       "diagnostico_geral_eixo": "...",
       "analise_pneus": [
-        {
+        {{
           "posicao": "Motorista",
           "defeitos": [
-            {
+            {{
               "nome_defeito": "Desgaste irregular no ombro externo",
               "localizacao_visual": "Borda externa da banda de rodagem.",
-              "explicacao": {
+              "explicacao": {{
                 "significado": "Desgaste excessivo na parte de fora do pneu, causado por desalinhamento.",
                 "impacto_operacional": "Aumento do consumo de combustível e da temperatura do pneu.",
                 "risco_nao_corrigir": "Redução da vida útil em até 30% e perda da recapabilidade."
-              },
+              }},
               "urgencia": "Crítico"
-            }
+            }}
           ],
-          "identificacao_sidewall": {
+          "identificacao_sidewall": {{
             "marca": "...",
             "modelo": "...",
             "medida": "...",
@@ -437,10 +437,10 @@ Execute uma análise completa e retorne a resposta **EXCLUSIVAMENTE** no formato
             "sentido": "...",
             "TWI": "...",
             "aplicacao": "..."
-          }
-        }
+          }}
+        }}
       ]
-    }
+    }}
   ],
   "diagnostico_global_veiculo": "O padrão de desgaste repetido nos eixos dianteiros indica um problema crônico...",
   "plano_de_acao": {
