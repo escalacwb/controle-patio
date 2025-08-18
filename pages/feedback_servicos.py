@@ -81,7 +81,7 @@ def app():
             WHERE 
                 es.status = 'finalizado'
                 AND es.data_feedback IS NULL
-                AND es.fim_execucao <= NOW() - INTERVAL '7 days'
+                AND es.fim_execucao <= NOW() - INTERVAL '5 days'
                 AND es.fim_execucao >= %s
             ORDER BY es.fim_execucao ASC;
         """
