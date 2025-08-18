@@ -100,7 +100,8 @@ def app():
                             if id_cliente_para_salvar and isinstance(id_cliente_para_salvar, int):
                                 try:
                                     with conn.cursor() as cursor:
-                                        cursor.execute("UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s WHERE id = %s", (novo_nome_resp, formatar_telefone(novo_contato_resp), int(id_cliente_para_salvar)))
+                                        # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
+                                        cursor.execute("UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s, data_atualizacao_contato = NOW() WHERE id = %s", (novo_nome_resp, formatar_telefone(novo_contato_resp), int(id_cliente_para_salvar)))
                                         conn.commit()
                                         st.success("Responsável atualizado!")
                                         st.session_state.rp_editing_responsavel = False
@@ -169,8 +170,13 @@ def app():
                     if submit_v.form_submit_button("✅ Salvar Veículo", type="primary", use_container_width=True):
                         try:
                             with conn.cursor() as cursor:
-                                cursor.execute("UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s",
-                                               (novo_modelo, novo_ano, novo_motorista, formatar_telefone(novo_contato_motorista), int(v_edit['id'])))
+                                # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
+                                cursor.execute("""
+                                    UPDATE veiculos 
+                                    SET modelo = %s, ano_modelo = %s, nome_motorista = %s, 
+                                        contato_motorista = %s, data_atualizacao_contato = NOW()
+                                    WHERE id = %s
+                                """, (novo_modelo, novo_ano, novo_motorista, formatar_telefone(novo_contato_motorista), int(v_edit['id'])))
                                 conn.commit()
                                 st.success(f"Veículo {v_edit['placa']} atualizado!")
                                 st.session_state.rp_editing_vehicle_id = None

@@ -99,7 +99,13 @@ def app():
                         if conn:
                             try:
                                 with conn.cursor() as cursor:
-                                    query_veiculo = "UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s"
+                                    # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
+                                    query_veiculo = """
+                                        UPDATE veiculos 
+                                        SET modelo = %s, ano_modelo = %s, nome_motorista = %s, 
+                                            contato_motorista = %s, data_atualizacao_contato = NOW()
+                                        WHERE id = %s
+                                    """
                                     cursor.execute(query_veiculo, (novo_modelo, novo_ano if novo_ano > 0 else None, novo_motorista, formatar_telefone(novo_contato_motorista), state['veiculo_id']))
                                     conn.commit()
                                 st.success("Dados do veículo atualizados!")
@@ -174,8 +180,9 @@ def app():
                                 if conn:
                                     try:
                                         with conn.cursor() as cursor:
+                                            # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
                                             cursor.execute(
-                                                "UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s WHERE id = %s",
+                                                "UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s, data_atualizacao_contato = NOW() WHERE id = %s",
                                                 (novo_nome_resp, formatar_telefone(novo_contato_resp), int(id_cliente_para_salvar))
                                             )
                                             conn.commit()
@@ -226,6 +233,8 @@ def app():
                         finally:
                             release_connection(conn)
             
+            # ... (Restante da função continua igual)
+
             st.markdown("---")
             st.header("2️⃣ Seleção de Serviços")
             state["quilometragem"] = st.number_input("Quilometragem (Obrigatório)", min_value=1, step=1, value=state.get("quilometragem", 0) or None, key="km_servico", placeholder="Digite a KM...")
@@ -282,7 +291,6 @@ def app():
                                     query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
                                     cursor.execute(query, (state["veiculo_id"], s['tipo'], s['qtd'], observacao_geral, state["quilometragem"], datetime.now(MS_TZ), datetime.now(MS_TZ)))
                                 
-                                # --- MUDANÇA PRINCIPAL: Reseta o campo da revisão proativa ---
                                 cursor.execute(
                                     "UPDATE veiculos SET data_revisao_proativa = NULL WHERE id = %s",
                                     (state["veiculo_id"],)
@@ -384,9 +392,10 @@ def app():
                                                 cursor.execute("INSERT INTO clientes (nome_empresa) VALUES (%s) RETURNING id", (nome_empresa_final,))
                                                 cliente_id_selecionado = cursor.fetchone()['id']
 
+                                            # ATUALIZADO: Adicionado data_atualizacao_contato
                                             query_insert = """
-                                                INSERT INTO veiculos (placa, empresa, modelo, ano_modelo, nome_motorista, contato_motorista, cliente_id, data_entrada) 
-                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                                                INSERT INTO veiculos (placa, empresa, modelo, ano_modelo, nome_motorista, contato_motorista, cliente_id, data_entrada, data_atualizacao_contato) 
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW());
                                             """
                                             cursor.execute(query_insert, (placa_formatada, nome_empresa_final, modelo, ano_modelo if ano_modelo > 1950 else None, nome_motorista, contato_formatado, cliente_id_selecionado, datetime.now(MS_TZ)))
                                             conn.commit()
@@ -406,3 +415,4 @@ def app():
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
+

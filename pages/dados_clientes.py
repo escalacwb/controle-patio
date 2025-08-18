@@ -119,11 +119,18 @@ def app():
                             if submit_col.form_submit_button("✅ Salvar Alterações do Cliente", use_container_width=True, type="primary"):
                                 try:
                                     with conn.cursor() as cursor:
-                                        update_query = "UPDATE clientes SET nome_empresa = %s, nome_fantasia = %s, cidade = %s, uf = %s, nome_responsavel = %s, contato_responsavel = %s WHERE id = %s"
+                                        # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
+                                        update_query = """
+                                            UPDATE clientes 
+                                            SET nome_empresa = %s, nome_fantasia = %s, cidade = %s, uf = %s, 
+                                                nome_responsavel = %s, contato_responsavel = %s,
+                                                data_atualizacao_contato = NOW()
+                                            WHERE id = %s
+                                        """
                                         cursor.execute(update_query, (
                                             novo_nome_empresa, novo_nome_fantasia, nova_cidade, nova_uf.upper(), 
                                             novo_nome_resp, formatar_telefone(novo_contato_resp), 
-                                            int(cliente_id) # <-- CORREÇÃO: Converte o ID para o tipo int padrão
+                                            int(cliente_id)
                                         ))
                                         conn.commit()
                                         st.success(f"Cliente {novo_nome_empresa} atualizado com sucesso!")
@@ -201,7 +208,13 @@ def app():
                         if submit_v_col.form_submit_button("✅ Salvar Alterações do Veículo", type="primary", use_container_width=True):
                             try:
                                 with conn.cursor() as cursor:
-                                    query_update_v = "UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s WHERE id = %s"
+                                    # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
+                                    query_update_v = """
+                                        UPDATE veiculos 
+                                        SET modelo = %s, ano_modelo = %s, nome_motorista = %s, 
+                                            contato_motorista = %s, data_atualizacao_contato = NOW()
+                                        WHERE id = %s
+                                    """
                                     cursor.execute(query_update_v, (novo_modelo, novo_ano, novo_motorista, formatar_telefone(novo_contato_motorista), int(v_edit['id'])))
                                     conn.commit()
                                     st.success(f"Veículo {v_edit['placa']} atualizado com sucesso!")
@@ -256,3 +269,4 @@ def app():
     finally:
         if conn:
             release_connection(conn)
+
