@@ -8,7 +8,7 @@ import re
 
 def app():
     st.title("📝 Controle de Feedback de Serviços")
-    st.markdown("Acompanhe e registre o feedback dos serviços concluídos há 7 dias ou mais.")
+    st.markdown("Acompanhe e registre o feedback dos serviços concluídos há 5 dias ou mais.")
 
     # --- LÓGICA DO BOTÃO DE FEEDBACK ---
     # Itera sobre as chaves da sessão para encontrar um botão de feedback que foi clicado
@@ -44,7 +44,7 @@ def app():
     start_date = st.date_input(
         "Mostrar serviços concluídos a partir de:",
         value=today - timedelta(days=30),
-        max_value=today - timedelta(days=7),
+        max_value=today - timedelta(days=5),
         help="A lista mostrará apenas os serviços concluídos entre esta data e 5 dias atrás."
     )
     st.markdown("---")
