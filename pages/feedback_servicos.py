@@ -103,13 +103,24 @@ def app():
                 km_caminhao = f"{row['quilometragem']:,}".replace(',', '.') if row['quilometragem'] else "N/A"
                 servicos_executados = row['lista_servicos'] or "Não especificado"
                 
-                mensagem_whatsapp = f"""Olá, {nome_contato}! Tudo bem?
+                mensagem_whatsapp = f"""Prezado(a) {nome_contato},
 
-Aqui é da Capital Truck Center. No dia {data_servico}, realizamos serviços no seu caminhão {modelo_caminhao}, placa {placa_caminhao}, que estava com {km_caminhao} km. Os serviços executados foram: {servicos_executados}.
+Somos da Capital Truck Center e estamos fazendo o acompanhamento do serviço realizado no seu veículo {modelo_caminhao}, placa {placa_caminhao}, no dia {data_servico}.
 
-Estamos entrando em contato para saber se ficou satisfeito com o serviço realizado e se tudo está funcionando bem. Caso tenha alguma sugestão, observação ou crítica para nos ajudar a melhorar nosso atendimento, ficaremos muito gratos. Nosso número de contato é (67) 98417-3800.
+Nossos registros indicam que os serviços foram: {servicos_executados}, na quilometragem de {km_caminhao} km.
 
-Um grande abraço da equipe Capital Truck Center! 🚛🔧"""
+Nosso compromisso é com a máxima qualidade e transparência. Por isso, seu feedback é uma etapa essencial do nosso processo. Gostaríamos de saber:
+
+1. O serviço realizado resolveu completamente o problema que o motivou a nos procurar?
+2. Como você avalia a agilidade e o conhecimento técnico demonstrado por nossa equipe?
+3. Em relação ao nosso atendimento na recepção e à estrutura da loja, sua experiência foi satisfatória?
+
+Sua avaliação, seja ela positiva ou uma crítica construtiva, é confidencial e será direcionada à nossa equipe de qualidade para aprimoramento contínuo.
+
+Agradecemos sua parceria e ficamos à disposição no (67) 98417-3800.
+
+Atenciosamente,
+Equipe de Qualidade | Capital Truck Center"""
 
                 numero_limpo = ""
                 if row['contato_motorista'] and isinstance(row['contato_motorista'], str):
