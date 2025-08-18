@@ -41,7 +41,7 @@ def app():
         "Mostrar serviços concluídos a partir de:",
         value=today - timedelta(days=30),
         max_value=today - timedelta(days=7),
-        help="A lista mostrará apenas os serviços concluídos entre esta data e 7 dias atrás."
+        help="A lista mostrará apenas os serviços concluídos entre esta data e 5 dias atrás."
     )
     st.markdown("---")
 
