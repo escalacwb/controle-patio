@@ -577,13 +577,11 @@ def app():
     st.title("🛞 Análise de Pneus por Foto — AVP")
     st.caption("Laudo automático de apoio (sujeito a erros). Recomenda-se inspeção presencial.")
 
-    # Toggle do modelo
     col_m1, _ = st.columns([1, 3])
     with col_m1:
         modo_detalhado = st.toggle("Análise detalhada (gpt-4o)", value=False)
     modelo = "gpt-4o" if modo_detalhado else "gpt-4o-mini"
 
-    # Identificação
     with st.form("form_ident"):
         c1, c2 = st.columns(2)
         with c1:
@@ -594,29 +592,21 @@ def app():
             email = st.text_input("E-mail")
             placa = st.text_input("Placa do veículo").upper()
         buscar = st.form_submit_button("🔎 Buscar dados da placa")
-
+    
     placa_info = st.session_state.get('placa_info', None)
     if buscar and placa:
         ok, data = utils.consultar_placa_comercial(placa)
         placa_info = data if ok else {"erro": data}
         st.session_state.placa_info = placa_info
-        if ok:
-            st.success(f"Dados da placa: {json.dumps(placa_info, ensure_ascii=False)}")
-        else:
-            st.warning(data)
+        if ok: st.success(f"Dados da placa: {json.dumps(placa_info, ensure_ascii=False)}")
+        else: st.warning(data)
     
     st.markdown("---")
-
-    # Guia rápido de fotografia — NOVO PADRÃO (Frente + 45°)
     with st.expander("📸 Como fotografar para melhor leitura (dica rápida)"):
         st.write(
             "- Para **cada lado**, tire **duas fotos** do pneu:\n"
-            "  1) **De frente**: câmera **paralela à banda** (visão frontal da banda de rodagem);\n"
+            "  1) **De frente**: câmera **paralela à banda**;\n"
             "  2) **Em ~45°**: para evidenciar profundidade dos sulcos.\n"
-            "- Distância **~1 metro**; enquadre **banda + dois ombros** e um pouco do flanco.\n"
-            "- Evite **contraluz** e sombras fortes; garanta foco nítido.\n"
-            "- **Traseiro (germinado)**: faça a dupla (**frente** e **45°**) do **conjunto** do lado Motorista e do lado Oposto.\n"
-            "- Se o pneu estiver **fora do caminhão**, a foto em 45° pode ser levemente **de cima**."
         )
 
     observacao = st.text_area(
@@ -625,7 +615,6 @@ def app():
         placeholder="Ex.: puxa para a direita, vibra acima de 80 km/h…"
     )
 
-    # ------- Controle dinâmico de eixos -------
     if "axes" not in st.session_state:
         st.session_state.axes = []
 
@@ -644,23 +633,20 @@ def app():
         st.info("Adicione pelo menos um eixo (Dianteiro/Traseiro).")
         return
 
-    # Uploaders por eixo — NOVO PADRÃO
-    if st.session_state.axes:
-        for idx, eixo in enumerate(st.session_state.axes, start=1):
-            with st.container(border=True):
-                st.subheader(f"Eixo {idx} — {eixo['tipo']}")
-                cm, co = st.columns(2)
-                with cm:
-                    eixo["files"]["lt"] = st.file_uploader(f"Motorista — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm1_{idx}")
-                    eixo["files"]["lb"] = st.file_uploader(f"Motorista — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm2_{idx}")
-                with co:
-                    eixo["files"]["rt"] = st.file_uploader(f"Oposto — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do1_{idx}")
-                    eixo["files"]["rb"] = st.file_uploader(f"Oposto — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do2_{idx}")
+    for idx, eixo in enumerate(st.session_state.axes, start=1):
+        with st.container(border=True):
+            st.subheader(f"Eixo {idx} — {eixo['tipo']}")
+            cm, co = st.columns(2)
+            with cm:
+                eixo["files"]["lt"] = st.file_uploader(f"Motorista — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm1_{idx}")
+                eixo["files"]["lb"] = st.file_uploader(f"Motorista — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm2_{idx}")
+            with co:
+                eixo["files"]["rt"] = st.file_uploader(f"Oposto — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do1_{idx}")
+                eixo["files"]["rb"] = st.file_uploader(f"Oposto — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do2_{idx}")
     
     st.markdown("---")
     pronto = st.button("🚀 Enviar para análise")
 
-    # ============= Renderização e Lógica Principal =============
     if "laudo" in st.session_state:
         _render_laudo_ui(st.session_state["laudo"], st.session_state.get("meta", {}), st.session_state.get("obs", ""))
         
