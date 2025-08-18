@@ -4,13 +4,6 @@ import pandas as pd
 import io
 from database import get_connection, release_connection
 
-def check_permission():
-    """Verifica se o usuário logado é 'wagner'."""
-    if st.session_state.get("username") != "wagner":
-        st.error("🚫 Acesso Negado!")
-        st.warning("Esta página é restrita e apenas usuários autorizados podem acessá-la.")
-        return False
-    return True
 
 def get_contacts_to_export(re_export_all=False):
     """
@@ -146,9 +139,7 @@ def app():
     """
     st.title("📤 Exportar Contatos para o Google")
 
-    # --- VERIFICAÇÃO DE PERMISSÃO ---
-    if not check_permission():
-        st.stop() # Interrompe a execução da página se o usuário não for 'wagner'
+  
 
     st.markdown("""
     Esta página gera um arquivo CSV com os contatos de **responsáveis de empresas** e **motoristas de veículos** que foram **adicionados ou atualizados** desde a última exportação.

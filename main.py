@@ -19,7 +19,8 @@ from pages import (
     mesclar_historico,
     gerar_termos,
     ajustar_media_km,
-    analise_pneus
+    analise_pneus,
+    exportar_contatos
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
