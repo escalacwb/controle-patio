@@ -19,7 +19,8 @@ from pages import (
     mesclar_historico,
     gerar_termos,
     ajustar_media_km,
-    analise_pneus      # página de análise de pneus
+    analise_pneus,
+    exportar_contatos      # página de análise de pneus
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
@@ -114,7 +115,7 @@ else:
     pc_options = [
         "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços",
         "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos",
-        "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa",
+        "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa", "Exportar CSV",
     ]
     pc_icons = [
         "truck-front", "people", "card-list",
@@ -180,6 +181,8 @@ elif selected_page == "Relatórios":
     relatorios.app()
 elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
+elif selected_page == "Exportar CSV":
+    exportar_contatos.app()
 
 # Páginas acessadas via link direto (gerar_termos / ajustar_media_km)
 # continuam sem rota direta aqui, seguindo o seu padrão atual.
