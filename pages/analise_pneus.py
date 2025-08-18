@@ -14,16 +14,16 @@ import utils  # usa consultar_placa_comercial()
 # =========================
 # Config
 # =========================
-WHATSAPP_NUMERO = "5567984173800"   # telefone da empresa (somente dígitos com DDI)
+WHATSAPP_NUMERO = "5567984173800"    # telefone da empresa (somente dígitos com DDI)
 MAX_OBS = 250                       # Aumentado para mais detalhes, conforme solicitado
 MAX_SIDE = 1024                     # maior lado ao redimensionar (economia de tokens)
 JPEG_QUALITY = 85                   # compressão
 
 # Modo debug: mostra colagens e resposta bruta. Em produção, deixe False.
-DEBUG = bool(st.secrets.get("DEBUG_ANALISE_PNEUS", False))
+DEBUG = bool(st.secrets.get("DEBUG_ANALISE_Pneus", False))
 
 # =========================
-# Utilitários de imagem (Sua versão original, intacta)
+# Utilitários de imagem
 # =========================
 def _open_and_prepare(file) -> Optional[Image.Image]:
     """Abre imagem, corrige EXIF, converte RGB e redimensiona para MAX_SIDE."""
@@ -88,41 +88,52 @@ def _draw_label(canvas: Image.Image, text: str, xy=(8, 8), bg=(34, 167, 240), fg
     draw.text((xy[0] + pad, xy[1] + pad), text, fill=fg, font=font)
 
 
-def _grid_2x2_labeled(
-    lt: Image.Image, lb: Image.Image, rt: Image.Image, rb: Image.Image,
+def _grid_2x3_labeled(
+    lt: Image.Image, lm: Image.Image, lb: Image.Image,
+    rt: Image.Image, rm: Image.Image, rb: Image.Image,
     labels: Dict[str, str]
 ) -> Image.Image:
     """
-    Monta colagem 2x2 (esq cima/baixo, dir cima/baixo) e aplica rótulos.
-    labels: {"title","left_top","left_bottom","right_top","right_bottom"}
+    ATUALIZADO: Monta colagem 2x3 (esq cima/meio/baixo, dir cima/meio/baixo) e aplica rótulos.
+    labels: {"title", "left_top", "right_top", etc.}
     """
-    left_w = min(lt.width if lt else MAX_SIDE, lb.width if lb else MAX_SIDE)
-    right_w = min(rt.width if rt else MAX_SIDE, rb.width if rb else MAX_SIDE)
+    left_w = min(img.width for img in [lt, lm, lb] if img) or MAX_SIDE
+    right_w = min(img.width for img in [rt, rm, rb] if img) or MAX_SIDE
 
     lt = _fit_to_width(lt, left_w) if lt else Image.new("RGB", (left_w, left_w), "white")
+    lm = _fit_to_width(lm, left_w) if lm else Image.new("RGB", (left_w, left_w), "white")
     lb = _fit_to_width(lb, left_w) if lb else Image.new("RGB", (left_w, left_w), "white")
     rt = _fit_to_width(rt, right_w) if rt else Image.new("RGB", (right_w, right_w), "white")
+    rm = _fit_to_width(rm, right_w) if rm else Image.new("RGB", (right_w, right_w), "white")
     rb = _fit_to_width(rb, right_w) if rb else Image.new("RGB", (right_w, right_w), "white")
 
     top_h = max(lt.height, rt.height)
+    mid_h = max(lm.height, rm.height)
     bot_h = max(lb.height, rb.height)
+
     lt, rt = _pad_to_height(lt, top_h), _pad_to_height(rt, top_h)
+    lm, rm = _pad_to_height(lm, mid_h), _pad_to_height(rm, mid_h)
     lb, rb = _pad_to_height(lb, bot_h), _pad_to_height(rb, bot_h)
 
     total_w = left_w + right_w
-    total_h = top_h + bot_h
+    total_h = top_h + mid_h + bot_h
     out = Image.new("RGB", (total_w, total_h), "white")
     out.paste(lt, (0, 0))
     out.paste(rt, (left_w, 0))
-    out.paste(lb, (0, top_h))
-    out.paste(rb, (left_w, top_h))
+    out.paste(lm, (0, top_h))
+    out.paste(rm, (left_w, top_h))
+    out.paste(lb, (0, top_h + mid_h))
+    out.paste(rb, (left_w, top_h + mid_h))
 
     if labels.get("title"):
         _draw_label(out, labels["title"], xy=(8, 8))
-    _draw_label(out, labels.get("left_top", ""), xy=(8, 8))
-    _draw_label(out, labels.get("right_top", ""), xy=(left_w + 8, 8))
-    _draw_label(out, labels.get("left_bottom", ""), xy=(8, top_h + 8))
-    _draw_label(out, labels.get("right_bottom", ""), xy=(left_w + 8, top_h + 8))
+    # Adapte os rótulos se necessário, por agora, mantemos o principal.
+    _draw_label(out, "Frente", xy=(8, 8))
+    _draw_label(out, "Frente", xy=(left_w + 8, 8))
+    _draw_label(out, "45 Graus", xy=(8, top_h + 8))
+    _draw_label(out, "45 Graus", xy=(left_w + 8, top_h + 8))
+    _draw_label(out, "Lateral", xy=(8, top_h + mid_h + 8))
+    _draw_label(out, "Lateral", xy=(left_w + 8, top_h + mid_h + 8))
     return out
 
 
@@ -160,7 +171,7 @@ def _img_to_dataurl(img: Image.Image) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 # =========================
-# Utilitários de PDF (ATUALIZADO PARA LAUDO COMPLETO)
+# Utilitários de PDF
 # =========================
 def _get_font(size=16):
     try:
@@ -194,16 +205,15 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> List[s
     return lines
 
 def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image) -> Image.Image:
-    """ATUALIZADO: Gera um 'poster' completo do relatório para o PDF."""
     W, P, H_PAD = 1240, 40, 15
     title_font = _get_font(32)
     h2_font = _get_font(26)
     h3_font = _get_font(22)
     body_font = _get_font(18)
     caption_font = _get_font(16)
-    
+
     dummy_draw = ImageDraw.Draw(Image.new("RGB", (W, 10), "white"))
-    
+
     def get_text_height(text, font, indent=0):
         if not text: return 0
         return len(_wrap_text(dummy_draw, text, font, W - 2*P - indent)) * (font.size + 4) + 5
@@ -263,7 +273,7 @@ def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image
 
     y = draw_wrapped_text("Laudo Técnico de Análise Visual de Pneus", title_font, y) + H_PAD
     y = draw_wrapped_text(meta_text, body_font, y) + H_PAD * 2
-    
+
     if is_new_laudo:
         y = draw_wrapped_text("1. Resumo Executivo", h2_font, y) + H_PAD
         y = draw_wrapped_text(laudo.get('resumo_executivo', 'N/A'), body_font, y) + H_PAD * 2
@@ -294,7 +304,7 @@ def _render_report_image(laudo: dict, meta: dict, obs: str, collage: Image.Image
     col_resized = collage.resize((int(collage.width * scale), int(collage.height * scale)), Image.LANCZOS)
     out.paste(col_resized, (P, y))
     y += col_resized.height + P
-    
+
     return out.crop((0, 0, W, y))
 
 
@@ -305,7 +315,7 @@ def _build_pdf_bytes(report_img: Image.Image) -> bytes:
     return buf.getvalue()
 
 # =========================
-# OpenAI / Prompt helpers (SEÇÃO ATUALIZADA)
+# OpenAI / Prompt helpers
 # =========================
 def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: List[str]) -> list:
     """ATUALIZADO - Constrói o prompt de usuário com base no novo padrão exigido pelo gestor."""
@@ -321,13 +331,17 @@ def _build_multimodal_message(data_url: str, meta: dict, obs: str, axis_titles: 
 
 ---
 **2. ORGANIZAÇÃO DAS FOTOS (MUITO IMPORTANTE)**
-A imagem fornecida é uma montagem vertical de colagens 2x2.
+A imagem fornecida é uma montagem vertical de colagens 2x3 (2 colunas x 3 linhas).
 - **Ordem dos Eixos:** As colagens estão empilhadas na ordem: **{", ".join(axis_titles)}**.
-- **Estrutura da Colagem 2x2 (por eixo):**
-  - **Superior Esquerdo:** Motorista, foto de Frente.
-  - **Inferior Esquerdo:** Motorista, foto em 45°.
-  - **Superior Direito:** Oposto, foto de Frente.
-  - **Inferior Direito:** Oposto, foto em 45°.
+- **Estrutura da Colagem 2x3 (por eixo):**
+  - **Coluna da Esquerda (Lado Motorista):**
+    - **Superior:** Foto de Frente.
+    - **Meio:** Foto em 45°.
+    - **Inferior:** Foto LATERAL (para leitura de inscrições).
+  - **Coluna da Direita (Lado Oposto):**
+    - **Superior:** Foto de Frente.
+    - **Meio:** Foto em 45°.
+    - **Inferior:** Foto LATERAL (para leitura de inscrições).
 
 ---
 **3. TAREFAS OBRIGATÓRIAS DE ANÁLISE**
@@ -340,6 +354,7 @@ Execute uma análise completa e retorne a resposta **EXCLUSIVAMENTE** no formato
 **C. Análise Detalhada por Eixo:** Para cada eixo:
   - **Diagnóstico do Eixo:** Análise do conjunto.
   - **Análise por Pneu (Motorista e Oposto):** Para cada pneu:
+    - **Informações da Lateral:** A partir da foto LATERAL, extraia o máximo de informações textuais visíveis: **marca, modelo, medida completa (ex: 295/80R22.5), DOT, e quaisquer marcações de fogo ou recapagem**.
     - **Defeitos:** Para CADA defeito encontrado:
       - **`nome_defeito`**: Nome técnico (ex: "Desgaste por convergência", "Serrilhamento").
       - **`localizacao_visual`**: **Descreva textualmente onde olhar na foto** (ex: "Ombro externo do pneu", "Blocos centrais da banda de rodagem").
@@ -368,6 +383,13 @@ Execute uma análise completa e retorne a resposta **EXCLUSIVAMENTE** no formato
       "analise_pneus": [
         {{
           "posicao": "Motorista",
+          "informacoes_laterais": {{
+            "marca": "Michelin",
+            "modelo": "X Multi Z",
+            "medida": "295/80R22.5",
+            "dot": "...",
+            "marcacoes_adicionais": "Recapagem a fogo 'ABC Recap'."
+          }},
           "defeitos": [
             {{
               "nome_defeito": "Desgaste irregular no ombro externo",
@@ -392,335 +414,342 @@ Execute uma análise completa e retorne a resposta **EXCLUSIVAMENTE** no formato
   }},
   "whatsapp_resumo": "Laudo do veículo {{meta.get('placa', 'N/A')}}: Identificamos problemas críticos de alinhamento..."
 }}
-```
 """
-    return [
-        {"type": "text", "text": prompt_usuario},
-        {"type": "image_url", "image_url": {"url": data_url}},
-    ]
-
+return [
+{"type": "text", "text": prompt_usuario},
+{"type": "image_url", "image_url": {"url": data_url}},
+]
 
 def _call_openai_single_image(data_url: str, meta: dict, obs: str, model_name: str, axis_titles: List[str]) -> dict:
-    """ATUALIZADO - Chama a API com a nova persona e exigência de JSON."""
-    api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return {"erro": "OPENAI_API_KEY ausente."}
+api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+if not api_key:
+return {"erro": "OPENAI_API_KEY ausente."}
 
-    client = OpenAI(api_key=api_key)
-    prompt_sistema = "Você é um especialista sênior em manutenção de frotas pesadas, com vasta experiência em diagnóstico visual de pneus, focado em risco operacional e custo. Seja pedagógico, priorize ações, tenha visão sistêmica e quantifique o impacto. Siga rigorosamente o formato JSON."
-    content = _build_multimodal_message(data_url, meta, obs, axis_titles)
+client = OpenAI(api_key=api_key)
+prompt_sistema = "Você é um especialista sênior em manutenção de frotas pesadas, com vasta experiência em diagnóstico visual de pneus, focado em risco operacional e custo. Seja pedagógico, priorize ações, tenha visão sistêmica e quantifique o impacto. Siga rigorosamente o formato JSON."
+content = _build_multimodal_message(data_url, meta, obs, axis_titles)
 
+try:
+    resp = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": prompt_sistema},
+            {"role": "user", "content": content},
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"},
+    )
+    text = resp.choices[0].message.content or ""
+    return json.loads(text)
+except Exception as e:
+    raw_text = locals().get("text", str(e))
     try:
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": prompt_sistema},
-                {"role": "user", "content": content},
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"},
-        )
-        text = resp.choices[0].message.content or ""
-        return json.loads(text)
-    except Exception as e:
-        raw_text = locals().get("text", str(e))
-        try:
-            start = raw_text.find('{')
-            end = raw_text.rfind('}') + 1
-            if start != -1 and end > start:
-                return json.loads(raw_text[start:end])
-        except Exception:
-            pass
-        return {"erro": f"Falha na API ou no processamento do JSON: {e}", "raw": raw_text}
-
-
+        start = raw_text.find('{')
+        end = raw_text.rfind('}') + 1
+        if start != -1 and end > start:
+            return json.loads(raw_text[start:end])
+    except Exception:
+        pass
+    return {"erro": f"Falha na API ou no processamento do JSON: {e}", "raw": raw_text}
 def _call_openai_single_axis(collage: Image.Image, meta: dict, obs: str, model_name: str, axis_title: str) -> dict:
-    """Fallback da sua versão original, para estabilidade."""
-    api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return {"erro": "OPENAI_API_KEY ausente."}
-    client = OpenAI(api_key=api_key)
-    data_url = _img_to_dataurl(collage)
-    
-    # Usando o prompt de fallback original da sua versão estável
-    formato_fallback = '{"eixos": [ { "titulo": "' + axis_title + '", "tipo": "Dianteiro|Traseiro", "diagnostico_global": "...", "necessita_alinhamento": true, "parametros_suspeitos":[], "pressao_pneus":{}, "balanceamento_sugerido": "...", "achados_chave":[], "severidade_eixo":0, "prioridade_manutencao":"baixa", "rodizio_recomendado":"..." } ]}'
-    header = f"Análise de UM eixo: {axis_title}. Retorne JSON no formato: {formato_fallback}"
+"""Fallback da sua versão original, para estabilidade."""
+api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+if not api_key:
+return {"erro": "OPENAI_API_KEY ausente."}
+client = OpenAI(api_key=api_key)
+data_url = _img_to_dataurl(collage)
 
-    content = [
-        {"type": "text", "text": header},
-        {"type": "image_url", "image_url": {"url": data_url}},
-    ]
-    try:
-        resp = client.chat.completions.create(
-            model=model_name, messages=[{"role": "user", "content": content}], temperature=0, response_format={"type": "json_object"}
-        )
-        text = resp.choices[0].message.content or ""
-        return json.loads(text)
-    except Exception as e:
-        return {"erro": f"Falha na API (fallback): {e}"}
+formato_fallback = '{"eixos": [ { "titulo": "' + axis_title + '", "tipo": "Dianteiro|Traseiro", "diagnostico_global": "...", "necessita_alinhamento": true, "parametros_suspeitos":[], "pressao_pneus":{}, "balanceamento_sugerido": "...", "achados_chave":[], "severidade_eixo":0, "prioridade_manutencao":"baixa", "rodizio_recomendado":"..." } ]}'
+header = f"Análise de UM eixo: {axis_title}. Retorne JSON no formato: {formato_fallback}"
 
-# =========================
-# UI helpers (SEÇÃO ATUALIZADA)
-# =========================
+content = [
+    {"type": "text", "text": header},
+    {"type": "image_url", "image_url": {"url": data_url}},
+]
+try:
+    resp = client.chat.completions.create(
+        model=model_name, messages=[{"role": "user", "content": content}], temperature=0, response_format={"type": "json_object"}
+    )
+    text = resp.choices[0].message.content or ""
+    return json.loads(text)
+except Exception as e:
+    return {"erro": f"Falha na API (fallback): {e}"}
+=========================
+UI helpers
+=========================
 def _render_laudo_ui(laudo: dict, meta: dict, obs: str):
-    """ATUALIZADO - Renderiza o novo laudo profissional na tela."""
-    
-    # Compatibilidade: Se o laudo vier no formato antigo (do fallback), mostra o antigo renderizador
-    if "resumo_executivo" not in laudo:
-        st.warning("Laudo recebido em formato de compatibilidade (fallback). A análise pode ser menos detalhada.")
-        _render_laudo_ui_original(laudo, meta, obs) # Chama a função original
-        return
+if "resumo_executivo" not in laudo:
+st.warning("Laudo recebido em formato de compatibilidade (fallback). A análise pode ser menos detalhada.")
+_render_laudo_ui_original(laudo, meta, obs)
+return
 
-    st.success("Laudo Profissional Gerado")
-    
-    urgency_map = {
-        "Crítico": "⛔ Crítico", "Médio": "⚠️ Médio", "Baixo": "ℹ️ Baixo",
-    }
+st.success("Laudo Profissional Gerado")
 
-    st.markdown("### 1. Resumo Executivo para o Gestor")
-    st.write(laudo.get('resumo_executivo', "N/A"))
+urgency_map = {
+    "Crítico": "⛔ Crítico", "Médio": "⚠️ Médio", "Baixo": "ℹ️ Baixo",
+}
 
-    st.markdown("### 2. Tabela de Visão Geral")
-    if laudo.get('tabela_visao_geral'):
-        st.dataframe(laudo['tabela_visao_geral'], use_container_width=True, hide_index=True)
+st.markdown("### 1. Resumo Executivo para o Gestor")
+st.write(laudo.get('resumo_executivo', "N/A"))
 
-    st.markdown("### 3. Diagnóstico Global do Veículo")
-    st.info(laudo.get('diagnostico_global_veiculo', "N/A"))
+st.markdown("### 2. Tabela de Visão Geral")
+if laudo.get('tabela_visao_geral'):
+    st.dataframe(laudo['tabela_visao_geral'], use_container_width=True, hide_index=True)
 
-    st.markdown("### 4. Análise Detalhada por Eixo")
-    if 'ultima_colagem' in st.session_state:
-        st.image(st.session_state['ultima_colagem'], caption="Imagem completa enviada para análise", use_container_width=True)
+st.markdown("### 3. Diagnóstico Global do Veículo")
+st.info(laudo.get('diagnostico_global_veiculo', "N/A"))
 
-    for eixo in laudo.get('analise_detalhada_eixos', []):
-        with st.expander(f"**{eixo.get('titulo_eixo', 'Eixo')}** - Clique para expandir", expanded=True):
-            st.write(f"**Diagnóstico do Eixo:** {eixo.get('diagnostico_geral_eixo', 'N/A')}")
-            for pneu in eixo.get('analise_pneus', []):
-                st.markdown(f"--- \n #### Lado: {pneu.get('posicao')}")
-                for defeito in pneu.get('defeitos', []):
-                    with st.container(border=True):
-                        urg = defeito.get('urgencia', 'N/A')
-                        st.markdown(f"**Defeito:** {defeito.get('nome_defeito')} [{urgency_map.get(urg, urg)}]")
-                        st.caption(f"📍 Onde Olhar: {defeito.get('localizacao_visual', 'N/A')}")
-                        exp = defeito.get('explicacao', {})
-                        st.markdown(f"""
-                        - **O que significa:** {exp.get('significado', 'N/A')}
-                        - **Impacto na Operação:** {exp.get('impacto_operacional', 'N/A')}
-                        - **Risco se não corrigido:** {exp.get('risco_nao_corrigir', 'N/A')}
-                        """)
+st.markdown("### 4. Análise Detalhada por Eixo")
+if 'ultima_colagem' in st.session_state:
+    st.image(st.session_state['ultima_colagem'], caption="Imagem completa enviada para análise", use_container_width=True)
 
-    st.markdown("### 5. Plano de Ação Recomendado")
-    plano = laudo.get('plano_de_acao', {})
-    st.error("⛔ Ações Críticas (Risco Imediato)")
-    st.write("• " + "\n• ".join(plano.get('critico_risco_imediato', ["Nenhuma."])))
-    st.warning("⚠️ Ações de Prioridade Média (Agendar Manutenção)")
-    st.write("• " + "\n• ".join(plano.get('medio_agendar_manutencao', ["Nenhuma."])))
-    st.info("ℹ️ Ações de Baixa Prioridade (Observação Preventiva)")
-    st.write("• " + "\n• ".join(plano.get('baixo_observacao_preventiva', ["Nenhuma."])))
+for eixo in laudo.get('analise_detalhada_eixos', []):
+    with st.expander(f"**{eixo.get('titulo_eixo', 'Eixo')}** - Clique para expandir", expanded=True):
+        st.write(f"**Diagnóstico do Eixo:** {eixo.get('diagnostico_geral_eixo', 'N/A')}")
+        for pneu in eixo.get('analise_pneus', []):
+            st.markdown(f"--- \n #### Lado: {pneu.get('posicao')}")
+            if pneu.get('informacoes_laterais'):
+                with st.container(border=True):
+                    st.markdown("##### Informações da Lateral")
+                    info = pneu['informacoes_laterais']
+                    cols = st.columns(3)
+                    cols[0].metric("Marca", info.get('marca', '-'))
+                    cols[1].metric("Modelo", info.get('modelo', '-'))
+                    cols[2].metric("Medida", info.get('medida', '-'))
+                    st.caption(f"DOT: {info.get('dot', '-')} | Marcações: {info.get('marcacoes_adicionais', '-')}")
 
+            for defeito in pneu.get('defeitos', []):
+                with st.container(border=True):
+                    urg = defeito.get('urgencia', 'N/A')
+                    st.markdown(f"**Defeito:** {defeito.get('nome_defeito')} [{urgency_map.get(urg, urg)}]")
+                    st.caption(f"📍 Onde Olhar: {defeito.get('localizacao_visual', 'N/A')}")
+                    exp = defeito.get('explicacao', {})
+                    st.markdown(f"""
+                    - **O que significa:** {exp.get('significado', 'N/A')}
+                    - **Impacto na Operação:** {exp.get('impacto_operacional', 'N/A')}
+                    - **Risco se não corrigido:** {exp.get('risco_nao_corrigir', 'N/A')}
+                    """)
 
+st.markdown("### 5. Plano de Ação Recomendado")
+plano = laudo.get('plano_de_acao', {})
+st.error("⛔ Ações Críticas (Risco Imediato)")
+st.write("• " + "\n• ".join(plano.get('critico_risco_imediato', ["Nenhuma."])))
+st.warning("⚠️ Ações de Prioridade Média (Agendar Manutenção)")
+st.write("• " + "\n• ".join(plano.get('medio_agendar_manutencao', ["Nenhuma."])))
+st.info("ℹ️ Ações de Baixa Prioridade (Observação Preventiva)")
+st.write("• " + "\n• ".join(plano.get('baixo_observacao_preventiva', ["Nenhuma."])))
 def _render_laudo_ui_original(laudo: dict, meta: dict, obs: str):
-    """Sua função de renderização original, para fallback."""
-    st.success("Laudo recebido.")
-    st.markdown("## 🧾 Resumo")
-    if laudo.get("resumo_geral"):
-        st.write(laudo["resumo_geral"])
-    cfg = laudo.get("configuracao_detectada")
-    if isinstance(cfg, str) and cfg.strip():
-        st.caption(f"Configuração detectada: {cfg}")
-    for eixo in laudo.get("eixos", []):
-        with st.container(border=True):
-            titulo = eixo.get("titulo", eixo.get("tipo", "Eixo"))
-            st.markdown(f"### {titulo}")
-            diag = eixo.get("diagnostico_global") or eixo.get("relatorio")
-            st.write(diag.strip() if isinstance(diag, str) and diag.strip() else "Diagnóstico do eixo não informado pelo modelo.")
-            if eixo.get("necessita_alinhamento") is not None:
-                st.caption(f"Necessita alinhamento: {'sim' if eixo.get('necessita_alinhamento') else 'não'}")
-            ps = eixo.get("parametros_suspeitos") or []
-            if isinstance(ps, list) and ps:
-                parts = []
-                for p in ps:
-                    try:
-                        parts.append(f"{p.get('parametro','-')}: {p.get('tendencia','indefinida')} (confiança {p.get('confianca',0):.2f})")
-                    except Exception:
-                        pass
-                if parts:
-                    st.caption("Parâmetros suspeitos: " + " | ".join(parts))
-            press = eixo.get("pressao_pneus") or {}
-            if press:
-                st.caption(f"Pressão — Motorista: {press.get('motorista','-')} | Oposto: {press.get('oposto','-')}")
-            bal = eixo.get("balanceamento_sugerido")
-            if isinstance(bal, str) and bal.strip():
-                st.caption(f"Balanceamento: {bal}")
-            ach = eixo.get("achados_chave") or []
-            if ach:
-                st.caption("Achados-chave: " + "; ".join(ach))
-            sev = eixo.get("severidade_eixo")
-            pri = eixo.get("prioridade_manutencao")
-            linha = []
-            if sev is not None:
-                linha.append(f"Severidade do eixo: {sev}/5")
-            if pri:
-                linha.append(f"Prioridade: {pri}")
-            if linha:
-                st.caption(" | ".join(linha))
-            rod = eixo.get("rodizio_recomendado")
-            if isinstance(rod, str) and rod.strip():
-                st.caption(f"Rodízio recomendado: {rod}")
-    if laudo.get("recomendacoes_finais"):
-        st.markdown("## 🔧 Recomendações finais")
-        st.write("• " + "\n• ".join(laudo["recomendacoes_finais"]))
+"""Sua função de renderização original, para fallback."""
+st.success("Laudo recebido.")
+st.markdown("## 🧾 Resumo")
+if laudo.get("resumo_geral"):
+st.write(laudo["resumo_geral"])
+cfg = laudo.get("configuracao_detectada")
+if isinstance(cfg, str) and cfg.strip():
+st.caption(f"Configuração detectada: {cfg}")
+for eixo in laudo.get("eixos", []):
+with st.container(border=True):
+titulo = eixo.get("titulo", eixo.get("tipo", "Eixo"))
+st.markdown(f"### {titulo}")
+diag = eixo.get("diagnostico_global") or eixo.get("relatorio")
+st.write(diag.strip() if isinstance(diag, str) and diag.strip() else "Diagnóstico do eixo não informado pelo modelo.")
+if eixo.get("necessita_alinhamento") is not None:
+st.caption(f"Necessita alinhamento: {'sim' if eixo.get('necessita_alinhamento') else 'não'}")
+ps = eixo.get("parametros_suspeitos") or []
+if isinstance(ps, list) and ps:
+parts = []
+for p in ps:
+try:
+parts.append(f"{p.get('parametro','-')}: {p.get('tendencia','indefinida')} (confiança {p.get('confianca',0):.2f})")
+except Exception:
+pass
+if parts:
+st.caption("Parâmetros suspeitos: " + " | ".join(parts))
+press = eixo.get("pressao_pneus") or {}
+if press:
+st.caption(f"Pressão — Motorista: {press.get('motorista','-')} | Oposto: {press.get('oposto','-')}")
+bal = eixo.get("balanceamento_sugerido")
+if isinstance(bal, str) and bal.strip():
+st.caption(f"Balanceamento: {bal}")
+ach = eixo.get("achados_chave") or []
+if ach:
+st.caption("Achados-chave: " + "; ".join(ach))
+sev = eixo.get("severidade_eixo")
+pri = eixo.get("prioridade_manutencao")
+linha = []
+if sev is not None:
+linha.append(f"Severidade do eixo: {sev}/5")
+if pri:
+linha.append(f"Prioridade: {pri}")
+if linha:
+st.caption(" | ".join(linha))
+rod = eixo.get("rodizio_recomendado")
+if isinstance(rod, str) and rod.strip():
+st.caption(f"Rodízio recomendado: {rod}")
+if laudo.get("recomendacoes_finais"):
+st.markdown("## 🔧 Recomendações finais")
+st.write("• " + "\n• ".join(laudo["recomendacoes_finais"]))
 
-# =========================
-# UI (Sua versão original, estável)
-# =========================
+=========================
+UI
+=========================
 def app():
-    st.title("🛞 Análise de Pneus por Foto — AVP")
-    st.caption("Laudo automático de apoio (sujeito a erros). Recomenda-se inspeção presencial.")
+st.title("🛞 Análise de Pneus por Foto — AVP")
+st.caption("Laudo automático de apoio (sujeito a erros). Recomenda-se inspeção presencial.")
 
-    col_m1, _ = st.columns([1, 3])
-    with col_m1:
-        modo_detalhado = st.toggle("Análise detalhada (gpt-4o)", value=False)
-    modelo = "gpt-4o" if modo_detalhado else "gpt-4o-mini"
+col_m1, _ = st.columns([1, 3])
+with col_m1:
+    modo_detalhado = st.toggle("Análise detalhada (gpt-4o)", value=False)
+modelo = "gpt-4o" if modo_detalhado else "gpt-4o-mini"
 
-    with st.form("form_ident"):
-        c1, c2 = st.columns(2)
-        with c1:
-            nome = st.text_input("Nome do motorista/gestor")
-            empresa = st.text_input("Empresa")
-            telefone = st.text_input("Telefone de contato")
-        with c2:
-            email = st.text_input("E-mail")
-            placa = st.text_input("Placa do veículo").upper()
-        buscar = st.form_submit_button("🔎 Buscar dados da placa")
-    
-    placa_info = st.session_state.get('placa_info', None)
-    if buscar and placa:
-        ok, data = utils.consultar_placa_comercial(placa)
-        placa_info = data if ok else {"erro": data}
-        st.session_state.placa_info = placa_info
-        if ok: st.success(f"Dados da placa: {json.dumps(placa_info, ensure_ascii=False)}")
-        else: st.warning(data)
-    
-    st.markdown("---")
-    with st.expander("📸 Como fotografar para melhor leitura (dica rápida)"):
-        st.write(
-            "- Para **cada lado**, tire **duas fotos** do pneu:\n"
-            "  1) **De frente**: câmera **paralela à banda**;\n"
-            "  2) **Em ~45°**: para evidenciar profundidade dos sulcos.\n"
-        )
+with st.form("form_ident"):
+    c1, c2 = st.columns(2)
+    with c1:
+        nome = st.text_input("Nome do motorista/gestor")
+        empresa = st.text_input("Empresa")
+        telefone = st.text_input("Telefone de contato")
+    with c2:
+        email = st.text_input("E-mail")
+        placa = st.text_input("Placa do veículo").upper()
+    buscar = st.form_submit_button("🔎 Buscar dados da placa")
 
-    observacao = st.text_area(
-        "Observação do motorista (máx. 250 caracteres)",
-        max_chars=MAX_OBS,
-        placeholder="Ex.: puxa para a direita, vibra acima de 80 km/h…"
+placa_info = st.session_state.get('placa_info', None)
+if buscar and placa:
+    ok, data = utils.consultar_placa_comercial(placa)
+    placa_info = data if ok else {"erro": data}
+    st.session_state.placa_info = placa_info
+    if ok: st.success(f"Dados da placa: {json.dumps(placa_info, ensure_ascii=False)}")
+    else: st.warning(data)
+
+st.markdown("---")
+with st.expander("📸 Como fotografar para melhor leitura (dica rápida)"):
+    st.write(
+        "- Para **cada lado**, tire **TRÊS fotos** do pneu:\n"
+        "  1) **De frente**: câmera **paralela à banda**;\n"
+        "  2) **Em ~45°**: para evidenciar profundidade dos sulcos.\n"
+        "  3) **De LADO**: para ler as inscrições (marca, medida, DOT).\n"
     )
 
-    if "axes" not in st.session_state:
-        st.session_state.axes = []
+observacao = st.text_area(
+    "Observação do motorista (máx. 250 caracteres)",
+    max_chars=MAX_OBS,
+    placeholder="Ex.: puxa para a direita, vibra acima de 80 km/h…"
+)
 
-    cA, cB, cC = st.columns(3)
-    with cA:
-        if st.button("➕ Adicionar Dianteiro"):
-            st.session_state.axes.append({"tipo": "Dianteiro", "files": {}})
-    with cB:
-        if st.button("➕ Adicionar Traseiro"):
-            st.session_state.axes.append({"tipo": "Traseiro", "files": {}})
-    with cC:
-        if st.session_state.axes and st.button("🗑️ Remover último eixo"):
-            st.session_state.axes.pop()
+if "axes" not in st.session_state:
+    st.session_state.axes = []
 
-    if not st.session_state.axes and "laudo" not in st.session_state:
-        st.info("Adicione pelo menos um eixo (Dianteiro/Traseiro).")
-        return
+cA, cB, cC = st.columns(3)
+with cA:
+    if st.button("➕ Adicionar Dianteiro"):
+        st.session_state.axes.append({"tipo": "Dianteiro", "files": {}})
+with cB:
+    if st.button("➕ Adicionar Traseiro"):
+        st.session_state.axes.append({"tipo": "Traseiro", "files": {}})
+with cC:
+    if st.session_state.axes and st.button("🗑️ Remover último eixo"):
+        st.session_state.axes.pop()
 
-    for idx, eixo in enumerate(st.session_state.axes, start=1):
-        with st.container(border=True):
-            st.subheader(f"Eixo {idx} — {eixo['tipo']}")
-            cm, co = st.columns(2)
-            with cm:
-                eixo["files"]["lt"] = st.file_uploader(f"Motorista — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm1_{idx}")
-                eixo["files"]["lb"] = st.file_uploader(f"Motorista — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm2_{idx}")
-            with co:
-                eixo["files"]["rt"] = st.file_uploader(f"Oposto — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do1_{idx}")
-                eixo["files"]["rb"] = st.file_uploader(f"Oposto — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do2_{idx}")
-    
+if not st.session_state.axes and "laudo" not in st.session_state:
+    st.info("Adicione pelo menos um eixo (Dianteiro/Traseiro).")
+    return
+
+for idx, eixo in enumerate(st.session_state.axes, start=1):
+    with st.container(border=True):
+        st.subheader(f"Eixo {idx} — {eixo['tipo']}")
+        cm, co = st.columns(2)
+        with cm:
+            eixo["files"]["lt"] = st.file_uploader(f"Motorista — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm1_{idx}")
+            eixo["files"]["lm"] = st.file_uploader(f"Motorista — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm2_{idx}")
+            eixo["files"]["lb"] = st.file_uploader(f"Motorista — Foto 3 (LATERAL) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm3_{idx}")
+        with co:
+            eixo["files"]["rt"] = st.file_uploader(f"Oposto — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do1_{idx}")
+            eixo["files"]["rm"] = st.file_uploader(f"Oposto — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do2_{idx}")
+            eixo["files"]["rb"] = st.file_uploader(f"Oposto — Foto 3 (LATERAL) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do3_{idx}")
+
+st.markdown("---")
+pronto = st.button("🚀 Enviar para análise")
+
+if "laudo" in st.session_state:
+    _render_laudo_ui(st.session_state["laudo"], st.session_state.get("meta", {}), st.session_state.get("obs", ""))
+
     st.markdown("---")
-    pronto = st.button("🚀 Enviar para análise")
+    col_exp1, col_exp2 = st.columns([1, 3])
+    with col_exp1:
+        if "ultima_colagem" in st.session_state:
+            if st.button("🔄 Regerar PDF"):
+                try:
+                    report_img = _render_report_image(st.session_state["laudo"], st.session_state.get("meta", {}), st.session_state.get("obs", ""), st.session_state["ultima_colagem"])
+                    st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
+                except Exception as e:
+                    st.error(f"Falha ao gerar PDF: {e}")
+            if "pdf_bytes" in st.session_state:
+                st.download_button("⬇️ Baixar PDF do Laudo", st.session_state["pdf_bytes"], f"laudo_{st.session_state.get('meta',{}).get('placa')}.pdf")
 
-    if "laudo" in st.session_state:
-        _render_laudo_ui(st.session_state["laudo"], st.session_state.get("meta", {}), st.session_state.get("obs", ""))
-        
-        st.markdown("---")
-        col_exp1, col_exp2 = st.columns([1, 3])
-        with col_exp1:
-            if "ultima_colagem" in st.session_state:
-                if st.button("🔄 Regerar PDF"):
-                    try:
-                        report_img = _render_report_image(st.session_state["laudo"], st.session_state.get("meta", {}), st.session_state.get("obs", ""), st.session_state["ultima_colagem"])
-                        st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
-                    except Exception as e:
-                        st.error(f"Falha ao gerar PDF: {e}")
-                if "pdf_bytes" in st.session_state:
-                    st.download_button("⬇️ Baixar PDF do Laudo", st.session_state["pdf_bytes"], f"laudo_{st.session_state.get('meta',{}).get('placa')}.pdf")
-        
-        with col_exp2:
-            from urllib.parse import quote
-            resumo_wpp = st.session_state["laudo"].get("whatsapp_resumo") or st.session_state["laudo"].get("resumo_executivo", "") or st.session_state["laudo"].get("resumo_geral", "")
-            meta = st.session_state.get("meta", {})
-            msg = f"Análise de pneus para o veículo {meta.get('placa', '')}:\n\n{resumo_wpp}"
-            link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(msg)}"
-            st.markdown(f"[📲 Enviar resultado via WhatsApp]({link_wpp})")
+    with col_exp2:
+        from urllib.parse import quote
+        resumo_wpp = st.session_state["laudo"].get("whatsapp_resumo") or st.session_state["laudo"].get("resumo_executivo", "") or st.session_state["laudo"].get("resumo_geral", "")
+        meta = st.session_state.get("meta", {})
+        msg = f"Análise de pneus para o veículo {meta.get('placa', '')}:\n\n{resumo_wpp}"
+        link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(msg)}"
+        st.markdown(f"[📲 Enviar resultado via WhatsApp]({link_wpp})")
 
-    if pronto:
+if pronto:
+    for i, eixo in enumerate(st.session_state.axes, start=1):
+        if not all(eixo["files"].get(k) for k in ("lt","lm","lb","rt","rm","rb")):
+            st.error(f"Envie as 6 fotos do eixo {i}.")
+            return
+
+    with st.spinner("Preparando imagens…"):
+        collages, titles = [], []
         for i, eixo in enumerate(st.session_state.axes, start=1):
-            if not all(eixo["files"].get(k) for k in ("lt","lb","rt","rb")):
-                st.error(f"Envie as 4 fotos do eixo {i}.")
-                return
+            lt = _open_and_prepare(eixo["files"]["lt"])
+            lm = _open_and_prepare(eixo["files"]["lm"])
+            lb = _open_and_prepare(eixo["files"]["lb"])
+            rt = _open_and_prepare(eixo["files"]["rt"])
+            rm = _open_and_prepare(eixo["files"]["rm"])
+            rb = _open_and_prepare(eixo["files"]["rb"])
 
-        with st.spinner("Preparando imagens…"):
-            collages, titles = [], []
-            for i, eixo in enumerate(st.session_state.axes, start=1):
-                lt, lb = _open_and_prepare(eixo["files"]["lt"]), _open_and_prepare(eixo["files"]["lb"])
-                rt, rb = _open_and_prepare(eixo["files"]["rt"]), _open_and_prepare(eixo["files"]["rb"])
-                labels = {"title": f"Eixo {i} - {eixo['tipo']}"}
-                collages.append(_grid_2x2_labeled(lt, lb, rt, rb, labels))
-                titles.append(labels["title"])
-            colagem_final = _stack_vertical_center(collages, titles)
-            st.session_state["ultima_colagem"] = colagem_final
-            st.session_state["titles"] = titles
+            labels = {"title": f"Eixo {i} - {eixo['tipo']}"}
+            collages.append(_grid_2x3_labeled(lt, lm, lb, rt, rm, rb, labels))
+            titles.append(labels["title"])
 
-        data_url = _img_to_dataurl(colagem_final)
-        meta = {"placa": placa, "nome": nome, "empresa": empresa, "telefone": telefone, "email": email, "placa_info": placa_info}
-        
-        with st.spinner("Analisando com IA (pode levar até 2 minutos)..."):
-            laudo = _call_openai_single_image(data_url, meta, observacao, modelo, titles)
-        
-        if "erro" in laudo or not ("analise_detalhada_eixos" in laudo or "eixos" in laudo):
-            st.warning("Análise principal falhou. Tentando fallback por eixo...")
-            eixos_ok = []
-            laudo_final = {}
-            for cimg, atitle in zip(st.session_state["collages"], st.session_state["titles"]):
-                sub_laudo = _call_openai_single_axis(cimg, meta, observacao, modelo, atitle)
-                if "eixos" in sub_laudo:
-                    eixos_ok.extend(sub_laudo["eixos"])
-            if eixos_ok:
-                laudo_final = {"eixos": eixos_ok, "resumo_geral": "Análise concluída em modo de fallback."}
-            else:
-                st.error(f"Análise e fallback falharam: {laudo.get('erro', 'Resposta inválida.')}")
-                if DEBUG and laudo.get("raw"): st.code(laudo.get("raw"))
-                return
-            laudo = laudo_final
-        
-        st.session_state["laudo"] = laudo
-        st.session_state["meta"] = meta
-        st.session_state["obs"] = observacao
+        colagem_final = _stack_vertical_center(collages, titles)
+        st.session_state["ultima_colagem"] = colagem_final
+        st.session_state["titles"] = titles
+        st.session_state["collages"] = collages
 
-        try:
-            report_img = _render_report_image(laudo, meta, observacao, st.session_state["ultima_colagem"])
-            st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
-        except Exception as e:
-            st.warning(f"Não foi possível pré-gerar o PDF: {e}")
-        st.rerun()
+    data_url = _img_to_dataurl(colagem_final)
+    meta = {"placa": placa, "nome": nome, "empresa": empresa, "telefone": telefone, "email": email, "placa_info": placa_info}
 
-if __name__ == "__main__":
-    app()
+    with st.spinner("Analisando com IA (pode levar até 2 minutos)..."):
+        laudo = _call_openai_single_image(data_url, meta, observacao, modelo, titles)
+
+    if "erro" in laudo or not ("analise_detalhada_eixos" in laudo or "eixos" in laudo):
+        st.warning("Análise principal falhou. Tentando fallback por eixo...")
+        eixos_ok = []
+        laudo_final = {}
+        for cimg, atitle in zip(st.session_state["collages"], st.session_state["titles"]):
+            sub_laudo = _call_openai_single_axis(cimg, meta, observacao, modelo, atitle)
+            if "eixos" in sub_laudo:
+                eixos_ok.extend(sub_laudo["eixos"])
+        if eixos_ok:
+            laudo_final = {"eixos": eixos_ok, "resumo_geral": "Análise concluída em modo de fallback."}
+        else:
+            st.error(f"Análise e fallback falharam: {laudo.get('erro', 'Resposta inválida.')}")
+            if DEBUG and laudo.get("raw"): st.code(laudo.get("raw"))
+            return
+        laudo = laudo_final
+
+    st.session_state["laudo"] = laudo
+    st.session_state["meta"] = meta
+    st.session_state["obs"] = observacao
+
+    try:
+        report_img = _render_report_image(laudo, meta, observacao, st.session_state["ultima_colagem"])
+        st.session_state["pdf_bytes"] = _build_pdf_bytes(report_img)
+    except Exception as e:
+        st.warning(f"Não foi possível pré-gerar o PDF: {e}")
+    st.rerun()
+if name == "main":
+app()
