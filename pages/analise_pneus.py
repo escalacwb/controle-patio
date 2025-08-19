@@ -88,80 +88,41 @@ def _draw_label(canvas: Image.Image, text: str, xy=(8, 8), bg=(34, 167, 240), fg
     draw.text((xy[0] + pad, xy[1] + pad), text, fill=fg, font=font)
 
 
-def _grid_2x3_labeled(
-    lt: Image.Image, lb: Image.Image, lp: Image.Image,  # esquerda: topo (frente), meio (45°), base (lateral)
-    rt: Image.Image, rb: Image.Image, rp: Image.Image,  # direita:  topo (frente), meio (45°), base (lateral)
+def _grid_2x2_labeled(
+    lt: Image.Image, lb: Image.Image, rt: Image.Image, rb: Image.Image,
     labels: Dict[str, str]
 ) -> Image.Image:
     """
-    Monta colagem 2x3 (esq cima/meio/baixo, dir cima/meio/baixo) e aplica rótulos.
-    labels: {
-        "title",
-        "left_top","left_middle","left_bottom",
-        "right_top","right_middle","right_bottom"
-    }
+    Monta colagem 2x2 (esq cima/baixo, dir cima/baixo) e aplica rótulos.
+    labels: {"title","left_top","left_bottom","right_top","right_bottom"}
     """
-    # Largura-alvo por coluna (usa o menor entre as imagens da coluna)
-    left_w = min(
-        lt.width if lt else MAX_SIDE,
-        lb.width if lb else MAX_SIDE,
-        lp.width if lp else MAX_SIDE,
-    )
-    right_w = min(
-        rt.width if rt else MAX_SIDE,
-        rb.width if rb else MAX_SIDE,
-        rp.width if rp else MAX_SIDE,
-    )
+    left_w = min(lt.width if lt else MAX_SIDE, lb.width if lb else MAX_SIDE)
+    right_w = min(rt.width if rt else MAX_SIDE, rb.width if rb else MAX_SIDE)
 
-    # Ajuste de largura por coluna (placeholders quando faltar foto)
     lt = _fit_to_width(lt, left_w) if lt else Image.new("RGB", (left_w, left_w), "white")
     lb = _fit_to_width(lb, left_w) if lb else Image.new("RGB", (left_w, left_w), "white")
-    lp = _fit_to_width(lp, left_w) if lp else Image.new("RGB", (left_w, left_w), "white")
-
     rt = _fit_to_width(rt, right_w) if rt else Image.new("RGB", (right_w, right_w), "white")
     rb = _fit_to_width(rb, right_w) if rb else Image.new("RGB", (right_w, right_w), "white")
-    rp = _fit_to_width(rp, right_w) if rp else Image.new("RGB", (right_w, right_w), "white")
 
-    # Alturas por linha (topo / meio / base)
     top_h = max(lt.height, rt.height)
-    mid_h = max(lb.height, rb.height)
-    bot_h = max(lp.height, rp.height)
-
-    # Pad vertical para igualar as duas colunas por linha
+    bot_h = max(lb.height, rb.height)
     lt, rt = _pad_to_height(lt, top_h), _pad_to_height(rt, top_h)
-    lb, rb = _pad_to_height(lb, mid_h), _pad_to_height(rb, mid_h)
-    lp, rp = _pad_to_height(lp, bot_h), _pad_to_height(rp, bot_h)
+    lb, rb = _pad_to_height(lb, bot_h), _pad_to_height(rb, bot_h)
 
     total_w = left_w + right_w
-    total_h = top_h + mid_h + bot_h
-
+    total_h = top_h + bot_h
     out = Image.new("RGB", (total_w, total_h), "white")
-
-    # Linha 1 (topo)
     out.paste(lt, (0, 0))
     out.paste(rt, (left_w, 0))
-
-    # Linha 2 (meio)
     out.paste(lb, (0, top_h))
     out.paste(rb, (left_w, top_h))
 
-    # Linha 3 (base)
-    out.paste(lp, (0, top_h + mid_h))
-    out.paste(rp, (left_w, top_h + mid_h))
-
-    # Rótulos
     if labels.get("title"):
         _draw_label(out, labels["title"], xy=(8, 8))
-
-    _draw_label(out, labels.get("left_top", ""),    xy=(8, 8))
-    _draw_label(out, labels.get("right_top", ""),   xy=(left_w + 8, 8))
-
-    _draw_label(out, labels.get("left_middle", ""), xy=(8, top_h + 8))
-    _draw_label(out, labels.get("right_middle", ""),xy=(left_w + 8, top_h + 8))
-
-    _draw_label(out, labels.get("left_bottom", ""), xy=(8, top_h + mid_h + 8))
-    _draw_label(out, labels.get("right_bottom",""), xy=(left_w + 8, top_h + mid_h + 8))
-
+    _draw_label(out, labels.get("left_top", ""), xy=(8, 8))
+    _draw_label(out, labels.get("right_top", ""), xy=(left_w + 8, 8))
+    _draw_label(out, labels.get("left_bottom", ""), xy=(8, top_h + 8))
+    _draw_label(out, labels.get("right_bottom", ""), xy=(left_w + 8, top_h + 8))
     return out
 
 
@@ -692,11 +653,9 @@ def app():
                 with cm:
                     eixo["files"]["lt"] = st.file_uploader(f"Motorista — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm1_{idx}")
                     eixo["files"]["lb"] = st.file_uploader(f"Motorista — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm2_{idx}")
-                    eixo["files"]["lp"] = st.file_uploader(f"Motorista — Foto 3 (LATERAL) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_dm3_{idx}")
                 with co:
                     eixo["files"]["rt"] = st.file_uploader(f"Oposto — Foto 1 (FRENTE) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do1_{idx}")
                     eixo["files"]["rb"] = st.file_uploader(f"Oposto — Foto 2 (45°) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do2_{idx}")
-                    eixo["files"]["rp"] = st.file_uploader(f"Oposto — Foto 3 (LATERAL) — Eixo {idx}", type=["jpg","jpeg","png"], key=f"d_do3_{idx}")
     
     st.markdown("---")
     pronto = st.button("🚀 Enviar para análise")
@@ -728,39 +687,21 @@ def app():
 
     if pronto:
         for i, eixo in enumerate(st.session_state.axes, start=1):
-            if not all(eixo["files"].get(k) for k in ("lt","lb","lp","rt","rb","rp")):
-                st.error(f"Envie as 6 fotos do eixo {i}.")
+            if not all(eixo["files"].get(k) for k in ("lt","lb","rt","rb")):
+                st.error(f"Envie as 4 fotos do eixo {i}.")
                 return
 
         with st.spinner("Preparando imagens…"):
-    collages, titles = [], []
-    for i, eixo in enumerate(st.session_state.axes, start=1):
-        # prepara as 6 imagens (motorista: lt, lb, lp | oposto: rt, rb, rp)
-        lt = _open_and_prepare(eixo["files"]["lt"])
-        lb = _open_and_prepare(eixo["files"]["lb"])
-        lp = _open_and_prepare(eixo["files"]["lp"])
-        rt = _open_and_prepare(eixo["files"]["rt"])
-        rb = _open_and_prepare(eixo["files"]["rb"])
-        rp = _open_and_prepare(eixo["files"]["rp"])
-
-        # rótulos (opcional; se não quiser, pode deixar só o "title")
-        labels = {
-            "title": f"Eixo {i} - {eixo['tipo']}",
-            "left_top": "Motorista — Frente",
-            "left_middle": "Motorista — 45°",
-            "left_bottom": "Motorista — Lateral",
-            "right_top": "Oposto — Frente",
-            "right_middle": "Oposto — 45°",
-            "right_bottom": "Oposto — Lateral",
-        }
-
-        collages.append(_grid_2x3_labeled(lt, lb, lp, rt, rb, rp, labels))
-        titles.append(labels["title"])
-
-    colagem_final = _stack_vertical_center(collages, titles)
-    st.session_state["ultima_colagem"] = colagem_final
-    st.session_state["titles"] = titles
-    st.session_state["collages"] = collages  # necessário para o fallback
+            collages, titles = [], []
+            for i, eixo in enumerate(st.session_state.axes, start=1):
+                lt, lb = _open_and_prepare(eixo["files"]["lt"]), _open_and_prepare(eixo["files"]["lb"])
+                rt, rb = _open_and_prepare(eixo["files"]["rt"]), _open_and_prepare(eixo["files"]["rb"])
+                labels = {"title": f"Eixo {i} - {eixo['tipo']}"}
+                collages.append(_grid_2x2_labeled(lt, lb, rt, rb, labels))
+                titles.append(labels["title"])
+            colagem_final = _stack_vertical_center(collages, titles)
+            st.session_state["ultima_colagem"] = colagem_final
+            st.session_state["titles"] = titles
 
         data_url = _img_to_dataurl(colagem_final)
         meta = {"placa": placa, "nome": nome, "empresa": empresa, "telefone": telefone, "email": email, "placa_info": placa_info}
