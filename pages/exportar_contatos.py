@@ -2,7 +2,36 @@
 import streamlit as st
 import pandas as pd
 import io
+import re  # Importa a biblioteca de expressões regulares
 from database import get_connection, release_connection
+
+# NOVA FUNÇÃO PARA LIMPAR E PADRONIZAR OS NÚMEROS
+def padronizar_telefone(numero):
+    """
+    Recebe um número de telefone em qualquer formato e o retorna
+    no padrão internacional E.164 (+55DDD9XXXXXXXX).
+    """
+    if not numero or not isinstance(numero, str):
+        return ""
+
+    # 1. Remove todos os caracteres que não são dígitos
+    numero_limpo = re.sub(r'\D', '', numero)
+
+    # 2. Se o número já tiver o código do país (55), remove para evitar duplicidade
+    if numero_limpo.startswith('55'):
+        numero_limpo = numero_limpo[2:]
+        
+    # 3. Remove o zero à esquerda do DDD, se houver (ex: 067)
+    if len(numero_limpo) == 11 and numero_limpo.startswith('0'):
+        numero_limpo = numero_limpo[1:]
+
+    # 4. Se o número tiver 10 ou 11 dígitos (DDD + número), adiciona o código do Brasil
+    if 10 <= len(numero_limpo) <= 11:
+        return f"+55{numero_limpo}"
+    
+    # 5. Se for um número inválido ou incompleto, retorna o que foi possível limpar
+    # (Evita retornar números curtos como "+554321")
+    return numero_limpo
 
 
 def get_contacts_to_export(re_export_all=False):
@@ -64,7 +93,8 @@ def format_for_google_contacts(df_responsaveis, df_motoristas):
             "Last Name": "",
             "Name Suffix": "",
             "Phone 1 - Type": "Celular",
-            "Phone 1 - Value": row["contato_responsavel"],
+            # APLICA A PADRONIZAÇÃO AQUI
+            "Phone 1 - Value": padronizar_telefone(row["contato_responsavel"]),
             "Notes": f"Contato da empresa {row['nome_empresa']}",
             "internal_id": f"cliente_{row['cliente_id']}"
         })
@@ -77,7 +107,8 @@ def format_for_google_contacts(df_responsaveis, df_motoristas):
             "Last Name": row["placa"],
             "Name Suffix": row["modelo"] or "",
             "Phone 1 - Type": "Celular",
-            "Phone 1 - Value": row["contato_motorista"],
+            # APLICA A PADRONIZAÇÃO AQUI
+            "Phone 1 - Value": padronizar_telefone(row["contato_motorista"]),
             "Notes": f"Motorista do veículo {row['placa']} da empresa {row['nome_empresa']}",
             "internal_id": f"veiculo_{row['veiculo_id']}"
         })
@@ -138,8 +169,6 @@ def app():
     Função principal da página.
     """
     st.title("📤 Exportar Contatos para o Google")
-
-  
 
     st.markdown("""
     Esta página gera um arquivo CSV com os contatos de **responsáveis de empresas** e **motoristas de veículos** que foram **adicionados ou atualizados** desde a última exportação.
