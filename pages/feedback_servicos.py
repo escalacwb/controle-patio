@@ -10,6 +10,12 @@ def app():
     st.title("📝 Controle de Feedback de Serviços")
     st.markdown("Acompanhe e registre o feedback dos serviços concluídos há 5 dias ou mais.")
 
+     # NOVO: Botão para recarregar os dados da página
+    col1, col2 = st.columns([0.8, 0.2])
+    with col2:
+        if st.button("🔄 Atualizar Dados", use_container_width=True, help="Recarrega todos os dados do banco de dados para esta página."):
+            st.rerun()
+
     # --- LÓGICA DO BOTÃO DE FEEDBACK ---
     # Itera sobre as chaves da sessão para encontrar um botão de feedback que foi clicado
     for key in list(st.session_state.keys()):
