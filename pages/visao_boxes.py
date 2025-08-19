@@ -64,7 +64,7 @@ def get_estado_atual_boxes(conn):
 
 
 def render_box(conn, box_data, catalogo_servicos):
-    box_id = int(box_data.name) 
+    box_id = int(box_data.name)
     execucao_id = box_data['execucao_id']
 
     if pd.isna(execucao_id):
@@ -72,15 +72,15 @@ def render_box(conn, box_data, catalogo_servicos):
         if box_id in st.session_state.box_states:
             del st.session_state.box_states[box_id]
         return
-        
+
     st.header(f"🧰 BOX {box_id}")
 
     if box_id not in st.session_state.box_states:
         sync_box_state_from_db(conn, box_id, int(box_data['veiculo_id']))
-    
+
     box_state = st.session_state.box_states.get(box_id, {})
-    
-     with st.container(border = True):
+
+    with st.container(border=True):
         st.markdown(f"**Placa:** {box_data['placa']} | **Empresa:** {box_data['empresa']}")
         if pd.notna(box_data['nome_motorista']) and box_data['nome_motorista']:
             st.markdown(f"**Motorista:** {box_data['nome_motorista']} ({box_data['contato_motorista'] or 'N/A'})")
@@ -88,11 +88,11 @@ def render_box(conn, box_data, catalogo_servicos):
         if pd.notna(box_data['quilometragem']):
             st.markdown(f"**KM de Entrada:** {int(box_data['quilometragem']):,} km".replace(',', '.'))
 
-        # << NOVO: Modelo, se vier do SELECT
+        # NOVO: Modelo do veículo (vem de v.modelo no SELECT de get_estado_atual_boxes)
         if 'modelo' in box_data.index and pd.notna(box_data['modelo']) and str(box_data['modelo']).strip():
             st.markdown(f"**Modelo:** {box_data['modelo']}")
 
-        # << NOVO: Observações das linhas de serviço deste box
+        # NOVO: Observações dos serviços deste box (observacao_execucao das 3 tabelas)
         obs_servicos = [
             s.get('observacao') for s in st.session_state.box_states.get(box_id, {}).get('servicos', {}).values()
             if s.get('status') != 'removido' and s.get('observacao')
@@ -113,12 +113,12 @@ def render_box(conn, box_data, catalogo_servicos):
             c1, c2 = st.columns([0.75, 0.25])
             c1.write(servico['tipo'])
 
-            # ⬇️ novo: observação específica do serviço, logo abaixo do nome
+            # NOVO: observação específica do serviço
             if servico.get('observacao'):
                 c1.caption(f"Obs.: {servico['observacao']}")
 
             nova_qtd = c2.number_input("Qtd", value=servico['qtd_executada'], min_value=0,
-                                      key=f"qtd_{unique_id}", label_visibility="collapsed")
+                                       key=f"qtd_{unique_id}", label_visibility="collapsed")
             if nova_qtd != servico['qtd_executada']:
                 st.session_state.box_states[box_id]['servicos'][unique_id]['qtd_executada'] = nova_qtd
                 st.rerun()
@@ -132,17 +132,17 @@ def render_box(conn, box_data, catalogo_servicos):
     servicos_disponiveis = sorted(list(set(todos_servicos)))
     c_add1, c_add2, c_add3 = st.columns([0.7, 0.15, 0.15])
     novo_servico_tipo = c_add1.selectbox("Selecione o serviço", [""] + servicos_disponiveis,
-                                          key=f"new_srv_tipo_{box_id}", label_visibility="collapsed")
+                                         key=f"new_srv_tipo_{box_id}", label_visibility="collapsed")
     novo_servico_qtd = c_add2.number_input("Qtd", min_value=1, value=1, key=f"new_srv_qtd_{box_id}",
-                                            label_visibility="collapsed")
+                                           label_visibility="collapsed")
     if c_add3.button("➕", key=f"add_{box_id}", help="Adicionar à lista"):
         if novo_servico_tipo:
             adicionar_servico_extra(conn, box_id, int(execucao_id), novo_servico_tipo, novo_servico_qtd, catalogo_servicos)
-            st.session_state.box_states = {} # Força resync
+            st.session_state.box_states = {}
             st.rerun()
 
     obs_final_value = st.text_area("Observações Finais da Execução", key=f"obs_final_{box_id}",
-                                     value=box_state.get('obs_final', ''))
+                                   value=box_state.get('obs_final', ''))
     if obs_final_value != box_state.get('obs_final', ''):
         st.session_state.box_states[box_id]['obs_final'] = obs_final_value
         st.rerun()
