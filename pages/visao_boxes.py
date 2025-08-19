@@ -80,7 +80,7 @@ def render_box(conn, box_data, catalogo_servicos):
 
     box_state = st.session_state.box_states.get(box_id, {})
 
-      with st.container(border=True):
+    with st.container(border=True):
         st.markdown(f"**Placa:** {box_data['placa']} | **Empresa:** {box_data['empresa']}")
         if pd.notna(box_data['nome_motorista']) and box_data['nome_motorista']:
             st.markdown(f"**Motorista:** {box_data['nome_motorista']} ({box_data['contato_motorista'] or 'N/A'})")
