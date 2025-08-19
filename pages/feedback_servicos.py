@@ -74,8 +74,8 @@ def app():
             SELECT
                 v.placa,
                 v.modelo,
-                v.motorista_padrao AS nome_motorista, -- CORRIGIDO
-                v.contato_motorista AS contato_motorista, -- CORRIGIDO
+                v.nome_motorista,    -- CORRIGIDO: Nome exato da coluna na tabela 'veiculos'
+                v.contato_motorista, -- CORRIGIDO: Nome exato da coluna na tabela 'veiculos'
                 es.quilometragem,
                 MAX(es.fim_execucao) as ultima_data_servico,
                 STRING_AGG(sa.lista_servicos, '; ') as todos_os_servicos,
@@ -89,7 +89,7 @@ def app():
                 AND es.fim_execucao <= NOW() - INTERVAL '5 days'
                 AND es.fim_execucao::date >= %s
             GROUP BY
-                v.placa, v.modelo, es.quilometragem, v.motorista_padrao, v.contato_motorista -- CORRIGIDO
+                v.placa, v.modelo, es.quilometragem, v.nome_motorista, v.contato_motorista -- CORRIGIDO
             ORDER BY
                 ultima_data_servico ASC;
         """
