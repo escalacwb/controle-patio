@@ -74,9 +74,9 @@ def app():
             SELECT
                 v.placa,
                 v.modelo,
+                v.motorista AS nome_motorista, -- ALTERADO: Busca o nome da tabela de veículos
+                v.contato AS contato_motorista, -- ALTERADO: Busca o contato da tabela de veículos
                 es.quilometragem,
-                es.nome_motorista,
-                es.contato_motorista,
                 MAX(es.fim_execucao) as ultima_data_servico,
                 STRING_AGG(sa.lista_servicos, '; ') as todos_os_servicos,
                 ARRAY_AGG(es.id) as lista_execucao_ids
@@ -89,7 +89,7 @@ def app():
                 AND es.fim_execucao <= NOW() - INTERVAL '5 days'
                 AND es.fim_execucao::date >= %s
             GROUP BY
-                v.placa, v.modelo, es.quilometragem, es.nome_motorista, es.contato_motorista
+                v.placa, v.modelo, es.quilometragem, v.motorista, v.contato -- ALTERADO: Agrupa pelos novos campos
             ORDER BY
                 ultima_data_servico ASC;
         """
