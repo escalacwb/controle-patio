@@ -51,7 +51,7 @@ def get_estado_atual_boxes(conn):
         SELECT 
             b.id, b.area as box_area, es.id as execucao_id, 
             v.placa, v.empresa, v.nome_motorista, v.contato_motorista,
-            v.modelo,                                      -- ⬅️ novo: modelo do caminhão
+            v.modelo,                                -- << ADICIONE ESTA LINHA
             f.nome as funcionario_nome, es.veiculo_id, es.funcionario_id, es.quilometragem
         FROM boxes b
         LEFT JOIN execucao_servico es ON b.id = es.box_id AND es.status = 'em_andamento'
@@ -80,7 +80,7 @@ def render_box(conn, box_data, catalogo_servicos):
     
     box_state = st.session_state.box_states.get(box_id, {})
     
-    with st.container(border=True):
+     with st.container(border=True):
         st.markdown(f"**Placa:** {box_data['placa']} | **Empresa:** {box_data['empresa']}")
         if pd.notna(box_data['nome_motorista']) and box_data['nome_motorista']:
             st.markdown(f"**Motorista:** {box_data['nome_motorista']} ({box_data['contato_motorista'] or 'N/A'})")
@@ -88,18 +88,18 @@ def render_box(conn, box_data, catalogo_servicos):
         if pd.notna(box_data['quilometragem']):
             st.markdown(f"**KM de Entrada:** {int(box_data['quilometragem']):,} km".replace(',', '.'))
 
-        # ⬇️ novo: exibir modelo do caminhão, se vier no SELECT
-        if 'modelo' in box_data and pd.notna(box_data['modelo']):
+        # << NOVO: Modelo, se vier do SELECT
+        if 'modelo' in box_data.index and pd.notna(box_data['modelo']) and str(box_data['modelo']).strip():
             st.markdown(f"**Modelo:** {box_data['modelo']}")
 
-        # ⬇️ novo: resumo de observações dos serviços (logo abaixo do KM/Modelo)
-        obs_resumo = [
-            f"- {s['tipo']}: _{s['observacao']}_"
-            for s in box_state.get('servicos', {}).values()
-            if s.get('observacao')
+        # << NOVO: Observações das linhas de serviço deste box
+        obs_servicos = [
+            s.get('observacao') for s in st.session_state.box_states.get(box_id, {}).get('servicos', {}).values()
+            if s.get('status') != 'removido' and s.get('observacao')
         ]
-        if obs_resumo:
-            st.markdown("**Observações dos serviços:**\n" + "\n".join(obs_resumo))
+        if obs_servicos:
+            resumo_obs = " | ".join(sorted(set(map(str, obs_servicos))))
+            st.markdown(f"**Observações (serviços):** {resumo_obs}")
 
         c_unassign, _ = st.columns([0.5, 0.5])
         if c_unassign.button("↩️ Retirar do Box", key=f"unassign_block_{box_id}", use_container_width=True):
@@ -165,19 +165,19 @@ def sync_box_state_from_db(conn, box_id, veiculo_id):
     """
     df_servicos = pd.read_sql(query, conn, params=[veiculo_id, box_id] * 3)
 
-    servicos_dict = {}
-    for _, row in df_servicos.iterrows():
-        unique_id = f"{row['area']}_{row['id']}"
-        servicos_dict[unique_id] = {
+    servicos_dict = {
+        f"{row['area']}_{row['id']}": {
             'db_id': row['id'],
             'tipo': row['tipo'],
             'quantidade': row['quantidade'],
             'qtd_executada': row['quantidade'],
             'area': row['area'],
             'status': 'ativo',
-            'observacao': (row['observacao'] if pd.notna(row['observacao']) else "")  # ⬅️ novo
-        }
+            'observacao': (row['observacao'] if pd.notna(row['observacao']) else ""),  # << NOVO
+        } for _, row in df_servicos.iterrows()
+    }
 
+    # mantém compat: preenche o campo de observação final com um resumo (opcional)
     obs_geral = df_servicos['observacao'].dropna().unique()
     st.session_state.box_states[box_id] = {
         'servicos': servicos_dict,
