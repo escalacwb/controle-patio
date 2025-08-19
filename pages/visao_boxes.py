@@ -49,18 +49,30 @@ def visao_boxes():
 def get_estado_atual_boxes(conn):
     query = """
         SELECT 
-            b.id, b.area as box_area, es.id as execucao_id, 
-            v.placa, v.empresa, v.nome_motorista, v.contato_motorista,
-            v.modelo,                                -- << ADICIONE ESTA LINHA
-            f.nome as funcionario_nome, es.veiculo_id, es.funcionario_id, es.quilometragem
+            b.id, 
+            b.area as box_area, 
+            es.id as execucao_id, 
+            v.placa, 
+            v.empresa, 
+            v.nome_motorista, 
+            v.contato_motorista,
+            v.modelo,                     -- << NOVO: modelo do veículo
+            f.nome as funcionario_nome, 
+            es.veiculo_id, 
+            es.funcionario_id, 
+            es.quilometragem
         FROM boxes b
-        LEFT JOIN execucao_servico es ON b.id = es.box_id AND es.status = 'em_andamento'
-        LEFT JOIN veiculos v ON es.veiculo_id = v.id
-        LEFT JOIN funcionarios f ON es.funcionario_id = f.id
+        LEFT JOIN execucao_servico es 
+               ON b.id = es.box_id AND es.status = 'em_andamento'
+        LEFT JOIN veiculos v 
+               ON es.veiculo_id = v.id
+        LEFT JOIN funcionarios f 
+               ON es.funcionario_id = f.id
         WHERE b.id > 0
         ORDER BY b.id;
     """
     return pd.read_sql(query, conn, index_col='id')
+
 
 
 def render_box(conn, box_data, catalogo_servicos):
@@ -88,17 +100,21 @@ def render_box(conn, box_data, catalogo_servicos):
         if pd.notna(box_data['quilometragem']):
             st.markdown(f"**KM de Entrada:** {int(box_data['quilometragem']):,} km".replace(',', '.'))
 
-        # NOVO: Modelo do veículo (vem de v.modelo no SELECT de get_estado_atual_boxes)
+        # Modelo do veículo (vem de v.modelo no SELECT de get_estado_atual_boxes)
         if 'modelo' in box_data.index and pd.notna(box_data['modelo']) and str(box_data['modelo']).strip():
             st.markdown(f"**Modelo:** {box_data['modelo']}")
 
-        # NOVO: Observações dos serviços deste box (observacao_execucao das 3 tabelas)
-        obs_servicos = [
-            s.get('observacao') for s in st.session_state.box_states.get(box_id, {}).get('servicos', {}).values()
-            if s.get('status') != 'removido' and s.get('observacao')
-        ]
+        # Observações dos serviços deste box (do CADASTRO do serviço)
+        # aceita tanto 'observacao' quanto 'observacao_cadastro' (para compat)
+        obs_servicos = []
+        for s in st.session_state.box_states.get(box_id, {}).get('servicos', {}).values():
+            if s.get('status') == 'removido':
+                continue
+            cad = s.get('observacao') or s.get('observacao_cadastro')
+            if cad and str(cad).strip():
+                obs_servicos.append(str(cad).strip())
         if obs_servicos:
-            resumo_obs = " | ".join(sorted(set(map(str, obs_servicos))))
+            resumo_obs = " | ".join(sorted(set(obs_servicos)))
             st.markdown(f"**Observações (serviços):** {resumo_obs}")
 
         c_unassign, _ = st.columns([0.5, 0.5])
@@ -113,12 +129,21 @@ def render_box(conn, box_data, catalogo_servicos):
             c1, c2 = st.columns([0.75, 0.25])
             c1.write(servico['tipo'])
 
-            # NOVO: observação específica do serviço
-            if servico.get('observacao'):
-                c1.caption(f"Obs.: {servico['observacao']}")
+            # Observações por serviço
+            obs_cad = servico.get('observacao') or servico.get('observacao_cadastro')
+            if obs_cad and str(obs_cad).strip():
+                c1.caption(f"Obs. cadastro: {obs_cad}")
+            obs_exec = servico.get('observacao_execucao')
+            if obs_exec and str(obs_exec).strip():
+                c1.caption(f"Obs. execução: {obs_exec}")
 
-            nova_qtd = c2.number_input("Qtd", value=servico['qtd_executada'], min_value=0,
-                                       key=f"qtd_{unique_id}", label_visibility="collapsed")
+            nova_qtd = c2.number_input(
+                "Qtd",
+                value=servico['qtd_executada'],
+                min_value=0,
+                key=f"qtd_{unique_id}",
+                label_visibility="collapsed"
+            )
             if nova_qtd != servico['qtd_executada']:
                 st.session_state.box_states[box_id]['servicos'][unique_id]['qtd_executada'] = nova_qtd
                 st.rerun()
@@ -131,18 +156,30 @@ def render_box(conn, box_data, catalogo_servicos):
     )
     servicos_disponiveis = sorted(list(set(todos_servicos)))
     c_add1, c_add2, c_add3 = st.columns([0.7, 0.15, 0.15])
-    novo_servico_tipo = c_add1.selectbox("Selecione o serviço", [""] + servicos_disponiveis,
-                                         key=f"new_srv_tipo_{box_id}", label_visibility="collapsed")
-    novo_servico_qtd = c_add2.number_input("Qtd", min_value=1, value=1, key=f"new_srv_qtd_{box_id}",
-                                           label_visibility="collapsed")
+    novo_servico_tipo = c_add1.selectbox(
+        "Selecione o serviço",
+        [""] + servicos_disponiveis,
+        key=f"new_srv_tipo_{box_id}",
+        label_visibility="collapsed"
+    )
+    novo_servico_qtd = c_add2.number_input(
+        "Qtd",
+        min_value=1,
+        value=1,
+        key=f"new_srv_qtd_{box_id}",
+        label_visibility="collapsed"
+    )
     if c_add3.button("➕", key=f"add_{box_id}", help="Adicionar à lista"):
         if novo_servico_tipo:
             adicionar_servico_extra(conn, box_id, int(execucao_id), novo_servico_tipo, novo_servico_qtd, catalogo_servicos)
             st.session_state.box_states = {}
             st.rerun()
 
-    obs_final_value = st.text_area("Observações Finais da Execução", key=f"obs_final_{box_id}",
-                                   value=box_state.get('obs_final', ''))
+    obs_final_value = st.text_area(
+        "Observações Finais da Execução",
+        key=f"obs_final_{box_id}",
+        value=box_state.get('obs_final', '')
+    )
     if obs_final_value != box_state.get('obs_final', ''):
         st.session_state.box_states[box_id]['obs_final'] = obs_final_value
         st.rerun()
@@ -151,15 +188,24 @@ def render_box(conn, box_data, catalogo_servicos):
     if st.button("✅ Finalizar Box", key=f"finish_{box_id}", type="primary", use_container_width=True):
         finalizar_execucao(conn, box_id, int(execucao_id))
 
+
 def sync_box_state_from_db(conn, box_id, veiculo_id):
     query = """
-        (SELECT 'borracharia' as area, id, tipo, quantidade, observacao_execucao as observacao
+        (SELECT 'borracharia'  AS area, id, tipo, quantidade,
+                observacao AS observacao_cadastro,               -- << NOVO
+                observacao_execucao
            FROM servicos_solicitados_borracharia
-          WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento') UNION ALL
-        (SELECT 'alinhamento' as area, id, tipo, quantidade, observacao_execucao as observacao
+          WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento')
+        UNION ALL
+        (SELECT 'alinhamento' AS area, id, tipo, quantidade,
+                observacao AS observacao_cadastro,               -- << NOVO
+                observacao_execucao
            FROM servicos_solicitados_alinhamento
-          WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento') UNION ALL
-        (SELECT 'manutencao' as area, id, tipo, quantidade, observacao_execucao as observacao
+          WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento')
+        UNION ALL
+        (SELECT 'manutencao'  AS area, id, tipo, quantidade,
+                observacao AS observacao_cadastro,               -- << NOVO
+                observacao_execucao
            FROM servicos_solicitados_manutencao
           WHERE veiculo_id = %s AND box_id = %s AND status = 'em_andamento')
     """
@@ -173,12 +219,19 @@ def sync_box_state_from_db(conn, box_id, veiculo_id):
             'qtd_executada': row['quantidade'],
             'area': row['area'],
             'status': 'ativo',
-            'observacao': (row['observacao'] if pd.notna(row['observacao']) else ""),  # << NOVO
-        } for _, row in df_servicos.iterrows()
+            'observacao_cadastro': (
+                row['observacao_cadastro'] if pd.notna(row['observacao_cadastro']) else None
+            ),                                                   # << NOVO
+            'observacao_execucao': (
+                row['observacao_execucao'] if pd.notna(row['observacao_execucao']) else None
+            ),                                                   # << NOVO (mantido)
+        } 
+        for _, row in df_servicos.iterrows()
     }
 
-    # mantém compat: preenche o campo de observação final com um resumo (opcional)
-    obs_geral = df_servicos['observacao'].dropna().unique()
+    # mantém seu comportamento atual para obs_final
+    obs_geral = df_servicos['observacao_execucao'].dropna().unique() \
+        if 'observacao_execucao' in df_servicos.columns else []
     st.session_state.box_states[box_id] = {
         'servicos': servicos_dict,
         'obs_final': (obs_geral[0] if len(obs_geral) > 0 else "")
