@@ -19,6 +19,12 @@ def app():
     st.title("📞 Revisão Proativa de Clientes")
     st.markdown("Identifique, contate e atualize os dados de veículos que precisam de uma nova revisão.")
 
+    # NOVO: Botão para recarregar os dados da página
+    col1, col2 = st.columns([0.8, 0.2])
+    with col2:
+        if st.button("🔄 Atualizar Dados", use_container_width=True, help="Recarrega todos os dados do banco de dados para esta página."):
+            st.rerun()
+
     # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
     if 'page_number' not in st.session_state:
         st.session_state.page_number = 0
@@ -100,7 +106,6 @@ def app():
                             if id_cliente_para_salvar and isinstance(id_cliente_para_salvar, int):
                                 try:
                                     with conn.cursor() as cursor:
-                                        # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
                                         cursor.execute("UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s, data_atualizacao_contato = NOW() WHERE id = %s", (novo_nome_resp, formatar_telefone(novo_contato_resp), int(id_cliente_para_salvar)))
                                         conn.commit()
                                         st.success("Responsável atualizado!")
@@ -170,7 +175,6 @@ def app():
                     if submit_v.form_submit_button("✅ Salvar Veículo", type="primary", use_container_width=True):
                         try:
                             with conn.cursor() as cursor:
-                                # ATUALIZADO: Adicionado data_atualizacao_contato = NOW()
                                 cursor.execute("""
                                     UPDATE veiculos 
                                     SET modelo = %s, ano_modelo = %s, nome_motorista = %s, 
