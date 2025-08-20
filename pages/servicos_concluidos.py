@@ -139,6 +139,28 @@ def app():
                         if st.button("Reverter", key=f"revert_{veiculo_id}_{quilometragem}", use_container_width=True):
                             reverter_visita(conn, veiculo_id, quilometragem)
 
+                # Observações dos serviços deste box (do CADASTRO do serviço)
+                # aceita tanto 'observacao' quanto 'observacao_cadastro' (para compat)
+                box_id = int(box_data.name)
+                execucao_id = box_data['execucao_id']
+                
+                obs_servicos = []
+                for s in st.session_state.box_states.get(box_id, {}).get('servicos', {}).values():
+                    if s.get('status') == 'removido':
+                        continue
+                    cad = s.get('observacao') or s.get('observacao_cadastro')
+                    if cad and str(cad).strip():
+                        obs_servicos.append(str(cad).strip())
+                if obs_servicos:
+                    resumo_obs = " | ".join(sorted(set(obs_servicos)))
+                    st.markdown(f"**Observações (serviços):** {resumo_obs}")
+
+                c_unassign, _ = st.columns([0.5, 0.5])
+                if c_unassign.button("↩️ Retirar do Box", key=f"unassign_block_{box_id}", use_container_width=True):
+                    desalocar_bloco_do_box(conn, box_id, int(execucao_id))
+                    st.session_state.box_states = {}
+                    st.rerun()
+
                 observacoes = grupo_visita['observacao_execucao'].dropna().unique()
                 if len(observacoes) > 0 and any(obs for obs in observacoes):
                     st.markdown("**Observações da Visita:**")
