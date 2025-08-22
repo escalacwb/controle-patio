@@ -1,11 +1,11 @@
-# /pages/servicos_concluidos.py (VERSÃO MODIFICADA)
+# /pages/servicos_concluidos.py (VERSÃO FINAL CORRIGIDA)
 
 import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
 from datetime import date, timedelta
 
-# --- NOVA FUNÇÃO AUXILIAR PARA ATUALIZAR O TIPO DE ATENDIMENTO ---
+# --- Função auxiliar para atualizar o tipo de atendimento ---
 def update_tipo_atendimento(conn, service_id, area, novo_tipo):
     """Atualiza o tipo de atendimento de um serviço específico na tabela correta."""
     tabela_map = {
@@ -32,7 +32,7 @@ def update_tipo_atendimento(conn, service_id, area, novo_tipo):
         return False
 
 def reverter_visita(conn, veiculo_id, quilometragem):
-    # ... (esta função permanece igual)
+    """Reverte os serviços de uma visita para o status 'pendente'."""
     try:
         p_veiculo_id = int(veiculo_id)
         p_quilometragem = int(quilometragem)
@@ -99,7 +99,7 @@ def app():
         return
 
     try:
-        # --- MUDANÇA 1: ATUALIZAR A QUERY PARA BUSCAR O ID E O TIPO DE ATENDIMENTO ---
+        # Query atualizada para buscar o ID do serviço e o tipo de atendimento
         query = """
             SELECT
                 es.id as execucao_id,
@@ -140,7 +140,6 @@ def app():
             
             with st.container(border=True):
                 col1, col2, col3, col4 = st.columns([0.4, 0.3, 0.15, 0.15])
-                # ... (o código das colunas de cabeçalho permanece o mesmo) ...
                 with col1:
                     st.markdown(f"#### Veículo: **{placa or 'N/A'}** ({empresa or 'N/A'})")
                     if pd.notna(info_visita['nome_motorista']) and info_visita['nome_motorista']:
@@ -169,7 +168,6 @@ def app():
 
                 st.markdown("##### Serviços realizados nesta visita:")
                 
-                # Prepara o DataFrame para edição
                 servicos_da_visita = grupo_visita[['service_id', 'area', 'tipo', 'quantidade', 'funcionario_nome', 'tipo_atendimento']].rename(columns={
                     'service_id': 'ID do Serviço',
                     'area': 'Área', 
@@ -180,45 +178,39 @@ def app():
                 })
                 servicos_da_visita.dropna(subset=['Tipo de Serviço'], inplace=True)
                 
-                # Guarda uma cópia do estado original para comparar depois
                 original_df = servicos_da_visita.copy()
 
-                # --- MUDANÇA 2: SUBSTITUIR st.table POR st.data_editor ---
+                # --- MUDANÇA PRINCIPAL: Usando st.data_editor para a tabela interativa ---
                 servicos_editados = st.data_editor(
                     servicos_da_visita,
                     key=f"editor_{execucao_id_principal}",
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        # Esconde a coluna de ID, mas a mantém nos dados para a lógica de update
-                        "ID do Serviço": None, 
-                        # Transforma a coluna 'Tipo de Atendimento' em um seletor
+                        "ID do Serviço": None, # Esconde a coluna de ID
                         "Tipo de Atendimento": st.column_config.SelectboxColumn(
                             "Tipo de Atendimento",
+                            help="Selecione se o serviço é Normal ou um Retorno",
                             options=["Normal", "Retorno"],
                             required=True,
                         )
                     },
-                    # Desabilita a edição de outras colunas
                     disabled=['Área', 'Tipo de Serviço', 'Qtd.', 'Executado por']
                 )
 
-                # --- MUDANÇA 3: LÓGICA PARA DETECTAR E SALVAR MUDANÇAS ---
+                # --- Lógica para detectar e salvar as mudanças ---
                 if not original_df.equals(servicos_editados):
-                    # Compara o DataFrame original com o editado para encontrar a linha que mudou
                     diff = original_df.compare(servicos_editados)
                     
                     for index in diff.index:
-                        # Pega os dados da linha que foi alterada
                         linha_alterada = servicos_editados.loc[index]
                         service_id = linha_alterada["ID do Serviço"]
                         area_servico = linha_alterada["Área"]
                         novo_tipo = linha_alterada["Tipo de Atendimento"]
                         
-                        # Chama a função de update e exibe o resultado
                         if update_tipo_atendimento(conn, service_id, area_servico, novo_tipo):
                             st.toast(f"✔️ Serviço '{linha_alterada['Tipo de Serviço']}' atualizado para '{novo_tipo}'.", icon="🎉")
-                            st.rerun() # Recarrega a página para garantir consistência
+                            st.rerun()
                         else:
                             st.toast("❌ Falha ao atualizar o serviço.", icon="🔥")
 
