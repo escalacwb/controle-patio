@@ -204,7 +204,9 @@ def app():
                     
                     for index in diff.index:
                         linha_alterada = servicos_editados.loc[index]
-                        service_id = linha_alterada["ID do Serviço"]
+                        # --- CORREÇÃO APLICADA AQUI ---
+                        # Converte o ID do serviço de numpy.int64 para um int padrão do Python
+                        service_id = int(linha_alterada["ID do Serviço"])
                         area_servico = linha_alterada["Área"]
                         novo_tipo = linha_alterada["Tipo de Atendimento"]
                         
