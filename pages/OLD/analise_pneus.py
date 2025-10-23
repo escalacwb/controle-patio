@@ -1,4 +1,4 @@
-# pages/analise_pneus.py - VERSÃO FINAL COM TABELA DE PNEUS POR POSIÇÃO + MARCA DE FOGO
+# pages/analise_pneus.py - VERSÃO FINAL COM PROTOCOLO DE 3 FOTOS
 
 import os
 import io
@@ -30,7 +30,7 @@ except Exception as e:
     DEFEITOS_DB = {"defeitos_catalogados": [], "limites_legais": {}, "custos_servicos": {}}
 
 # =========================
-# Utilitários de imagem (mantidos intactos da versão original)
+# Utilitários de imagem
 # =========================
 
 def _open_and_prepare(file) -> Optional[Image.Image]:
@@ -92,7 +92,25 @@ def _grid_2x3_labeled(
     rt: Image.Image, rm: Image.Image, rb: Image.Image,
     labels: Dict[str, str]
 ) -> Image.Image:
-    """Monta colagem 2x3 (2 colunas x 3 linhas) com rótulos."""
+    """
+    Monta colagem 2x3 (2 colunas x 3 linhas) com rótulos.
+    
+    Layout:
+    ┌─────────────────┬─────────────────┐
+    │ MOTORISTA       │ OPOSTO          │
+    │ Foto FRONTAL    │ Foto FRONTAL    │
+    │ (lt)            │ (rt)            │
+    ├─────────────────┼─────────────────┤
+    │ MOTORISTA       │ OPOSTO          │
+    │ Foto 45° SULCOS │ Foto 45° SULCOS │
+    │ (lm)            │ (rm)            │
+    ├─────────────────┼─────────────────┤
+    │ MOTORISTA       │ OPOSTO          │
+    │ Foto LATERAL    │ Foto LATERAL    │
+    │ (lb)            │ (rb)            │
+    └─────────────────┴─────────────────┘
+    """
+    # Garantir que todas imagens existam
     left_w = min(
         lt.width if lt else MAX_SIDE,
         lm.width if lm else MAX_SIDE, 
@@ -104,6 +122,7 @@ def _grid_2x3_labeled(
         rb.width if rb else MAX_SIDE
     )
     
+    # Criar placeholders brancos se alguma imagem faltar
     lt = _fit_to_width(lt, left_w) if lt else Image.new("RGB", (left_w, left_w), "white")
     lm = _fit_to_width(lm, left_w) if lm else Image.new("RGB", (left_w, left_w), "white")
     lb = _fit_to_width(lb, left_w) if lb else Image.new("RGB", (left_w, left_w), "white")
@@ -111,6 +130,7 @@ def _grid_2x3_labeled(
     rm = _fit_to_width(rm, right_w) if rm else Image.new("RGB", (right_w, right_w), "white")
     rb = _fit_to_width(rb, right_w) if rb else Image.new("RGB", (right_w, right_w), "white")
     
+    # Uniformizar alturas por linha
     top_h = max(lt.height, rt.height)
     mid_h = max(lm.height, rm.height)
     bot_h = max(lb.height, rb.height)
@@ -119,10 +139,12 @@ def _grid_2x3_labeled(
     lm, rm = _pad_to_height(lm, mid_h), _pad_to_height(rm, mid_h)
     lb, rb = _pad_to_height(lb, bot_h), _pad_to_height(rb, bot_h)
     
+    # Montar canvas final
     total_w = left_w + right_w
     total_h = top_h + mid_h + bot_h
     out = Image.new("RGB", (total_w, total_h), "white")
     
+    # Colar imagens
     out.paste(lt, (0, 0))
     out.paste(rt, (left_w, 0))
     out.paste(lm, (0, top_h))
@@ -130,6 +152,7 @@ def _grid_2x3_labeled(
     out.paste(lb, (0, top_h + mid_h))
     out.paste(rb, (left_w, top_h + mid_h))
     
+    # Adicionar labels
     if labels.get("title"):
         _draw_label(out, labels["title"], xy=(8, 8))
     _draw_label(out, labels.get("left_top", ""), xy=(8, 8))
@@ -172,11 +195,11 @@ def _img_to_dataurl(img: Image.Image) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 # =========================
-# Prompt Avançado COM MARCA DE FOGO E TABELA DE POSIÇÃO
+# Prompt Avançado com Protocolo de 3 Fotos
 # =========================
 
 def _build_advanced_prompt(meta: dict, obs: str, axis_titles: List[str]) -> str:
-    """Constrói prompt extremamente detalhado com solicitação de marca de fogo."""
+    """Constrói prompt extremamente detalhado para análise profissional."""
     
     limites = DEFEITOS_DB.get("limites_legais", {})
     defeitos_conhecidos = DEFEITOS_DB.get("defeitos_catalogados", [])
@@ -239,21 +262,24 @@ def _build_advanced_prompt(meta: dict, obs: str, axis_titles: List[str]) -> str:
 - Padrão de desgaste na largura da banda
 - Uniformidade entre centro e ombros
 - Alinhamento visual da banda
+- Desgaste centralizado (código 13) ou nos ombros (código 22)
+- Desgaste irregular assimétrico (código 09)
 
 **Linha 2 - 45° SULCOS (profundidade):**
 - Profundidade dos sulcos (estimativa em mm, escala 0-16mm)
-- Picotamento, cortes na banda
-- Objetos cravados (pregos, parafusos)
+- Picotamento, cortes na banda (código 04)
+- Objetos cravados (pregos, parafusos - código 31)
 - Textura da borracha, rachaduras nos sulcos
+- Arrancamento de blocos (código 14)
 
 **Linha 3 - LATERAL (flancos e estrutura):**
-- Bolhas/ondulações no flanco (CRÍTICO)
-- Cortes e perfurações laterais
-- Trincas por envelhecimento
-- **MARCA/MODELO DO PNEU:** Identifique se visível (ex: Michelin XZE, Pirelli FH01, Bridgestone R297)
-- **MARCA DE FOGO:** Número/código gravado a fogo no flanco (ex: "FOT-1234", "B7H-5689"). Se não visível, escreva "não identificado"
-- Marcações DOT, TWI, dimensões, data de fabricação
-- Região do talão (parte inferior perto do aro)
+- **NOVO ÂNGULO CRÍTICO** para detectar defeitos invisíveis nas outras fotos:
+  * Bolhas/ondulações no flanco (códigos 50, 55) - CRÍTICO
+  * Cortes e perfurações laterais (código 57) - ALTO
+  * Trincas por envelhecimento (código 59) - MÉDIO
+  * Descolamentos (código 51, 52)
+  * Marcações: DOT, TWI, dimensões, data de fabricação
+  * Região do talão (parte inferior perto do aro)
 
 ---
 
@@ -282,17 +308,37 @@ Para cada pneu, ESTIME:
 2. **Percentual de Desgaste:** (16mm - sulco_atual) / 16mm × 100%
 3. **Vida Útil Restante:** Baseado em profundidade e padrão
 4. **Status Legal:** "Conforme" / "Próximo ao Limite" / "ILEGAL (< 1.6mm)"
-5. **Marca/Modelo:** Se legível na foto lateral (ex: "Michelin X Multiway")
-6. **Marca de Fogo:** Código gravado a fogo, se visível (ex: "FOT-1234" ou "não identificado")
 
 ### 4.2 Análise Qualitativa Detalhada
 Para cada defeito identificado:
 
 1. **Nome Técnico** (use códigos da base se aplicável)
-2. **Localização Anatômica Precisa**
-3. **Diagnóstico de Causa Raiz**
-4. **Impactos Operacionais Quantificados**
-5. **Classificação de Urgência**
+2. **Localização Anatômica Precisa:**
+   - Linha 1 (Frontal): Centro da banda, ombro esquerdo/direito
+   - Linha 2 (45°): Sulcos, profundidade, objetos
+   - **Linha 3 (Lateral): Flanco externo, região do talão, marcações**
+
+3. **Diagnóstico de Causa Raiz:**
+   - Causa mecânica provável
+   - Parâmetro suspeito específico
+   - Evidências visuais
+
+4. **Impactos Operacionais Quantificados:**
+   - Perda de vida útil (% e km)
+   - Aumento de consumo (%)
+   - Custo de perda de recapabilidade (R$)
+   - Probabilidade e prazo de falha
+
+5. **Classificação de Urgência:**
+   - **CRÍTICO:** Risco imediato (bolhas, talão danificado, cintas expostas)
+   - **ALTO:** Evolução rápida (cortes profundos, desgaste severo)
+   - **MÉDIO:** Requer correção (desgaste moderado, desalinhamento)
+   - **BAIXO:** Monitorar (desgaste normal)
+
+### 4.3 Diagnóstico Sistêmico
+- Conecte padrões entre eixos
+- Identifique componentes mecânicos suspeitos
+- Sugira inspeções complementares
 
 ---
 
@@ -319,33 +365,6 @@ Retorne EXCLUSIVAMENTE JSON seguindo esta estrutura:
     "mensagem_executiva": "Parágrafo direto sobre problemas e ações urgentes"
   }},
   
-  "tabela_pneus_por_posicao": [
-    {{
-      "eixo": "Eixo 1",
-      "posicao": "Motorista",
-      "marca_modelo": "Michelin XZE ou não identificado",
-      "marca_de_fogo": "FOT-1234 ou não identificado",
-      "profundidade_sulco_mm": 5.5,
-      "desgaste_percentual": 65,
-      "defeitos_resumidos": "Desgaste irregular, corte leve",
-      "status_legal": "Conforme",
-      "urgencia": "Médio",
-      "acao_recomendada": "Alinhamento em 30 dias"
-    }},
-    {{
-      "eixo": "Eixo 1",
-      "posicao": "Oposto",
-      "marca_modelo": "Pirelli FH01",
-      "marca_de_fogo": "não identificado",
-      "profundidade_sulco_mm": 4.0,
-      "desgaste_percentual": 75,
-      "defeitos_resumidos": "Sulco irregular",
-      "status_legal": "Atenção",
-      "urgencia": "Alto",
-      "acao_recomendada": "Recapagem urgente"
-    }}
-  ],
-  
   "tabela_visao_geral": [
     {{
       "posicao": "Eixo X - Lado Y",
@@ -365,12 +384,14 @@ Retorne EXCLUSIVAMENTE JSON seguindo esta estrutura:
       "tipo_eixo": "Direcional|Tração|Livre",
       "diagnostico_conjunto_eixo": "Análise do par",
       
+      "problemas_sistemicos_eixo": [
+        "Problema sistêmico 1",
+        "Problema sistêmico 2"
+      ],
+      
       "analise_pneus": [
         {{
           "posicao": "Motorista|Oposto",
-          "marca_modelo": "Michelin XZE ou não identificado",
-          "marca_de_fogo": "FOT-1234 ou não identificado",
-          
           "medidas_quantitativas": {{
             "profundidade_sulco_estimada_mm": 0.0,
             "profundidade_minima_detectada_mm": 0.0,
@@ -417,7 +438,10 @@ Retorne EXCLUSIVAMENTE JSON seguindo esta estrutura:
             }}
           ]
         }}
-      ]
+      ],
+      
+      "recomendacoes_eixo": [],
+      "custo_estimado_eixo": {{"min": 0, "max": 0}}
     }}
   ],
   
@@ -460,18 +484,18 @@ Retorne EXCLUSIVAMENTE JSON seguindo esta estrutura:
 
 ## 6. DIRETRIZES FINAIS CRÍTICAS
 
-1. **Foto Lateral (Linha 3) é CRUCIAL:** Aqui você detecta 40% dos defeitos críticos E identifica marca/modelo + marca de fogo
-2. **Marca de Fogo:** Procure por códigos gravados (geralmente 4-12 caracteres alfanuméricos). Ex: "FOT-1234", "B7H-5689", "MXW-7823"
-3. **Marca/Modelo:** Procure por logos e nomes (Michelin, Pirelli, Bridgestone, Goodyear, etc) + linha do produto (XZE, FH01, R297)
-4. **Se não visível:** Sempre escreva "não identificado" ao invés de deixar vazio
-5. **Tabela de Posição:** OBRIGATÓRIA - Liste TODOS os pneus fotografados com marca/modelo/fogo
+1. **Foto Lateral (Linha 3) é CRUCIAL:** Aqui você detecta 40% dos defeitos críticos que não aparecem nas outras fotos
+2. **Seja Quantitativo:** Números > adjetivos
+3. **Priorize por Risco:** Crítico = segurança. Alto = $ e tempo
+4. **Conecte Sintomas a Causas:** Correlacione observações do motorista com achados visuais
+5. **Use a Base de Conhecimento:** Referencie códigos quando aplicável
 
 **EXECUTE A ANÁLISE AGORA. RETORNE APENAS O JSON.**
 """
     return prompt
 
 # =========================
-# Chamada OpenAI (inalterada)
+# Chamada OpenAI
 # =========================
 
 def _call_openai_advanced(data_url: str, meta: dict, obs: str, model_name: str, axis_titles: List[str]) -> dict:
@@ -490,12 +514,8 @@ Suas especialidades:
 - Gestão de custos de manutenção de frotas
 - Interpretação de padrões de desgaste e falhas
 - Legislação de trânsito brasileira (CONTRAN)
-- Identificação de marcas, modelos e marcas de fogo em pneus
 
-IMPORTANTE: As imagens incluem fotos laterais (flancos) dos pneus. Nesta foto lateral (Linha 3), além de detectar defeitos, você DEVE:
-1. Identificar a MARCA e MODELO do pneu (ex: Michelin XZE, Pirelli FH01)
-2. Identificar a MARCA DE FOGO gravada (código alfanumérico de 4-12 caracteres, ex: FOT-1234)
-3. Se não visível, escreva "não identificado"
+IMPORTANTE: As imagens agora incluem fotos laterais (flancos) dos pneus. Esta é a área onde 40% dos defeitos críticos ocorrem (bolhas, cortes, trincas). Analise minuciosamente a Linha 3 (lateral) de cada colagem para detectar estes problemas invisíveis nas fotos frontais.
 
 Retorne APENAS o JSON estruturado. Não adicione texto fora do JSON."""
     
@@ -533,11 +553,11 @@ Retorne APENAS o JSON estruturado. Não adicione texto fora do JSON."""
         return {"erro": f"Falha na API: {e}", "raw": raw_text}
 
 # =========================
-# UI Renderização COM TABELA DE POSIÇÃO
+# UI Renderização
 # =========================
 
 def _render_advanced_report(laudo: dict, meta: dict, obs: str):
-    """Renderiza relatório avançado com tabela de pneus por posição."""
+    """Renderiza relatório avançado na interface."""
     
     resumo = laudo.get("resumo_executivo", {})
     
@@ -562,43 +582,7 @@ def _render_advanced_report(laudo: dict, meta: dict, obs: str):
     st.markdown("### 📋 Resumo Executivo")
     st.info(resumo.get("mensagem_executiva", "N/A"))
     
-    # 🆕 NOVA TABELA: Pneus por Posição com Marca de Fogo
-    st.markdown("### 🔍 Tabela de Pneus por Posição (com Marca de Fogo)")
-    if laudo.get("tabela_pneus_por_posicao"):
-        import pandas as pd
-        df_pneus = pd.DataFrame(laudo["tabela_pneus_por_posicao"])
-        
-        # Renomear colunas para português
-        df_pneus_display = df_pneus.rename(columns={
-            "eixo": "Eixo",
-            "posicao": "Posição",
-            "marca_modelo": "Marca/Modelo",
-            "marca_de_fogo": "Marca de Fogo",
-            "profundidade_sulco_mm": "Sulco (mm)",
-            "desgaste_percentual": "Desgaste (%)",
-            "defeitos_resumidos": "Defeitos",
-            "status_legal": "Legal",
-            "urgencia": "Urgência",
-            "acao_recomendada": "Ação Recomendada"
-        })
-        
-        # Destacar marca de fogo não identificada
-        def highlight_nao_identificado(val):
-            if isinstance(val, str) and "não identificado" in val.lower():
-                return 'background-color: #fff3cd'
-            return ''
-        
-        st.dataframe(
-            df_pneus_display.style.applymap(highlight_nao_identificado, subset=['Marca de Fogo']),
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        st.caption("💡 **Dica:** Células amarelas indicam marca de fogo não identificada na foto. Tire foto mais próxima do flanco para melhor leitura.")
-    else:
-        st.warning("Tabela de posição não disponível neste laudo.")
-    
-    st.markdown("### 📊 Tabela de Visão Geral - Status dos Pneus")
+    st.markdown("### 📊 Tabela de Visão Geral - Todos os Pneus")
     if laudo.get("tabela_visao_geral"):
         st.dataframe(laudo["tabela_visao_geral"], use_container_width=True, hide_index=True)
     
@@ -627,10 +611,6 @@ def _render_advanced_report(laudo: dict, meta: dict, obs: str):
             
             for pneu in eixo.get("analise_pneus", []):
                 st.markdown(f"#### 📍 Pneu: {pneu.get('posicao', 'N/A')}")
-                
-                # Exibir marca/modelo e marca de fogo
-                marca_info = f"**Marca/Modelo:** {pneu.get('marca_modelo', 'não identificado')} | **Marca de Fogo:** {pneu.get('marca_de_fogo', 'não identificado')}"
-                st.caption(marca_info)
                 
                 medidas = pneu.get("medidas_quantitativas", {})
                 col1, col2, col3, col4 = st.columns(4)
@@ -751,14 +731,15 @@ def _render_advanced_report(laudo: dict, meta: dict, obs: str):
         st.info(f"**Prazo:** {proxima.get('prazo_dias', 'N/A')} dias | **Motivo:** {proxima.get('motivo', 'N/A')}")
 
 # =========================
-# UI Principal (inalterada)
+# UI Principal
 # =========================
 
 def app():
     st.title("🛞 Análise Avançada de Pneus com IA — Protocolo de 3 Fotos")
-    st.caption("✅ Agora com análise dos flancos laterais + identificação de marca de fogo!")
+    st.caption("✅ Agora com análise dos flancos laterais! Laudo técnico profissional baseado em IA.")
     
-    st.info("🆕 **NOVO:** Sistema identifica MARCA/MODELO e MARCA DE FOGO gravada nos pneus!")
+    # Destaque do novo protocolo
+    st.info("🆕 **NOVO PROTOCOLO:** Agora fotografamos os FLANCOS LATERAIS, detectando 40% mais defeitos críticos (bolhas, cortes, trincas) que eram invisíveis antes!")
     
     col_m1, _ = st.columns([1, 3])
     with col_m1:
@@ -784,29 +765,41 @@ def app():
         placa_info = data if ok else {"erro": data}
         st.session_state.placa_info = placa_info
         if ok:
-            st.success(f"✅ Dados recuperados")
+            st.success(f"✅ Dados recuperados: {json.dumps(placa_info, ensure_ascii=False)}")
         else:
             st.warning(data)
     
     st.markdown("---")
     
-    with st.expander("📸 Protocolo de Fotografia (3 fotos por pneu)", expanded=True):
+    with st.expander("📸 Protocolo de Fotografia ATUALIZADO (3 fotos por pneu)", expanded=True):
         st.markdown("""
-**Para cada lado do pneu:**
+**Para cada lado do pneu, capture agora 3 fotos:**
 
 1. **Foto FRONTAL da banda** ⭐
-2. **Foto em 45° dos sulcos** ⭐
-3. **Foto LATERAL do flanco** 🆕 
-   - **IMPORTANTE:** Tire foto próxima o suficiente para ler marcações do pneu
-   - Deve ser possível ver marca/modelo (ex: Michelin) e marca de fogo gravada
+   - Câmera perpendicular, distância ~1m
+   - Enquadre toda largura da banda
 
-💡 **Dica:** Se você consegue ler o logo E ver números gravados, a foto está perfeita!
+2. **Foto em 45° dos sulcos** ⭐
+   - Ângulo diagonal para capturar profundidade
+   - Enquadre sulcos centrais
+
+3. **Foto LATERAL do flanco** 🆕 **NOVO - ESSENCIAL**
+   - Paralelo ao flanco externo (lado de fora)
+   - Enquadre flanco completo desde ombro até talão
+   - **Detecta:** Bolhas, cortes, trincas, marcações DOT/TWI
+
+**Requisitos técnicos:**
+- Resolução mínima: 1280x720 (recomendado: 1920x1080)
+- Iluminação: Natural difusa ou artificial sem sombras
+- Foco: Nítido, sem blur
+
+💡 **DICA:** Se você consegue ler o logo do pneu (ex: Michelin) na foto lateral, a foto está boa!
 """)
     
     observacao = st.text_area(
-        "Observações do motorista/gestor",
+        "Observações do motorista/gestor (até 500 caracteres)",
         max_chars=MAX_OBS,
-        placeholder="Ex.: Vibração, consumo aumentado, último alinhamento..."
+        placeholder="Ex.: Veículo puxa para direita, vibração acima de 80km/h, consumo aumentou 15%, último alinhamento há 8 meses..."
     )
     
     if "axes" not in st.session_state:
@@ -834,45 +827,49 @@ def app():
                 cm, co = st.columns(2)
                 
                 with cm:
-                    st.markdown("**🔵 Lado MOTORISTA**")
+                    st.markdown("**🔵 Lado MOTORISTA (Esquerdo)**")
                     eixo["files"]["lt"] = st.file_uploader(
-                        f"1️⃣ Frontal — Eixo {idx}", 
+                        f"1️⃣ Foto FRONTAL — Eixo {idx}", 
                         type=["jpg","jpeg","png"], 
-                        key=f"lt_{idx}"
+                        key=f"lt_{idx}",
+                        help="Banda de rodagem de frente"
                     )
                     eixo["files"]["lm"] = st.file_uploader(
-                        f"2️⃣ 45° — Eixo {idx}", 
+                        f"2️⃣ Foto 45° SULCOS — Eixo {idx}", 
                         type=["jpg","jpeg","png"], 
-                        key=f"lm_{idx}"
+                        key=f"lm_{idx}",
+                        help="Ângulo diagonal mostrando profundidade"
                     )
                     eixo["files"]["lb"] = st.file_uploader(
-                        f"3️⃣ Lateral 🆕 — Eixo {idx}", 
+                        f"3️⃣ Foto LATERAL — Eixo {idx} 🆕", 
                         type=["jpg","jpeg","png"], 
                         key=f"lb_{idx}",
-                        help="Foto próxima do flanco para ler marcações"
+                        help="Flanco de lado (detecta bolhas, cortes)"
                     )
                 
                 with co:
-                    st.markdown("**🔴 Lado OPOSTO**")
+                    st.markdown("**🔴 Lado OPOSTO (Direito)**")
                     eixo["files"]["rt"] = st.file_uploader(
-                        f"1️⃣ Frontal — Eixo {idx}", 
+                        f"1️⃣ Foto FRONTAL — Eixo {idx}", 
                         type=["jpg","jpeg","png"], 
-                        key=f"rt_{idx}"
+                        key=f"rt_{idx}",
+                        help="Banda de rodagem de frente"
                     )
                     eixo["files"]["rm"] = st.file_uploader(
-                        f"2️⃣ 45° — Eixo {idx}", 
+                        f"2️⃣ Foto 45° SULCOS — Eixo {idx}", 
                         type=["jpg","jpeg","png"], 
-                        key=f"rm_{idx}"
+                        key=f"rm_{idx}",
+                        help="Ângulo diagonal mostrando profundidade"
                     )
                     eixo["files"]["rb"] = st.file_uploader(
-                        f"3️⃣ Lateral 🆕 — Eixo {idx}", 
+                        f"3️⃣ Foto LATERAL — Eixo {idx} 🆕", 
                         type=["jpg","jpeg","png"], 
                         key=f"rb_{idx}",
-                        help="Foto próxima do flanco para ler marcações"
+                        help="Flanco de lado (detecta bolhas, cortes)"
                     )
     
     st.markdown("---")
-    pronto = st.button("🚀 Enviar para Análise", type="primary")
+    pronto = st.button("🚀 Enviar para Análise Avançada (3 Fotos)", type="primary")
     
     if "laudo" in st.session_state:
         _render_advanced_report(
@@ -886,7 +883,7 @@ def app():
         
         with col1:
             if st.button("🔄 Nova Análise"):
-                for key in ["laudo", "meta", "obs", "ultima_colagem"]:
+                for key in ["laudo", "meta", "obs", "ultima_colagem", "pdf_bytes"]:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
@@ -898,18 +895,20 @@ def app():
             from urllib.parse import quote
             resumo_wpp = st.session_state["laudo"].get("whatsapp_resumo", "")
             link_wpp = f"https://wa.me/{WHATSAPP_NUMERO}?text={quote(resumo_wpp)}"
-            st.markdown(f"[📲 WhatsApp]({link_wpp})")
+            st.markdown(f"[📲 Enviar via WhatsApp]({link_wpp})")
     
     if pronto:
+        # Validar que TODAS as 6 fotos de cada eixo foram enviadas
         for i, eixo in enumerate(st.session_state.axes, start=1):
             required = ["lt", "lm", "lb", "rt", "rm", "rb"]
             if not all(eixo["files"].get(k) for k in required):
-                st.error(f"❌ Envie todas as 6 fotos do Eixo {i}")
+                st.error(f"❌ Envie todas as 6 fotos do Eixo {i} (3 por lado: Frontal + 45° + Lateral)")
                 return
         
-        with st.spinner("🔄 Preparando imagens..."):
+        with st.spinner("🔄 Preparando imagens com protocolo de 3 fotos..."):
             collages, titles = [], []
             for i, eixo in enumerate(st.session_state.axes, start=1):
+                # Abrir todas as 6 fotos
                 lt = _open_and_prepare(eixo["files"]["lt"])
                 lm = _open_and_prepare(eixo["files"]["lm"])
                 lb = _open_and_prepare(eixo["files"]["lb"])
@@ -920,11 +919,11 @@ def app():
                 labels = {
                     "title": f"Eixo {i} - {eixo['tipo']}",
                     "left_top": "Motorista - Frontal",
-                    "left_middle": "Motorista - 45°",
-                    "left_bottom": "Motorista - Lateral",
+                    "left_middle": "Motorista - 45° Sulcos",
+                    "left_bottom": "Motorista - Lateral 🆕",
                     "right_top": "Oposto - Frontal",
-                    "right_middle": "Oposto - 45°",
-                    "right_bottom": "Oposto - Lateral"
+                    "right_middle": "Oposto - 45° Sulcos",
+                    "right_bottom": "Oposto - Lateral 🆕"
                 }
                 
                 collages.append(_grid_2x3_labeled(lt, lm, lb, rt, rm, rb, labels))
@@ -935,7 +934,7 @@ def app():
             st.session_state["titles"] = titles
             
             if DEBUG:
-                st.image(colagem_final, caption="Enviada à IA")
+                st.image(colagem_final, caption="Colagem enviada à IA", use_column_width=True)
             
             data_url = _img_to_dataurl(colagem_final)
         
@@ -948,11 +947,11 @@ def app():
             "placa_info": placa_info
         }
         
-        with st.spinner("🤖 Analisando... (até 2 min)"):
+        with st.spinner("🤖 Analisando com IA avançada... (pode levar até 2 minutos)"):
             laudo = _call_openai_advanced(data_url, meta, observacao, modelo, titles)
         
         if "erro" in laudo:
-            st.error(f"❌ Erro: {laudo.get('erro')}")
+            st.error(f"❌ Erro na análise: {laudo.get('erro')}")
             if DEBUG and laudo.get("raw"):
                 st.code(laudo.get("raw"))
             return
@@ -960,7 +959,7 @@ def app():
         st.session_state["laudo"] = laudo
         st.session_state["meta"] = meta
         st.session_state["obs"] = observacao
-        st.success("✅ Análise concluída com identificação de marcas!")
+        st.success("✅ Análise concluída! Agora com cobertura completa dos flancos laterais.")
         st.rerun()
 
 
