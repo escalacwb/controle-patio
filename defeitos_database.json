@@ -1,0 +1,92 @@
+{
+  "defeitos_catalogados": [
+    {
+      "codigo": "09",
+      "nome": "Desgaste Irregular Assimétrico",
+      "severidade": "Alta",
+      "categoria": "Desgaste"
+    },
+    {
+      "codigo": "13",
+      "nome": "Desgaste Centralizado",
+      "severidade": "Média",
+      "categoria": "Desgaste"
+    },
+    {
+      "codigo": "22",
+      "nome": "Desgaste nos Ombros",
+      "severidade": "Média",
+      "categoria": "Desgaste"
+    },
+    {
+      "codigo": "04",
+      "nome": "Picotamento e Cortes na Banda",
+      "severidade": "Média",
+      "categoria": "Danos Mecânicos"
+    },
+    {
+      "codigo": "31",
+      "nome": "Objetos Cravados",
+      "severidade": "Alta",
+      "categoria": "Danos Mecânicos"
+    },
+    {
+      "codigo": "50",
+      "nome": "Bolha no Flanco",
+      "severidade": "Crítica",
+      "categoria": "Estrutural"
+    },
+    {
+      "codigo": "55",
+      "nome": "Ondulação no Flanco",
+      "severidade": "Crítica",
+      "categoria": "Estrutural"
+    },
+    {
+      "codigo": "57",
+      "nome": "Corte no Flanco",
+      "severidade": "Alta",
+      "categoria": "Danos Mecânicos"
+    },
+    {
+      "codigo": "59",
+      "nome": "Trincas por Envelhecimento",
+      "severidade": "Média",
+      "categoria": "Desgaste Natural"
+    },
+    {
+      "codigo": "70",
+      "nome": "Dano no Talão",
+      "severidade": "Crítica",
+      "categoria": "Estrutural"
+    }
+  ],
+  "limites_legais": {
+    "profundidade_sulco_minima_mm": 1.6,
+    "profundidade_recomendada_substituicao_mm": 3.0,
+    "profundidade_pneu_novo_mm": 16.0,
+    "multa_valor_aproximado": 195.23
+  },
+  "custos_servicos": {
+    "alinhamento": {
+      "minimo": 200,
+      "maximo": 450
+    },
+    "balanceamento": {
+      "minimo": 80,
+      "maximo": 150
+    },
+    "recapagem": {
+      "minimo": 600,
+      "maximo": 900
+    },
+    "pneu_novo": {
+      "minimo": 1500,
+      "maximo": 3500
+    },
+    "calibragem": {
+      "minimo": 0,
+      "maximo": 30
+    }
+  }
+}
