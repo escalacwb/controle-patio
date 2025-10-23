@@ -536,8 +536,13 @@ Retorne APENAS o JSON estruturado. Não adicione texto fora do JSON."""
 # UI Renderização COM TABELA DE POSIÇÃO
 # =========================
 
+# =========================
+# FUNÇÃO _render_advanced_report COMPLETA E CORRIGIDA
+# Substitua toda a função no seu arquivo (da linha ~530 até ~790)
+# =========================
+
 def _render_advanced_report(laudo: dict, meta: dict, obs: str):
-    """Renderiza relatório avançado com tabela de pneus por posição."""
+    """Renderiza relatório avançado com tabela de pneus por posição - VERSÃO CORRIGIDA COM DEFENSIVE PROGRAMMING."""
     
     resumo = laudo.get("resumo_executivo", {})
     
@@ -562,48 +567,52 @@ def _render_advanced_report(laudo: dict, meta: dict, obs: str):
     st.markdown("### 📋 Resumo Executivo")
     st.info(resumo.get("mensagem_executiva", "N/A"))
     
-    # 🆕 NOVA TABELA: Pneus por Posição com Marca de Fogo
+    # Tabela de pneus por posição - COM VALIDAÇÃO
     st.markdown("### 🔍 Tabela de Pneus por Posição (com Marca de Fogo)")
-    if laudo.get("tabela_pneus_por_posicao"):
+    tabela_pneus = laudo.get("tabela_pneus_por_posicao")
+    if tabela_pneus and isinstance(tabela_pneus, list) and len(tabela_pneus) > 0:
         import pandas as pd
-        df_pneus = pd.DataFrame(laudo["tabela_pneus_por_posicao"])
-        
-        # Renomear colunas para português
-        df_pneus_display = df_pneus.rename(columns={
-            "eixo": "Eixo",
-            "posicao": "Posição",
-            "marca_modelo": "Marca/Modelo",
-            "marca_de_fogo": "Marca de Fogo",
-            "profundidade_sulco_mm": "Sulco (mm)",
-            "desgaste_percentual": "Desgaste (%)",
-            "defeitos_resumidos": "Defeitos",
-            "status_legal": "Legal",
-            "urgencia": "Urgência",
-            "acao_recomendada": "Ação Recomendada"
-        })
-        
-        # Destacar marca de fogo não identificada
-        def highlight_nao_identificado(val):
-            if isinstance(val, str) and "não identificado" in val.lower():
-                return 'background-color: #fff3cd'
-            return ''
-        
-        st.dataframe(
-            df_pneus_display.style.applymap(highlight_nao_identificado, subset=['Marca de Fogo']),
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        st.caption("💡 **Dica:** Células amarelas indicam marca de fogo não identificada na foto. Tire foto mais próxima do flanco para melhor leitura.")
+        try:
+            df_pneus = pd.DataFrame(tabela_pneus)
+            
+            df_pneus_display = df_pneus.rename(columns={
+                "eixo": "Eixo",
+                "posicao": "Posição",
+                "marca_modelo": "Marca/Modelo",
+                "marca_de_fogo": "Marca de Fogo",
+                "profundidade_sulco_mm": "Sulco (mm)",
+                "desgaste_percentual": "Desgaste (%)",
+                "defeitos_resumidos": "Defeitos",
+                "status_legal": "Legal",
+                "urgencia": "Urgência",
+                "acao_recomendada": "Ação Recomendada"
+            })
+            
+            def highlight_nao_identificado(val):
+                if isinstance(val, str) and "não identificado" in val.lower():
+                    return 'background-color: #fff3cd'
+                return ''
+            
+            st.dataframe(
+                df_pneus_display.style.applymap(highlight_nao_identificado, subset=['Marca de Fogo']),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            st.caption("💡 **Dica:** Células amarelas indicam marca de fogo não identificada na foto.")
+        except Exception as e:
+            st.warning(f"Erro ao renderizar tabela de posição: {e}")
     else:
-        st.warning("Tabela de posição não disponível neste laudo.")
+        st.info("Tabela de posição não disponível neste laudo.")
     
     st.markdown("### 📊 Tabela de Visão Geral - Status dos Pneus")
-    if laudo.get("tabela_visao_geral"):
-        st.dataframe(laudo["tabela_visao_geral"], use_container_width=True, hide_index=True)
+    tabela_geral = laudo.get("tabela_visao_geral")
+    if tabela_geral and isinstance(tabela_geral, list) and len(tabela_geral) > 0:
+        st.dataframe(tabela_geral, use_container_width=True, hide_index=True)
     
-    conformidade = laudo.get("conformidade_legal", {})
-    if conformidade:
+    # Conformidade legal - COM VALIDAÇÃO
+    conformidade = laudo.get("conformidade_legal")
+    if conformidade and isinstance(conformidade, dict):
         st.markdown("### ⚖️ Conformidade Legal (CONTRAN 316/2009)")
         status_legal = conformidade.get("status_geral", "N/A")
         
@@ -616,57 +625,83 @@ def _render_advanced_report(laudo: dict, meta: dict, obs: str):
     
     st.markdown("### 🔍 Análise Detalhada por Eixo")
     
-    for eixo in laudo.get("analise_detalhada_eixos", []):
-        with st.expander(f"**{eixo.get('titulo_eixo', 'Eixo')}** - {eixo.get('tipo_eixo', '')}", expanded=False):
-            st.write(f"**Diagnóstico do Conjunto:** {eixo.get('diagnostico_conjunto_eixo', 'N/A')}")
-            
-            if eixo.get("problemas_sistemicos_eixo"):
-                st.markdown("**⚠️ Problemas Sistêmicos Detectados:**")
-                for prob in eixo.get("problemas_sistemicos_eixo", []):
-                    st.write(f"- {prob}")
-            
-            for pneu in eixo.get("analise_pneus", []):
-                st.markdown(f"#### 📍 Pneu: {pneu.get('posicao', 'N/A')}")
+    # Análise por eixo - COM VALIDAÇÃO COMPLETA
+    eixos = laudo.get("analise_detalhada_eixos")
+    if eixos and isinstance(eixos, list) and len(eixos) > 0:
+        for eixo in eixos:
+            if not isinstance(eixo, dict):
+                continue
                 
-                # Exibir marca/modelo e marca de fogo
-                marca_info = f"**Marca/Modelo:** {pneu.get('marca_modelo', 'não identificado')} | **Marca de Fogo:** {pneu.get('marca_de_fogo', 'não identificado')}"
-                st.caption(marca_info)
+            with st.expander(f"**{eixo.get('titulo_eixo', 'Eixo')}** - {eixo.get('tipo_eixo', '')}", expanded=False):
+                st.write(f"**Diagnóstico do Conjunto:** {eixo.get('diagnostico_conjunto_eixo', 'N/A')}")
                 
-                medidas = pneu.get("medidas_quantitativas", {})
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Sulco", f"{medidas.get('profundidade_sulco_estimada_mm', 0)} mm")
-                with col2:
-                    st.metric("Desgaste", f"{medidas.get('percentual_desgaste', 0):.1f}%")
-                with col3:
-                    st.metric("Vida Restante", f"{medidas.get('vida_util_restante_km_estimado', 0):,} km")
-                with col4:
-                    status_legal = medidas.get("status_legal", "N/A")
-                    cor = "🟢" if status_legal == "Conforme" else "🟡" if "Próximo" in status_legal else "🔴"
-                    st.metric("Legal", f"{cor} {status_legal}")
+                # Problemas sistêmicos - CORRIGIDO
+                problemas_eixo = eixo.get("problemas_sistemicos_eixo")
+                if problemas_eixo and isinstance(problemas_eixo, list) and len(problemas_eixo) > 0:
+                    st.markdown("**⚠️ Problemas Sistêmicos Detectados:**")
+                    for prob in problemas_eixo:
+                        if prob and isinstance(prob, str):
+                            st.write(f"- {prob}")
                 
-                for defeito in pneu.get("defeitos", []):
-                    with st.container(border=True):
-                        urgencia = defeito.get("urgencia", "N/A")
-                        emoji = "🔴" if urgencia == "Crítico" else "🟠" if urgencia == "Alto" else "🟡" if urgencia == "Médio" else "🟢"
+                # Análise de pneus - COM VALIDAÇÃO
+                pneus = eixo.get("analise_pneus")
+                if pneus and isinstance(pneus, list):
+                    for pneu in pneus:
+                        if not isinstance(pneu, dict):
+                            continue
+                            
+                        st.markdown(f"#### 📍 Pneu: {pneu.get('posicao', 'N/A')}")
                         
-                        st.markdown(f"**{emoji} {defeito.get('nome_defeito', 'Defeito')}** [{urgencia}]")
-                        st.caption(f"📍 Onde olhar: {defeito.get('localizacao_detalhada', 'N/A')}")
+                        marca_modelo = pneu.get('marca_modelo', 'não identificado')
+                        marca_fogo = pneu.get('marca_de_fogo', 'não identificado')
+                        marca_info = f"**Marca/Modelo:** {marca_modelo} | **Marca de Fogo:** {marca_fogo}"
+                        st.caption(marca_info)
                         
-                        causa = defeito.get("diagnostico_causa_raiz", {})
-                        st.markdown(f"**🔎 Causa Raiz:** {causa.get('causa_primaria', 'N/A')}")
-                        if causa.get("parametro_suspeito"):
-                            st.caption(f"↳ Parâmetro: {causa.get('parametro_suspeito')}")
+                        medidas = pneu.get("medidas_quantitativas")
+                        if medidas and isinstance(medidas, dict):
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Sulco", f"{medidas.get('profundidade_sulco_estimada_mm', 0)} mm")
+                            with col2:
+                                st.metric("Desgaste", f"{medidas.get('percentual_desgaste', 0):.1f}%")
+                            with col3:
+                                st.metric("Vida Restante", f"{medidas.get('vida_util_restante_km_estimado', 0):,} km")
+                            with col4:
+                                status_legal = medidas.get("status_legal", "N/A")
+                                cor = "🟢" if status_legal == "Conforme" else "🟡" if "Próximo" in str(status_legal) else "🔴"
+                                st.metric("Legal", f"{cor} {status_legal}")
                         
-                        impactos = defeito.get("impactos_quantificados", {})
-                        st.markdown("**💰 Impactos:**")
-                        st.write(f"- Perda de vida útil: {impactos.get('perda_vida_util_percentual', 0)}% (~{impactos.get('perda_vida_util_km', 'N/A')})")
-                        st.write(f"- Aumento consumo: {impactos.get('aumento_consumo_combustivel_percentual', 0)}%")
-                        st.write(f"- Custo perda recapabilidade: {impactos.get('custo_perda_recapabilidade', 'N/A')}")
-                        
-                        with st.expander("ℹ️ Entenda o problema"):
-                            exp = defeito.get("explicacao_pedagogica", {})
-                            st.markdown(f"""
+                        defeitos = pneu.get("defeitos")
+                        if defeitos and isinstance(defeitos, list):
+                            for defeito in defeitos:
+                                if not isinstance(defeito, dict):
+                                    continue
+                                    
+                                with st.container(border=True):
+                                    urgencia = defeito.get("urgencia", "N/A")
+                                    emoji = "🔴" if urgencia == "Crítico" else "🟠" if urgencia == "Alto" else "🟡" if urgencia == "Médio" else "🟢"
+                                    
+                                    st.markdown(f"**{emoji} {defeito.get('nome_defeito', 'Defeito')}** [{urgencia}]")
+                                    st.caption(f"📍 Onde olhar: {defeito.get('localizacao_detalhada', 'N/A')}")
+                                    
+                                    causa = defeito.get("diagnostico_causa_raiz")
+                                    if causa and isinstance(causa, dict):
+                                        st.markdown(f"**🔎 Causa Raiz:** {causa.get('causa_primaria', 'N/A')}")
+                                        param_suspeito = causa.get("parametro_suspeito")
+                                        if param_suspeito:
+                                            st.caption(f"↳ Parâmetro: {param_suspeito}")
+                                    
+                                    impactos = defeito.get("impactos_quantificados")
+                                    if impactos and isinstance(impactos, dict):
+                                        st.markdown("**💰 Impactos:**")
+                                        st.write(f"- Perda de vida útil: {impactos.get('perda_vida_util_percentual', 0)}% (~{impactos.get('perda_vida_util_km', 'N/A')})")
+                                        st.write(f"- Aumento consumo: {impactos.get('aumento_consumo_combustivel_percentual', 0)}%")
+                                        st.write(f"- Custo perda recapabilidade: {impactos.get('custo_perda_recapabilidade', 'N/A')}")
+                                    
+                                    exp = defeito.get("explicacao_pedagogica")
+                                    if exp and isinstance(exp, dict):
+                                        with st.expander("ℹ️ Entenda o problema"):
+                                            st.markdown(f"""
 **O que é:** {exp.get('o_que_e', 'N/A')}
 
 **Por que acontece:** {exp.get('por_que_acontece', 'N/A')}
@@ -677,78 +712,120 @@ def _render_advanced_report(laudo: dict, meta: dict, obs: str):
 
 **Analogia:** {exp.get('analogia_simples', 'N/A')}
 """)
-            
-            if eixo.get("recomendacoes_eixo"):
-                st.markdown("**🔧 Recomendações para Este Eixo:**")
-                for rec in eixo.get("recomendacoes_eixo", []):
-                    st.write(f"- {rec}")
-            
-            custo = eixo.get("custo_estimado_eixo", {})
-            if custo:
-                st.caption(f"💵 Custo estimado: R$ {custo.get('min', 0)} - {custo.get('max', 0)}")
+                
+                # Recomendações do eixo - CORRIGIDO
+                recomendacoes = eixo.get("recomendacoes_eixo")
+                if recomendacoes and isinstance(recomendacoes, list) and len(recomendacoes) > 0:
+                    st.markdown("**🔧 Recomendações para Este Eixo:**")
+                    for rec in recomendacoes:
+                        if rec and isinstance(rec, str):
+                            st.write(f"- {rec}")
+                
+                # Custo do eixo - CORRIGIDO
+                custo = eixo.get("custo_estimado_eixo")
+                if custo and isinstance(custo, dict):
+                    custo_min = custo.get("min", 0)
+                    custo_max = custo.get("max", 0)
+                    if custo_min > 0 or custo_max > 0:
+                        st.caption(f"💵 Custo estimado: R$ {custo_min} - {custo_max}")
     
     st.markdown("### 🚛 Diagnóstico Global do Veículo")
     diagnostico_global = laudo.get("diagnostico_global_veiculo", {})
     
-    if diagnostico_global.get("problemas_sistemicos_identificados"):
+    # Problemas sistêmicos globais - CORRIGIDO
+    problemas = diagnostico_global.get("problemas_sistemicos_identificados")
+    if problemas and isinstance(problemas, list) and len(problemas) > 0:
         st.error("**⚠️ Problemas Sistêmicos Identificados:**")
-        for prob in diagnostico_global.get("problemas_sistemicos_identificados", []):
-            st.write(f"• {prob}")
+        for prob in problemas:
+            if prob and isinstance(prob, str):
+                st.write(f"• {prob}")
     
-    if diagnostico_global.get("componentes_mecanicos_suspeitos"):
+    # Componentes mecânicos - CORRIGIDO
+    componentes = diagnostico_global.get("componentes_mecanicos_suspeitos")
+    if componentes and isinstance(componentes, list) and len(componentes) > 0:
         st.warning("**🔧 Componentes Mecânicos Suspeitos:**")
-        for comp in diagnostico_global.get("componentes_mecanicos_suspeitos", []):
-            st.write(f"• **{comp.get('componente')}:** {comp.get('motivo')} → {comp.get('acao')}")
+        for comp in componentes:
+            if comp and isinstance(comp, dict):
+                componente = comp.get('componente', 'N/A')
+                motivo = comp.get('motivo', 'N/A')
+                acao = comp.get('acao', 'N/A')
+                st.write(f"• **{componente}:** {motivo} → {acao}")
     
     st.markdown("### 📋 Plano de Ação Priorizado")
     plano = laudo.get("plano_de_acao_priorizado", {})
     
-    if plano.get("critico_risco_imediato"):
+    # Crítico - CORRIGIDO
+    acoes_criticas = plano.get("critico_risco_imediato")
+    if acoes_criticas and isinstance(acoes_criticas, list) and len(acoes_criticas) > 0:
         st.error("**🔴 CRÍTICO - Risco Imediato**")
-        for acao in plano.get("critico_risco_imediato", []):
-            st.write(f"• {acao}")
+        for acao in acoes_criticas:
+            if acao and isinstance(acao, str):
+                st.write(f"• {acao}")
     
-    if plano.get("alto_agendar_7_dias"):
+    # Alto - CORRIGIDO
+    acoes_alto = plano.get("alto_agendar_7_dias")
+    if acoes_alto and isinstance(acoes_alto, list) and len(acoes_alto) > 0:
         st.warning("**🟠 ALTO - Agendar em 7 Dias**")
-        for acao in plano.get("alto_agendar_7_dias", []):
-            st.write(f"• {acao}")
+        for acao in acoes_alto:
+            if acao and isinstance(acao, str):
+                st.write(f"• {acao}")
     
-    if plano.get("medio_agendar_30_dias"):
+    # Médio - CORRIGIDO
+    acoes_medio = plano.get("medio_agendar_30_dias")
+    if acoes_medio and isinstance(acoes_medio, list) and len(acoes_medio) > 0:
         st.info("**🟡 MÉDIO - Agendar em 30 Dias**")
-        for acao in plano.get("medio_agendar_30_dias", []):
-            st.write(f"• {acao}")
+        for acao in acoes_medio:
+            if acao and isinstance(acao, str):
+                st.write(f"• {acao}")
     
-    if plano.get("baixo_monitoramento_preventivo"):
+    # Baixo - CORRIGIDO
+    acoes_baixo = plano.get("baixo_monitoramento_preventivo")
+    if acoes_baixo and isinstance(acoes_baixo, list) and len(acoes_baixo) > 0:
         st.success("**🟢 BAIXO - Monitoramento Preventivo**")
-        for acao in plano.get("baixo_monitoramento_preventivo", []):
-            st.write(f"• {acao}")
+        for acao in acoes_baixo:
+            if acao and isinstance(acao, str):
+                st.write(f"• {acao}")
     
-    if laudo.get("analise_custo_beneficio"):
+    # Análise de custo-benefício - COM VALIDAÇÃO
+    custo_beneficio = laudo.get("analise_custo_beneficio")
+    if custo_beneficio and isinstance(custo_beneficio, dict):
         st.markdown("### 💰 Análise de Custo-Benefício")
-        custo_beneficio = laudo.get("analise_custo_beneficio", {})
         
         col1, col2 = st.columns(2)
         with col1:
-            investimento = custo_beneficio.get("investimento_total_estimado", {})
-            st.metric("Investimento Necessário", 
-                     f"R$ {investimento.get('minimo', 0):,.0f} - {investimento.get('maximo', 0):,.0f}")
+            investimento = custo_beneficio.get("investimento_total_estimado")
+            if investimento and isinstance(investimento, dict):
+                minimo = investimento.get('minimo', 0)
+                maximo = investimento.get('maximo', 0)
+                st.metric("Investimento Necessário", f"R$ {minimo:,.0f} - {maximo:,.0f}")
         
         with col2:
-            st.metric("ROI Estimado", custo_beneficio.get("roi_estimado", "N/A"))
+            roi = custo_beneficio.get("roi_estimado")
+            if roi:
+                st.metric("ROI Estimado", roi)
         
-        economia = custo_beneficio.get("economia_potencial", {})
-        if economia:
+        # Economia potencial - CORRIGIDO
+        economia = custo_beneficio.get("economia_potencial")
+        if economia and isinstance(economia, dict) and len(economia) > 0:
             st.write("**Economia Potencial ao Agir Agora:**")
             for key, value in economia.items():
-                st.write(f"- {key.replace('_', ' ').title()}: {value}")
+                if value:
+                    label = key.replace('_', ' ').title()
+                    st.write(f"- {label}: {value}")
         
-        if custo_beneficio.get("risco_nao_agir"):
-            st.error(f"**⚠️ Risco de Não Agir:** {custo_beneficio.get('risco_nao_agir')}")
+        risco = custo_beneficio.get("risco_nao_agir")
+        if risco and isinstance(risco, str):
+            st.error(f"**⚠️ Risco de Não Agir:** {risco}")
     
-    proxima = laudo.get("proxima_inspecao_recomendada", {})
-    if proxima:
-        st.markdown("### 📅 Próxima Inspeção Recomendada")
-        st.info(f"**Prazo:** {proxima.get('prazo_dias', 'N/A')} dias | **Motivo:** {proxima.get('motivo', 'N/A')}")
+    # Próxima inspeção - COM VALIDAÇÃO
+    proxima = laudo.get("proxima_inspecao_recomendada")
+    if proxima and isinstance(proxima, dict):
+        prazo = proxima.get('prazo_dias', 'N/A')
+        motivo = proxima.get('motivo', 'N/A')
+        if prazo != 'N/A' or motivo != 'N/A':
+            st.markdown("### 📅 Próxima Inspeção Recomendada")
+            st.info(f"**Prazo:** {prazo} dias | **Motivo:** {motivo}")
+
 
 # =========================
 # UI Principal (inalterada)
@@ -963,6 +1040,3 @@ def app():
         st.success("✅ Análise concluída com identificação de marcas!")
         st.rerun()
 
-
-if __name__ == "__main__":
-    app()
