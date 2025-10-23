@@ -475,10 +475,14 @@ Retorne EXCLUSIVAMENTE JSON seguindo esta estrutura:
 # =========================
 
 def _call_openai_advanced(data_url: str, meta: dict, obs: str, model_name: str, axis_titles: List[str]) -> dict:
-    """Chamada OpenAI com prompt avançado."""
+    """Chamada OpenAI com prompt avançado - COM MELHOR TRATAMENTO DE ERROS."""
     api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return {"erro": "OPENAI_API_KEY ausente."}
+        return {"erro": "OPENAI_API_KEY ausente nos secrets."}
+    
+    # Verificar se API key parece válida
+    if not api_key.startswith("sk-"):
+        return {"erro": "API Key inválida. Deve começar com 'sk-'"}
     
     client = OpenAI(api_key=api_key)
     
@@ -507,6 +511,10 @@ Retorne APENAS o JSON estruturado. Não adicione texto fora do JSON."""
     ]
     
     try:
+        # Tentar chamada à API com timeout
+        import time
+        start_time = time.time()
+        
         response = client.chat.completions.create(
             model=model_name,
             messages=[
@@ -516,21 +524,67 @@ Retorne APENAS o JSON estruturado. Não adicione texto fora do JSON."""
             temperature=0.2,
             max_tokens=4096,
             response_format={"type": "json_object"},
+            timeout=120  # 2 minutos
         )
         
-        text = response.choices[0].message.content or ""
-        return json.loads(text)
+        elapsed = time.time() - start_time
+        if DEBUG:
+            st.write(f"✅ API respondeu em {elapsed:.1f} segundos")
+        
+        # Tentar extrair texto
+        text = response.choices[0].message.content
+        
+        if not text:
+            return {"erro": "API retornou resposta vazia"}
+        
+        # Tentar parsear JSON
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            return {
+                "erro": f"Resposta da API não é JSON válido: {str(e)}",
+                "resposta_bruta": text[:500]  # Primeiros 500 chars
+            }
         
     except Exception as e:
-        raw_text = locals().get("text", str(e))
-        try:
-            start = raw_text.find('{')
-            end = raw_text.rfind('}') + 1
-            if start != -1 and end > start:
-                return json.loads(raw_text[start:end])
-        except Exception:
-            pass
-        return {"erro": f"Falha na API: {e}", "raw": raw_text}
+        erro_tipo = type(e).__name__
+        erro_msg = str(e)
+        
+        # Erros específicos
+        if "authentication" in erro_msg.lower() or "api_key" in erro_msg.lower():
+            return {
+                "erro": "❌ ERRO DE AUTENTICAÇÃO",
+                "detalhes": "API Key inválida ou expirada. Verifique em https://platform.openai.com/api-keys",
+                "erro_tecnico": erro_msg
+            }
+        
+        elif "insufficient_quota" in erro_msg.lower() or "quota" in erro_msg.lower():
+            return {
+                "erro": "❌ ERRO DE CRÉDITOS",
+                "detalhes": "Saldo insuficiente. Adicione créditos em https://platform.openai.com/billing",
+                "erro_tecnico": erro_msg
+            }
+        
+        elif "timeout" in erro_msg.lower():
+            return {
+                "erro": "⏱️ TIMEOUT",
+                "detalhes": "Análise demorou mais de 2 minutos. Tente com imagens menores",
+                "erro_tecnico": erro_msg
+            }
+        
+        elif "content_policy" in erro_msg.lower():
+            return {
+                "erro": "🚫 ERRO DE POLÍTICA",
+                "detalhes": "Conteúdo violou políticas da OpenAI",
+                "erro_tecnico": erro_msg
+            }
+        
+        else:
+            return {
+                "erro": f"❌ ERRO: {erro_tipo}",
+                "detalhes": erro_msg,
+                "erro_tecnico": erro_msg
+            }
 
 # =========================
 # UI Renderização COM TABELA DE POSIÇÃO
@@ -1029,10 +1083,51 @@ def app():
             laudo = _call_openai_advanced(data_url, meta, observacao, modelo, titles)
         
         if "erro" in laudo:
-            st.error(f"❌ Erro: {laudo.get('erro')}")
-            if DEBUG and laudo.get("raw"):
-                st.code(laudo.get("raw"))
-            return
+            st.error(f"### {laudo.get('erro', 'Erro desconhecido')}")
+        
+            detalhes = laudo.get('detalhes')
+           
+            if detalhes:
+                st.warning(f"**Detalhes:** {detalhes}")
+    
+            erro_tecnico = laudo.get('erro_tecnico')
+            if erro_tecnico and DEBUG:
+                with st.expander("🔧 Erro Técnico (Debug)"):
+                    st.code(erro_tecnico)
+    
+            resposta_bruta = laudo.get('resposta_bruta')
+            if resposta_bruta and DEBUG:
+                with st.expander("📄 Resposta Bruta da API"):
+                    st.code(resposta_bruta)
+    
+    # Sugestões de solução
+        st.markdown("### 💡 O que fazer:")
+        if "autenticação" in laudo.get('erro', '').lower():
+            st.info("""
+1. Verifique se a API Key está correta em `.streamlit/secrets.toml`
+2. Acesse https://platform.openai.com/api-keys e gere nova chave se necessário
+3. Certifique-se que a chave começa com `sk-`
+        """)
+        elif "créditos" in laudo.get('erro', '').lower():
+            st.info("""
+1. Adicione créditos em https://platform.openai.com/billing
+2. Verifique se seu cartão de crédito está ativo
+3. Aguarde alguns minutos após adicionar créditos
+        """)
+        elif "timeout" in laudo.get('erro', '').lower():
+            st.info("""
+1. Tente com menos eixos (analise 1-2 eixos por vez)
+2. Reduza resolução das fotos (MAX_SIDE = 1024 em vez de 1536)
+3. Use gpt-4o-mini em vez de gpt-4o
+        """)
+        else:
+            st.info("""
+1. Verifique sua conexão de internet
+2. Tente novamente em alguns minutos
+3. Se persistir, entre em contato com suporte
+        """)
+    
+        return
         
         st.session_state["laudo"] = laudo
         st.session_state["meta"] = meta
