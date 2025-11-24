@@ -123,15 +123,15 @@ def app():
 
 Somos da Capital Truck Center e estamos fazendo o acompanhamento do serviço realizado no seu veículo {modelo_caminhao}, placa {placa_caminhao}, no dia {data_servico}.
 
-Nossos registros indicam que os serviços foram: {servicos_executados}, na quilometragem de {km_caminhao} km.
+Foi feito {servicos_executados}, com {km_caminhao} km.
 
-Nosso compromisso é com a máxima qualidade e transparência. Por isso, seu feedback é uma etapa essencial do nosso processo. Gostaríamos de saber:
+Gostaríamos do seu feedback:
 
-1. O serviço realizado resolveu completamente o problema que o motivou a nos procurar?
-2. Como você avalia a agilidade e o conhecimento técnico demonstrado por nossa equipe?
-3. Em relação ao nosso atendimento na recepção e à estrutura da loja, sua experiência foi satisfatória?
+1. O serviço resolveu o problema?
+2. Como você avalia a agilidade e o conhecimento da equipe?
+3. O atendimento e a estrutura da loja foram satisfatórios?
 
-Sua avaliação, seja ela positiva ou uma crítica construtiva, é confidencial e será direcionada à nossa equipe de qualidade para aprimoramento contínuo.
+Sua opnião é muito importante para melhorarmos sempre.
 
 Agradecemos sua parceria e ficamos à disposição no (67) 98417-3800.
 
