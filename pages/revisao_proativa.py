@@ -333,13 +333,16 @@ def app():
                             f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
                             f"Aqui é da Capital Truck Center. Vimos que seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}, está precisando de uma nova revisão.\n\n"
                             f"A última foi com {km_ultima_visita_str} km e, com base no histórico de rodagem dele, já rodou aproximadamente {km_rodados_str} km desde então, estando agora com cerca de {km_atual_estimada_str} km.\n\n"
-                            f"Para garantir a segurança e o bom funcionamento do veículo, é importante fazer uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!"
+                            f"Aqui atendemos por ordem de chegada, então é só passar na loja quando puder.\n\n"
+                            f"Se a quilometragem atual estiver diferente dessa estimativa, por favor, nos envie a km correta para atualizarmos no sistema."
                         )
+                        
                         msg_gestor = (
                             f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
-                            f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
+                              f"Somos da Capital Truck Center e, em nosso acompanhamento proativo da sua frota, identificamos uma necessidade de revisão para o veículo {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
                             f"A última manutenção foi em {veiculo['data_ultima_visita'].strftime('%d/%m/%Y')} com {km_ultima_visita_str} km. Com base no histórico de rodagem, o veículo rodou aproximadamente {km_rodados_str} km desde então, e nossa projeção indica que está agora com cerca de {km_atual_estimada_str} km.\n\n"
-                            f"Para manter a manutenção preventiva em dia, gostaríamos de alinhar os próximos passos."
+                            f"Nosso atendimento é por ordem de chegada, então o veículo pode vir direto quando for mais conveniente.\n\n"
+                            f"Se a km atual estiver diferente dessa estimativa, por favor, nos envie a quilometragem correta para atualizarmos no sistema."
                         )
                     else: # Modo "Tempo"
                         dias_sem_visita = int(veiculo['dias_desde_ultima_visita'])
