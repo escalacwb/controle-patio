@@ -31,12 +31,20 @@ def app():
 
     if session_key not in st.session_state:
         query = """
-        SELECT id, fim_execucao, quilometragem
+    SELECT id, fim_execucao, quilometragem
+    FROM (
+        SELECT 
+            id,
+            fim_execucao,
+            quilometragem,
+            ROW_NUMBER() OVER (PARTITION BY fim_execucao, quilometragem ORDER BY id) as rn
         FROM execucao_servico
         WHERE veiculo_id = %s AND status = 'finalizado'
-        AND quilometragem IS NOT NULL AND quilometragem > 0
-        ORDER BY fim_execucao ASC;
-        """
+          AND quilometragem IS NOT NULL AND quilometragem > 0
+    ) as ranked
+    WHERE rn = 1
+    ORDER BY fim_execucao ASC;
+    """
         df_visitas = pd.read_sql(query, conn, params=(veiculo_id,))
         df_visitas['fim_execucao'] = pd.to_datetime(df_visitas['fim_execucao']).dt.date
         st.session_state[session_key] = df_visitas.to_dict('records')
