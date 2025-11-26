@@ -20,7 +20,7 @@ from pages import (
     gerar_termos,
     ajustar_media_km,
     analise_pneus,
-    exportar_contatos
+    exportar_contatos,
     ajustar_media_km_por_placa
 )
 
