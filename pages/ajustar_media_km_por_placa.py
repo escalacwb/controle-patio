@@ -1,6 +1,8 @@
 # pages/ajustar_media_km_por_placa.py
 """
-VERSÃO CORRIGIDA: Sem erro de st.metric() com data
+✅ VERSÃO CORRIGIDA: Remove visitas duplicadas por data/KM
+- Problema: Múltiplos serviços na mesma data resultavam em registros duplicados
+- Solução: Usar ROW_NUMBER para manter apenas 1 registro por visita
 """
 
 import streamlit as st
@@ -63,11 +65,20 @@ def app():
     session_key = f"visitas_veiculo_{veiculo_id}"
     
     if session_key not in st.session_state:
+        # ✅ QUERY CORRIGIDA: Remove duplicatas por data/KM usando ROW_NUMBER
         query = """
 SELECT id, fim_execucao, quilometragem
-FROM execucao_servico
-WHERE veiculo_id = %s AND status = 'finalizado'
-AND quilometragem IS NOT NULL AND quilometragem > 0
+FROM (
+    SELECT 
+        id,
+        fim_execucao,
+        quilometragem,
+        ROW_NUMBER() OVER (PARTITION BY fim_execucao, quilometragem ORDER BY id) as rn
+    FROM execucao_servico
+    WHERE veiculo_id = %s AND status = 'finalizado'
+      AND quilometragem IS NOT NULL AND quilometragem > 0
+) as ranked
+WHERE rn = 1
 ORDER BY fim_execucao ASC;
 """
         try:
@@ -109,7 +120,6 @@ ORDER BY fim_execucao ASC;
         else:
             st.metric("Média Atual", "Não calculada")
     with col3:
-        # ✅ CORREÇÃO: Usar st.write() ao invés de st.metric() para data
         st.write(f"**Primeira Visita:** {visitas[0]['fim_execucao']}")
     
     # PASSO 10: Seção de edição
