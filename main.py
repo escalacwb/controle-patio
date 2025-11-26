@@ -21,6 +21,7 @@ from pages import (
     ajustar_media_km,
     analise_pneus,
     exportar_contatos
+    ajustar_media_km_por_placa
 )
 
 st.set_page_config(page_title="Controle de Pátio PRO", layout="wide")
@@ -115,12 +116,12 @@ else:
     pc_options = [
         "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços",
         "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos",
-        "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa", "Exportar CSV",
+        "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa", "Exportar CSV", "Km Medio Placa",
     ]
     pc_icons = [
         "truck-front", "people", "card-list",
         "card-checklist", "view-stacked", "check-circle",
-        "clock-history", "telephone-outbound", "arrow-repeat",
+        "clock-history", "telephone-outbound", "arrow-repeat", "clock-history",
     ]
 
     # acrescenta Análise de Pneus se OpenAI estiver configurado
@@ -183,6 +184,8 @@ elif selected_page == "Mesclar Históricos":
     mesclar_historico.app()
 elif selected_page == "Exportar CSV":
     exportar_contatos.app()
+elif selected_page == "Km Medio Placa":
+    ajustar_media_km_por_placa.app()
 
 # Páginas acessadas via link direto (gerar_termos / ajustar_media_km)
 # continuam sem rota direta aqui, seguindo o seu padrão atual.
