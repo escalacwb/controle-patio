@@ -122,7 +122,7 @@ def recalcular_media_veiculo(conn, veiculo_id):
     WHERE rn = 1
     ORDER BY fim_execucao;
     """
-    """
+
     
     df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
     
