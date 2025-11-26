@@ -1,3 +1,8 @@
+# utils.py - CORRIGIDO
+"""
+Função recalcular_media_veiculo() agora usa 3 últimas visitas
+"""
+
 import streamlit as st
 import pandas as pd
 from database import get_connection, release_connection
@@ -18,9 +23,11 @@ def enviar_notificacao_telegram(mensagem, chat_id_destino):
         if not token or not chat_id_destino:
             print("Token ou Chat ID de destino não fornecidos ou não encontrados nos Secrets.")
             return False, "Credenciais do Telegram (Token ou Chat ID de destino) incompletas."
+        
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         params = {"chat_id": chat_id_destino, "text": mensagem, "parse_mode": "Markdown"}
         response = requests.post(url, json=params)
+        
         if response.status_code == 200:
             return True, "Notificação enviada com sucesso!"
         else:
@@ -36,7 +43,9 @@ except locale.Error:
 
 def get_catalogo_servicos():
     conn = get_connection()
-    if not conn: return {"borracharia": [], "alinhamento": [], "manutencao": []}
+    if not conn: 
+        return {"borracharia": [], "alinhamento": [], "manutencao": []}
+    
     try:
         catalogo = {
             "borracharia": pd.read_sql("SELECT nome FROM servicos_borracharia ORDER BY nome", conn)['nome'].tolist(),
@@ -48,19 +57,26 @@ def get_catalogo_servicos():
     return catalogo
 
 def consultar_placa_comercial(placa: str):
-    if not placa: return False, "A placa não pode estar em branco."
+    if not placa: 
+        return False, "A placa não pode estar em branco."
+    
     token = st.secrets.get("PLACA_API_TOKEN")
-    if not token: return False, "Token da API de Placas não encontrado nos Secrets."
+    if not token: 
+        return False, "Token da API de Placas não encontrado nos Secrets."
+    
     url = f"https://wdapi2.com.br/consulta/{placa}/{token}"
+    
     try:
         response = requests.get(url, timeout=15)
         if response.status_code == 200:
             data = response.json()
             modelo_veiculo = data.get('marcaModelo', data.get('MODELO', 'Não encontrado'))
+            
             if data.get('fipe') and data['fipe'].get('dados'):
                 fipe_dados = sorted(data['fipe']['dados'], key=lambda x: x.get('score', 0), reverse=True)
                 if fipe_dados:
                     modelo_veiculo = fipe_dados[0].get('texto_modelo', modelo_veiculo)
+            
             return True, {'modelo': modelo_veiculo, 'anoModelo': data.get('anoModelo')}
         else:
             return False, response.json().get("message", f"Erro na API (Código: {response.status_code}).")
@@ -68,139 +84,115 @@ def consultar_placa_comercial(placa: str):
         return False, f"Ocorreu um erro inesperado: {str(e)}"
 
 def formatar_telefone(numero: str) -> str:
-    if not numero: return ""
+    if not numero: 
+        return ""
+    
     numeros = re.sub(r'\D', '', numero)
-    if len(numeros) == 11: return f"({numeros[:2]}){numeros[2:7]}-{numeros[7:]}"
-    elif len(numeros) == 10: return f"({numeros[:2]}){numeros[2:6]}-{numeros[6:]}"
+    if len(numeros) == 11: 
+        return f"({numeros[:2]}){numeros[2:7]}-{numeros[7:]}"
+    elif len(numeros) == 10: 
+        return f"({numeros[:2]}){numeros[2:6]}-{numeros[6:]}"
+    
     return numero
 
 def formatar_placa(placa: str) -> str:
-    if not placa: return ""
+    if not placa: 
+        return ""
+    
     placa_limpa = re.sub(r'[^A-Z0-9]', '', placa.upper())
     if len(placa_limpa) == 7 and placa_limpa[4].isdigit():
         return f"{placa_limpa[:3]}-{placa_limpa[3:]}"
+    
     return placa_limpa
 
-def recalcular_media_veiculo_v2(conn, veiculo_id):
+def recalcular_media_veiculo(conn, veiculo_id):
     """
-    NOVA VERSÃO: Calcula média KM diária usando apenas as 3 ÚLTIMAS visitas.
-    
-    Args:
-        conn: Conexão com o banco de dados
-        veiculo_id: ID do veículo a recalcular
-    
-    Returns:
-        tuple: (sucesso: bool, media_calculada: float or None, num_visitas: int)
+    ✅ CORRIGIDO: Agora calcula usando APENAS as 3 últimas visitas válidas
     """
-    
     query = """
     SELECT fim_execucao, quilometragem
     FROM execucao_servico
-    WHERE veiculo_id = %s AND status = 'finalizado' 
-      AND quilometragem IS NOT NULL AND quilometragem > 0
-    ORDER BY fim_execucao DESC
+    WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
+    ORDER BY fim_execucao;
     """
     
     df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
     
-    # Se não há registros, deixa NULL
-    if df_veiculo.empty:
-        return False, None, 0
-    
-    # ============ INVERSÃO: começa do fim para remover duplicatas ============
-    df_veiculo = df_veiculo.iloc[::-1].reset_index(drop=True)  # Volta ordem cronológica
+    # Remove duplicatas (mesma quilometragem)
     df_veiculo = df_veiculo.drop_duplicates(subset=['quilometragem'], keep='last')
     
-    # ============ VALIDAR SEQUÊNCIA CRESCENTE DE KM ============
+    # Remove não-crescentes (só mantém KM crescente)
     last_valid_km = -1
     valid_indices = []
-    
     for index, row in df_veiculo.iterrows():
         if row['quilometragem'] > last_valid_km:
             valid_indices.append(index)
             last_valid_km = row['quilometragem']
     
-    valid_group = df_veiculo.loc[valid_indices].reset_index(drop=True)
+    valid_group = df_veiculo.loc[valid_indices]
     
-    # ============ NOVA LÓGICA: USAR APENAS AS 3 ÚLTIMAS VISITAS ============
-    num_visitas_validas = len(valid_group)
     media_km_diaria = None
+    if len(valid_group) >= 2:
+        # ✅ NOVO: Pegar APENAS as 3 últimas visitas válidas
+        ultimas_3 = valid_group.iloc[-3:] if len(valid_group) >= 3 else valid_group
+        
+        primeira_visita = ultimas_3.iloc[0]
+        ultima_visita = ultimas_3.iloc[-1]
+        
+        delta_km = int(ultima_visita['quilometragem']) - int(primeira_visita['quilometragem'])
+        delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
+        
+        if delta_dias > 0 and delta_km >= 0:
+            media_km_diaria = float(delta_km / delta_dias)
     
-    # Se tem menos de 2 visitas, não calcula
-    if num_visitas_validas < 2:
-        return False, None, num_visitas_validas
-    
-    # Pega as 3 últimas visitas (ou quantas tiver se < 3)
-    ultimas_visitas = valid_group.tail(3)
-    
-    # Calcula usando a primeira e última das últimas visitas
-    primeira_visita = ultimas_visitas.iloc[0]
-    ultima_visita = ultimas_visitas.iloc[-1]
-    
-    delta_km = int(ultima_visita['quilometragem']) - int(primeira_visita['quilometragem'])
-    delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
-    
-    if delta_dias > 0 and delta_km > 0:
-        media_km_diaria = float(delta_km / delta_dias)
-    
-    # ============ ATUALIZAR NO BANCO DE DADOS ============
     try:
         with conn.cursor() as cursor:
-            cursor.execute(
-                "UPDATE veiculos SET media_km_diaria = %s WHERE id = %s",
-                (media_km_diaria, veiculo_id)
-            )
+            cursor.execute("UPDATE veiculos SET media_km_diaria = %s WHERE id = %s", (media_km_diaria, veiculo_id))
             conn.commit()
-        
-        return True, media_km_diaria, num_visitas_validas
-    
+            return True
     except Exception as e:
         conn.rollback()
         print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
-        return False, None, num_visitas_validas
-
-
-def recalcular_media_veiculo(conn, veiculo_id):
-    """
-    Wrapper compatível com código existente.
-    Mantém assinatura antiga para não quebrar código que chama essa função.
-    """
-    sucesso, _, _ = recalcular_media_veiculo_v2(conn, veiculo_id)
-    return sucesso
-
+        return False
 
 def buscar_clientes_por_similaridade(termo_busca):
-    if not termo_busca or len(termo_busca) < 3: return []
+    if not termo_busca or len(termo_busca) < 3: 
+        return []
+    
     conn = get_connection()
-    if not conn: return []
+    if not conn: 
+        return []
+    
     query = """
-        SELECT id, nome_empresa, nome_fantasia 
-        FROM clientes 
-        WHERE similarity(nome_empresa, %(termo)s) > 0.2 OR similarity(nome_fantasia, %(termo)s) > 0.2
-        ORDER BY GREATEST(similarity(nome_empresa, %(termo)s), similarity(nome_fantasia, %(termo)s)) DESC, nome_empresa
-        LIMIT 10;
+    SELECT id, nome_empresa, nome_fantasia
+    FROM clientes
+    WHERE similarity(nome_empresa, %(termo)s) > 0.2 OR similarity(nome_fantasia, %(termo)s) > 0.2
+    ORDER BY GREATEST(similarity(nome_empresa, %(termo)s), similarity(nome_fantasia, %(termo)s)) DESC, nome_empresa
+    LIMIT 10;
     """
+    
     try:
         df = pd.read_sql(query, conn, params={'termo': termo_busca})
         return list(df.itertuples(index=False, name=None))
     finally:
         release_connection(conn)
 
-# --- NOVA FUNÇÃO PARA BUSCAR DETALHES DE UM CLIENTE ---
 def get_cliente_details(cliente_id):
     """Busca os detalhes de um cliente específico pelo ID."""
     if not cliente_id:
         return None
+    
     conn = get_connection()
     if not conn:
         return None
+    
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             cursor.execute("SELECT nome_responsavel, contato_responsavel FROM clientes WHERE id = %s", (cliente_id,))
             return cursor.fetchone()
     finally:
         release_connection(conn)
-        
+
 def load_css(file_name):
     with open(file_name) as f:
         st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
