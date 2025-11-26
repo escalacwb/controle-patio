@@ -81,41 +81,93 @@ def formatar_placa(placa: str) -> str:
         return f"{placa_limpa[:3]}-{placa_limpa[3:]}"
     return placa_limpa
 
-def recalcular_media_veiculo(conn, veiculo_id):
-    query = """
-        SELECT fim_execucao, quilometragem
-        FROM execucao_servico
-        WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
-        ORDER BY fim_execucao;
+def recalcular_media_veiculo_v2(conn, veiculo_id):
     """
+    NOVA VERSÃO: Calcula média KM diária usando apenas as 3 ÚLTIMAS visitas.
+    
+    Args:
+        conn: Conexão com o banco de dados
+        veiculo_id: ID do veículo a recalcular
+    
+    Returns:
+        tuple: (sucesso: bool, media_calculada: float or None, num_visitas: int)
+    """
+    
+    query = """
+    SELECT fim_execucao, quilometragem
+    FROM execucao_servico
+    WHERE veiculo_id = %s AND status = 'finalizado' 
+      AND quilometragem IS NOT NULL AND quilometragem > 0
+    ORDER BY fim_execucao DESC
+    """
+    
     df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
+    
+    # Se não há registros, deixa NULL
+    if df_veiculo.empty:
+        return False, None, 0
+    
+    # ============ INVERSÃO: começa do fim para remover duplicatas ============
+    df_veiculo = df_veiculo.iloc[::-1].reset_index(drop=True)  # Volta ordem cronológica
     df_veiculo = df_veiculo.drop_duplicates(subset=['quilometragem'], keep='last')
     
+    # ============ VALIDAR SEQUÊNCIA CRESCENTE DE KM ============
     last_valid_km = -1
     valid_indices = []
+    
     for index, row in df_veiculo.iterrows():
         if row['quilometragem'] > last_valid_km:
             valid_indices.append(index)
             last_valid_km = row['quilometragem']
     
-    valid_group = df_veiculo.loc[valid_indices]
+    valid_group = df_veiculo.loc[valid_indices].reset_index(drop=True)
+    
+    # ============ NOVA LÓGICA: USAR APENAS AS 3 ÚLTIMAS VISITAS ============
+    num_visitas_validas = len(valid_group)
     media_km_diaria = None
-    if len(valid_group) >= 2:
-        primeira_visita = valid_group.iloc[0]
-        ultima_visita = valid_group.iloc[-1]
-        delta_km = int(ultima_visita['quilometragem']) - int(primeira_visita['quilometragem'])
-        delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
-        if delta_dias > 0:
-            media_km_diaria = float(delta_km / delta_dias)
+    
+    # Se tem menos de 2 visitas, não calcula
+    if num_visitas_validas < 2:
+        return False, None, num_visitas_validas
+    
+    # Pega as 3 últimas visitas (ou quantas tiver se < 3)
+    ultimas_visitas = valid_group.tail(3)
+    
+    # Calcula usando a primeira e última das últimas visitas
+    primeira_visita = ultimas_visitas.iloc[0]
+    ultima_visita = ultimas_visitas.iloc[-1]
+    
+    delta_km = int(ultima_visita['quilometragem']) - int(primeira_visita['quilometragem'])
+    delta_dias = (ultima_visita['fim_execucao'] - primeira_visita['fim_execucao']).days
+    
+    if delta_dias > 0 and delta_km > 0:
+        media_km_diaria = float(delta_km / delta_dias)
+    
+    # ============ ATUALIZAR NO BANCO DE DADOS ============
     try:
         with conn.cursor() as cursor:
-            cursor.execute("UPDATE veiculos SET media_km_diaria = %s WHERE id = %s", (media_km_diaria, veiculo_id))
-        conn.commit()
-        return True
+            cursor.execute(
+                "UPDATE veiculos SET media_km_diaria = %s WHERE id = %s",
+                (media_km_diaria, veiculo_id)
+            )
+            conn.commit()
+        
+        return True, media_km_diaria, num_visitas_validas
+    
     except Exception as e:
         conn.rollback()
         print(f"Erro ao atualizar a média para o veículo {veiculo_id}: {e}")
-        return False
+        return False, None, num_visitas_validas
+
+
+def recalcular_media_veiculo(conn, veiculo_id):
+    """
+    Wrapper compatível com código existente.
+    Mantém assinatura antiga para não quebrar código que chama essa função.
+    """
+    sucesso, _, _ = recalcular_media_veiculo_v2(conn, veiculo_id)
+    return sucesso
+
 
 def buscar_clientes_por_similaridade(termo_busca):
     if not termo_busca or len(termo_busca) < 3: return []
