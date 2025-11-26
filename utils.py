@@ -106,21 +106,15 @@ def formatar_placa(placa: str) -> str:
     return placa_limpa
 
 def recalcular_media_veiculo(conn, veiculo_id):
- 
+    """
+    ✅ CORRIGIDO: Agora calcula usando APENAS as 3 últimas visitas válidas
+    """
     query = """
     SELECT fim_execucao, quilometragem
-    FROM (
-        SELECT 
-            fim_execucao,
-            quilometragem,
-            ROW_NUMBER() OVER (PARTITION BY fim_execucao, quilometragem ORDER BY id) as rn
-        FROM execucao_servico
-        WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
-    ) as ranked
-    WHERE rn = 1
+    FROM execucao_servico
+    WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
     ORDER BY fim_execucao;
     """
-
     
     df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
     
