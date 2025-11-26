@@ -1,3 +1,4 @@
+
 # /pages/ajustar_media_km.py
 """
 CORRIGIDO: Página de Ajuste de Média de KM
@@ -29,7 +30,7 @@ def app():
     session_key = f"visitas_veiculo_{veiculo_id}"
 
     if session_key not in st.session_state:
-    query = """
+        query = """
     SELECT id, fim_execucao, quilometragem
     FROM (
         SELECT 
@@ -43,7 +44,7 @@ def app():
     ) as ranked
     WHERE rn = 1
     ORDER BY fim_execucao ASC;
-        """
+    """
         df_visitas = pd.read_sql(query, conn, params=(veiculo_id,))
         df_visitas['fim_execucao'] = pd.to_datetime(df_visitas['fim_execucao']).dt.date
         st.session_state[session_key] = df_visitas.to_dict('records')
