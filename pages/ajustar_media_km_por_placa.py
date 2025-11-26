@@ -1,6 +1,6 @@
 # pages/ajustar_media_km_por_placa.py
 """
-VERSÃO CORRIGIDA FINAL - Copiando EXATAMENTE o padrão que funciona
+VERSÃO CORRIGIDA: Sem erro de st.metric() com data
 """
 
 import streamlit as st
@@ -32,7 +32,7 @@ def app():
         release_connection(conn)
         return
     
-    # PASSO 3: Buscar veículo com a placa - USAR try/except para ver erro real
+    # PASSO 3: Buscar veículo com a placa
     try:
         df_veiculo = pd.read_sql(
             "SELECT id, placa, modelo FROM veiculos WHERE placa = %s",
@@ -63,7 +63,6 @@ def app():
     session_key = f"visitas_veiculo_{veiculo_id}"
     
     if session_key not in st.session_state:
-        # COPIAR EXATAMENTE o query que funciona
         query = """
 SELECT id, fim_execucao, quilometragem
 FROM execucao_servico
@@ -110,7 +109,8 @@ ORDER BY fim_execucao ASC;
         else:
             st.metric("Média Atual", "Não calculada")
     with col3:
-        st.metric("Primeira Visita", visitas[0]['fim_execucao'])
+        # ✅ CORREÇÃO: Usar st.write() ao invés de st.metric() para data
+        st.write(f"**Primeira Visita:** {visitas[0]['fim_execucao']}")
     
     # PASSO 10: Seção de edição
     st.markdown("---")
