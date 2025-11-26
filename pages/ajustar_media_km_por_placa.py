@@ -1,8 +1,7 @@
 # pages/ajustar_media_km_por_placa.py
 """
-NOVA PÁGINA: Ajuste de Média de KM por Placa
-Permite buscar veículo por placa em vez de URL
-Mantém a funcionalidade do ajuste original
+PÁGINA CORRIGIDA: Ajuste de Média de KM por Placa
+Agora usa get_connection/release_connection corretamente
 """
 
 import streamlit as st
@@ -10,10 +9,12 @@ import pandas as pd
 from database import get_connection, release_connection
 from datetime import datetime
 
+
 def buscar_veiculo_por_placa(placa):
     """Busca veículo no banco por placa"""
     conn = get_connection()
     if not conn:
+        st.error("❌ Falha ao conectar ao banco de dados")
         return None, None
     
     try:
@@ -23,8 +24,15 @@ def buscar_veiculo_por_placa(placa):
         if df.empty:
             return None, None
         
-        veiculo_id = df.iloc[0]['id']
-        return veiculo_id, df.iloc[0]
+        veiculo_id = int(df.iloc[0]['id'])
+        return veiculo_id, {
+            'id': veiculo_id,
+            'placa': df.iloc[0]['placa'],
+            'modelo': df.iloc[0]['modelo']
+        }
+    except Exception as e:
+        st.error(f"❌ Erro ao buscar veículo: {str(e)}")
+        return None, None
     finally:
         release_connection(conn)
 
@@ -33,7 +41,8 @@ def buscar_visitas(veiculo_id):
     """Busca todas as visitas do veículo"""
     conn = get_connection()
     if not conn:
-        return pd.DataFrame()
+        st.error("❌ Falha ao conectar ao banco de dados")
+        return []
     
     try:
         query = """
@@ -41,34 +50,74 @@ def buscar_visitas(veiculo_id):
         FROM execucao_servico
         WHERE veiculo_id = %s AND status = 'finalizado'
         AND quilometragem IS NOT NULL AND quilometragem > 0
-        ORDER BY fim_execucao ASC;
+        ORDER BY fim_execucao ASC
         """
         df = pd.read_sql(query, conn, params=(veiculo_id,))
-        df['fim_execucao'] = pd.to_datetime(df['fim_execucao']).dt.date
-        return df.to_dict('records')
+        
+        if df.empty:
+            return []
+        
+        # Converter para formato de dicionário
+        visitas = []
+        for idx, row in df.iterrows():
+            data = pd.to_datetime(row['fim_execucao']).date()
+            visitas.append({
+                'id': int(row['id']),
+                'fim_execucao': data,
+                'quilometragem': float(row['quilometragem'])
+            })
+        
+        return visitas
+    except Exception as e:
+        st.error(f"❌ Erro ao buscar visitas: {str(e)}")
+        return []
     finally:
         release_connection(conn)
+
+
+def buscar_media_atual(veiculo_id):
+    """Busca a média atual do veículo"""
+    conn = get_connection()
+    if not conn:
+        return None
+    
+    try:
+        query = "SELECT media_km_diaria FROM veiculos WHERE id = %s"
+        df = pd.read_sql(query, conn, params=(veiculo_id,))
+        
+        if not df.empty:
+            return float(df.iloc[0]['media_km_diaria']) if df.iloc[0]['media_km_diaria'] else None
+        return None
+    except Exception as e:
+        st.error(f"❌ Erro ao buscar média: {str(e)}")
+        return None
+    finally:
+        release_connection(conn)
+
+
+def calcular_media_3_ultimas(visitas):
+    """Calcula a média usando as 3 últimas visitas"""
+    if len(visitas) < 2:
+        return None
+    
+    # Pegar as 3 últimas
+    ultimas = visitas[-3:] if len(visitas) >= 3 else visitas
+    
+    primeira = ultimas[0]
+    ultima = ultimas[-1]
+    
+    delta_km = ultima['quilometragem'] - primeira['quilometragem']
+    delta_dias = (ultima['fim_execucao'] - primeira['fim_execucao']).days
+    
+    if delta_dias > 0 and delta_km >= 0:
+        return delta_km / delta_dias
+    
+    return None
 
 
 def app():
     st.set_page_config(layout="wide")
     st.title("🔍 Ajuste de Média de KM por Placa")
-    
-    # Estilo customizado
-    st.markdown("""
-    <style>
-    .main-container {
-        padding: 20px;
-    }
-    .info-box {
-        background-color: #e3f2fd;
-        border-left: 5px solid #1976d2;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 20px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
     
     # Layout com colunas
     col1, col2 = st.columns([2, 1])
@@ -84,7 +133,11 @@ def app():
     with col2:
         st.markdown("---")
         if st.button("🔍 Buscar", use_container_width=True):
-            st.session_state.buscar_placa = True
+            if placa_input:
+                st.session_state.buscar_placa = True
+                st.session_state.placa_digitada = placa_input
+            else:
+                st.warning("Digite uma placa para buscar")
     
     # Processamento da busca
     if placa_input and hasattr(st.session_state, 'buscar_placa') and st.session_state.buscar_placa:
@@ -96,7 +149,6 @@ def app():
         else:
             st.session_state.veiculo_id = veiculo_id
             st.session_state.veiculo_info = info_veiculo
-            st.session_state.placa_buscada = placa_input
     
     # Se encontrou veículo, mostrar interface de ajuste
     if hasattr(st.session_state, 'veiculo_id'):
@@ -117,25 +169,18 @@ def app():
                 st.rerun()
         else:
             # Informações do veículo
-            conn = get_connection()
-            if conn:
-                try:
-                    query = "SELECT media_km_diaria FROM veiculos WHERE id = %s"
-                    df_media = pd.read_sql(query, conn, params=(veiculo_id,))
-                    media_atual = df_media.iloc[0]['media_km_diaria'] if not df_media.empty else None
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total de Visitas", len(visitas))
-                    with col2:
-                        if media_atual:
-                            st.metric("Média Atual", f"{media_atual:.2f} km/dia")
-                        else:
-                            st.metric("Média Atual", "Não calculada")
-                    with col3:
-                        st.metric("Primeira Visita", visitas[0]['fim_execucao'])
-                finally:
-                    release_connection(conn)
+            media_atual = buscar_media_atual(veiculo_id)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total de Visitas", len(visitas))
+            with col2:
+                if media_atual:
+                    st.metric("Média Atual", f"{media_atual:.2f} km/dia")
+                else:
+                    st.metric("Média Atual", "Não calculada")
+            with col3:
+                st.metric("Primeira Visita", visitas[0]['fim_execucao'])
             
             # Seção de edição
             st.markdown("---")
@@ -145,36 +190,27 @@ def app():
             # Criar estado para as visitas se não existir
             session_key = f"visitas_veiculo_{veiculo_id}"
             if session_key not in st.session_state:
-                st.session_state[session_key] = visitas.copy()
+                st.session_state[session_key] = [v.copy() for v in visitas]
             
-            # Renderizar campos editáveis em tabela
-            cols_header = st.columns([2, 2, 1])
-            with cols_header[0]:
-                st.write("**Data**")
-            with cols_header[1]:
-                st.write("**Quilometragem (km)**")
-            with cols_header[2]:
-                st.write("**Status**")
-            
-            st.markdown("---")
+            # Renderizar campos editáveis
+            st.markdown("**#** | **Data** | **Quilometragem (km)** | **Status**")
+            st.markdown("----|---------|----------------------|--------")
             
             for i, visita in enumerate(st.session_state[session_key]):
-                cols = st.columns([2, 2, 1])
+                col1, col2, col3, col4 = st.columns([0.5, 1.5, 1.5, 1])
                 
-                # Converter data
-                data_visita = visita['fim_execucao']
-                if not isinstance(data_visita, datetime):
-                    data_visita = datetime.strptime(str(data_visita), '%Y-%m-%d').date()
+                with col1:
+                    st.write(f"{i + 1}")
                 
-                with cols[0]:
+                with col2:
                     nova_data = st.date_input(
                         "Data",
-                        value=data_visita,
+                        value=visita['fim_execucao'],
                         key=f"data_{visita['id']}"
                     )
                     st.session_state[session_key][i]['fim_execucao'] = nova_data
                 
-                with cols[1]:
+                with col3:
                     novo_km = st.number_input(
                         "KM",
                         value=int(visita['quilometragem']),
@@ -182,9 +218,9 @@ def app():
                         step=100,
                         key=f"km_{visita['id']}"
                     )
-                    st.session_state[session_key][i]['quilometragem'] = novo_km
+                    st.session_state[session_key][i]['quilometragem'] = float(novo_km)
                 
-                with cols[2]:
+                with col4:
                     st.write("✅" if novo_km > 0 else "⚠️")
             
             # Cálculo da média
@@ -209,7 +245,7 @@ def app():
             with col2:
                 st.info(f"📅 Período: {delta_dias} dias")
             with col3:
-                st.info(f"📈 Delta KM: {delta_km:,} km")
+                st.info(f"📈 Delta KM: {delta_km:,.0f} km")
             
             if delta_dias > 0 and delta_km >= 0:
                 nova_media = delta_km / delta_dias
@@ -249,7 +285,7 @@ def app():
                             
                             except Exception as e:
                                 conn.rollback()
-                                st.error(f"Erro ao salvar: {e}")
+                                st.error(f"❌ Erro ao salvar: {str(e)}")
                             finally:
                                 release_connection(conn)
             else:
