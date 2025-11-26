@@ -106,9 +106,7 @@ def formatar_placa(placa: str) -> str:
     return placa_limpa
 
 def recalcular_media_veiculo(conn, veiculo_id):
-    """
-    ✅ CORRIGIDO: Agora calcula usando APENAS as 3 últimas visitas válidas
-    """
+ 
     query = """
     SELECT fim_execucao, quilometragem
     FROM (
