@@ -111,9 +111,17 @@ def recalcular_media_veiculo(conn, veiculo_id):
     """
     query = """
     SELECT fim_execucao, quilometragem
-    FROM execucao_servico
-    WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
+    FROM (
+        SELECT 
+            fim_execucao,
+            quilometragem,
+            ROW_NUMBER() OVER (PARTITION BY fim_execucao, quilometragem ORDER BY id) as rn
+        FROM execucao_servico
+        WHERE veiculo_id = %s AND status = 'finalizado' AND quilometragem IS NOT NULL AND quilometragem > 0
+    ) as ranked
+    WHERE rn = 1
     ORDER BY fim_execucao;
+    """
     """
     
     df_veiculo = pd.read_sql(query, conn, params=(veiculo_id,))
