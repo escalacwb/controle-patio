@@ -206,7 +206,7 @@ def app():
     if modo_busca == "Quilometragem":
         intervalo_revisao_km = st.number_input(
             "Avisar a cada (KM)",
-            min_value=1000, max_value=100000, value=10000, step=1000
+            min_value=1000, max_value=100000, value=25000, step=1000
         )
     else: # Modo "Tempo"
         col1, col2 = st.columns(2)
