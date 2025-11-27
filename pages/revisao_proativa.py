@@ -355,13 +355,13 @@ def app():
 
                         msg_motorista = (
                             f"Olá, {veiculo['nome_motorista']}! Tudo bem?\n\n"
-                            f"Aqui é da Capital Truck Center - Michelin de Dourados - MS. Estamos entrando em contato pois notamos que já faz um tempo desde a última manutenção do seu caminhão {veiculo['modelo']}, placa {veiculo['placa']}.\n\n"
+                            f"Aqui é da *Capital Truck Center - Michelin de Dourados* - MS. Estamos entrando em contato pois notamos que já faz um tempo desde a última manutenção do seu caminhão *{veiculo['modelo']}, placa {veiculo['placa']}*.\n\n"
                             f"A última visita dele aqui conosco foi em {data_ultima_visita_str}, ou seja, há {tempo_str}.\n\n"
                             f"Para manter a manutenção preventiva em dia e garantir a segurança, gostaríamos de agendar uma nova revisão. Responda esta mensagem para organizarmos os próximos passos!"
                         )
                         msg_gestor = (
                             f"Prezado(a) {veiculo['nome_responsavel']}, tudo bem?\n\n"
-                            f"Somos da Capital Truck Center - Michelin de Dourados - MS e, em nosso acompanhamento proativo da sua frota, notamos que o veículo {veiculo['modelo']}, placa {veiculo['placa']}, não passa por uma revisão em nossa oficina há {tempo_str} (desde {data_ultima_visita_str}).\n\n"
+                            f"Somos da Capital Truck Center - Michelin de Dourados - MS e, em nosso acompanhamento proativo da sua frota, notamos que o veículo *{veiculo['modelo']}, placa {veiculo['placa']}*, não passa por uma revisão em nossa oficina há {tempo_str} (desde {data_ultima_visita_str}).\n\n"
                             f"Para manter a manutenção preventiva em dia e garantir a performance e segurança do ativo, gostaríamos de alinhar os próximos passos para uma nova revisão."
                         )
 
