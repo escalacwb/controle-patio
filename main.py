@@ -116,7 +116,7 @@ else:
     pc_options = [
         "Cadastro de Serviço", "Dados de Clientes", "Alocar Serviços",
         "Filas de Serviço", "Visão dos Boxes", "Serviços Concluídos",
-        "Histórico por Veículo", "Controle de Feedback", "Revisão Proativa", "Exportar CSV", "Km Medio Placa",
+        "Histórico por Veículo", "Exportar CSV", "Km Medio Placa",
     ]
     pc_icons = [
         "truck-front", "people", "card-list",
