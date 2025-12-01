@@ -119,7 +119,7 @@ def app():
                 # Consolida todos os serviços da visita
                 servicos_executados = row['todos_os_servicos'] or "Não especificado"
                 
-                mensagem_whatsapp = f"""Prezado {nome_contato},
+                mensagem_whatsapp = f"""Olá {nome_contato},
 
 Somos da Capital Truck Center e estamos fazendo o acompanhamento do serviço realizado no seu veículo {modelo_caminhao}, placa {placa_caminhao}, no dia {data_servico}.
 
@@ -131,7 +131,7 @@ Gostaríamos do seu feedback:
 2. Como você avalia a agilidade e o conhecimento da equipe?
 3. O atendimento e a estrutura da loja foram satisfatórios?
 
-Sua opnião é muito importante para melhorarmos sempre.
+Sua opinião é muito importante para melhorarmos sempre.
 
 Agradecemos sua parceria e ficamos à disposição no (67) 98417-3800.
 
