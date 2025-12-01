@@ -130,7 +130,7 @@ else:
         pc_icons.append("camera")
 
     if st.session_state.get('user_role') == 'admin':
-        pc_options.extend(["Gerenciar Usuários", "Relatórios", "Mesclar Históricos"])
+        pc_options.extend(["Gerenciar Usuários", "Relatórios", "Mesclar Históricos", "Controle de Feedback", "Revisão Proativa"])
         pc_icons.extend(["people-fill", "graph-up", "sign-merge-left-fill"])
 
     options_to_show = pc_options
