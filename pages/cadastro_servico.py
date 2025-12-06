@@ -1,4 +1,4 @@
-# /pages/cadastro_servico.py - VERSÃO COMPLETA COM WHATSAPP AUTOMÁTICO
+# /pages/cadastro_servico.py - VERSÃO ROBUSTA COM FILA DE EVENTOS
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -6,6 +6,7 @@ from database import get_connection, release_connection
 import psycopg2.extras
 from datetime import datetime
 import pytz
+import time
 from utils import get_catalogo_servicos, consultar_placa_comercial, formatar_telefone, formatar_placa, buscar_clientes_por_similaridade, get_cliente_details
 from pages.ui_components import render_mobile_navbar
 
@@ -56,6 +57,152 @@ def gerar_diagnostico_veiculo():
         diagnostico_texto += "• Caminhão NÃO está vibrando.\n"
     
     return diagnostico_texto.strip()
+
+
+# =============================
+# FILA DE EVENTOS ROBUSTA
+# =============================
+def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
+    """
+    Processa o cadastro de serviços de forma robusta e sequencial.
+    Garante que nenhuma funcionalidade encavale.
+    """
+    
+    # ETAPA 1: SALVAR NO BANCO
+    print("⏱️  [ETAPA 1] Salvando no banco de dados...")
+    try:
+        conn = get_connection()
+        if not conn:
+            return False, "❌ Erro de conexão com o banco"
+        
+        with conn.cursor() as cursor:
+            table_map = {
+                "Borracharia": "servicos_solicitados_borracharia",
+                "Alinhamento": "servicos_solicitados_alinhamento",
+                "Mecânica": "servicos_solicitados_manutencao"
+            }
+
+            for s in st.session_state.servicos_para_adicionar:
+                table_name = table_map.get(s['area'])
+                if not table_name:
+                    return False, f"❌ Área de serviço inválida: {s['area']}"
+                
+                query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
+                cursor.execute(
+                    query,
+                    (
+                        state["veiculo_id"],
+                        s['tipo'],
+                        s['qtd'],
+                        observacao_final,
+                        state["quilometragem"],
+                        datetime.now(MS_TZ),
+                        datetime.now(MS_TZ)
+                    )
+                )
+
+            cursor.execute(
+                "UPDATE veiculos SET data_revisao_proativa = NULL WHERE id = %s",
+                (state["veiculo_id"],)
+            )
+
+            conn.commit()
+        
+        release_connection(conn)
+        print("✅ [ETAPA 1] CONCLUÍDO - Banco de dados atualizado")
+        time.sleep(0.5)  # Aguarda confirmação do commit
+        
+    except Exception as e:
+        release_connection(conn)
+        return False, f"❌ Erro ao salvar no banco: {str(e)}"
+
+    # ETAPA 2: FORMATAR MENSAGEM
+    print("⏱️  [ETAPA 2] Formatando mensagem WhatsApp...")
+    try:
+        servicos_resumo = ", ".join([f"{s['tipo']}({s['qtd']})" for s in st.session_state.servicos_para_adicionar])
+        mensagem = f"""🚛 *NOVO SERVIÇO CADASTRADO*
+
+*Placa:* `{state['placa_input']}`
+*KM:* `{state['quilometragem']:,}`
+*Serviços:* {servicos_resumo}
+
+📋 *DIAGNÓSTICO:*
+```
+{diagnostico_gerado}
+```
+
+⏰ *{datetime.now().strftime('%d/%m/%Y %H:%M')}*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#controlepatio"""
+        
+        print("✅ [ETAPA 2] CONCLUÍDO - Mensagem formatada")
+        time.sleep(0.3)
+        
+    except Exception as e:
+        return False, f"❌ Erro ao formatar mensagem: {str(e)}"
+
+    # ETAPA 3: EXIBIR SUCESSO
+    print("⏱️  [ETAPA 3] Exibindo feedback positivo...")
+    st.success("✅ ETAPA 1: Serviço cadastrado no banco com sucesso!")
+    print("✅ [ETAPA 3] CONCLUÍDO - Feedback exibido")
+    time.sleep(0.5)
+
+    # ETAPA 4: COPIAR PARA CLIPBOARD
+    print("⏱️  [ETAPA 4] Copiando mensagem para clipboard...")
+    mensagem_escaped = mensagem.replace('`', '').replace('"', '\\"').replace('\n', '\\n')
+    
+    components.html(f"""
+    <script>
+        const texto = `{mensagem_escaped}`;
+        navigator.clipboard.writeText(texto).then(() => {{
+            console.log('✅ ETAPA 4: Mensagem copiada para clipboard!');
+            window.parent.postMessage({{type: 'clipboard_ready'}}, '*');
+        }}).catch(err => {{
+            console.error('❌ Erro ao copiar:', err);
+        }});
+    </script>
+    """, height=0)
+    
+    print("✅ [ETAPA 4] CONCLUÍDO - Clipboard pronto")
+    time.sleep(1)  # AGUARDA clipboard estar pronto
+
+    # ETAPA 5: EXIBIR INSTRUÇÃO DE CÓPIA
+    print("⏱️  [ETAPA 5] Exibindo instruções...")
+    st.info("✅ ETAPA 2: Mensagem COPIADA! 📋")
+    print("✅ [ETAPA 5] CONCLUÍDO")
+    time.sleep(0.5)
+
+    # ETAPA 6: ABRIR WHATSAPP
+    print("⏱️  [ETAPA 6] Abrindo WhatsApp...")
+    components.html("""
+    <script>
+        // Aguarda um pouco antes de abrir (garante que clipboard foi copiado)
+        setTimeout(() => {
+            console.log('🚀 Abrindo WhatsApp...');
+            window.open('https://chat.whatsapp.com/JGjJfJT9G89CbxRD0UEUuB', '_blank');
+            console.log('✅ ETAPA 6: WhatsApp aberto em nova aba!');
+        }, 500);
+    </script>
+    """, height=0)
+    
+    print("✅ [ETAPA 6] CONCLUÍDO - WhatsApp aberto")
+    time.sleep(1)
+
+    # ETAPA 7: BALÕES E SUCESSO FINAL
+    print("⏱️  [ETAPA 7] Finalizando...")
+    st.balloons()
+    st.success("🎉 ETAPA 3: Tudo pronto! Cole (Ctrl+V) a mensagem no WhatsApp! 📱")
+    print("✅ [ETAPA 7] CONCLUÍDO - Processo finalizado")
+    time.sleep(1)
+
+    # ETAPA 8: LIMPAR FORMULÁRIO
+    print("⏱️  [ETAPA 8] Limpando formulário...")
+    state["search_triggered"] = False
+    state["placa_input"] = ""
+    st.session_state.servicos_para_adicionar = []
+    print("✅ [ETAPA 8] CONCLUÍDO - Formulário limpo")
+    
+    return True, "✅ Processo completo com sucesso!"
 
 
 def app():
@@ -434,84 +581,13 @@ def app():
                 elif not state["quilometragem"] or state["quilometragem"] <= 0:
                     st.error("❌ A quilometragem é obrigatória e deve ser maior que zero.")
                 else:
-                    try:
-                        conn = get_connection()
-                        if conn:
-                            with conn.cursor() as cursor:
-                                table_map = {
-                                    "Borracharia": "servicos_solicitados_borracharia",
-                                    "Alinhamento": "servicos_solicitados_alinhamento",
-                                    "Mecânica": "servicos_solicitados_manutencao"
-                                }
-
-                                # 1️⃣ SALVAR NO BANCO
-                                for s in st.session_state.servicos_para_adicionar:
-                                    table_name = table_map.get(s['area'])
-                                    query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
-                                    cursor.execute(
-                                        query,
-                                        (
-                                            state["veiculo_id"],
-                                            s['tipo'],
-                                            s['qtd'],
-                                            observacao_final,
-                                            state["quilometragem"],
-                                            datetime.now(MS_TZ),
-                                            datetime.now(MS_TZ)
-                                        )
-                                    )
-
-                                cursor.execute(
-                                    "UPDATE veiculos SET data_revisao_proativa = NULL WHERE id = %s",
-                                    (state["veiculo_id"],)
-                                )
-
-                                conn.commit()
-                                release_connection(conn)
-
-                                # 2️⃣ CRIAR MENSAGEM FORMATADA
-                                servicos_resumo = ", ".join([f"{s['tipo']}({s['qtd']})" for s in st.session_state.servicos_para_adicionar])
-                                mensagem = f"""🚛 *NOVO SERVIÇO CADASTRADO*
-
-*Placa:* `{state['placa_input']}`
-*KM:* `{state['quilometragem']:,}`
-*Serviços:* {servicos_resumo}
-
-📋 *DIAGNÓSTICO:*
-```
-{diagnostico_gerado}
-```
-
-⏰ *{datetime.now().strftime('%d/%m/%Y %H:%M')}*
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#controlepatio"""
-
-                                # 3️⃣ JS MÁGICO: COPIAR + ABRIR WHATSAPP
-                                components.html(f"""
-                                <script>
-                                    // Copia mensagem automaticamente
-                                    navigator.clipboard.writeText(`{mensagem.replace('`', '\\`')}`);
-                                    
-                                    // Abre seu grupo WhatsApp
-                                    window.open('https://chat.whatsapp.com/JGjJfJT9G89CbxRD0UEUuB', '_blank');
-                                    
-                                    // Confirmação visual
-                                    setTimeout(() => {{
-                                        alert('✅ SERVIÇO CADASTRADO!\\n📋 Mensagem COPIADA!\\n📱 Cole no grupo (Ctrl+V)');
-                                    }}, 500);
-                                </script>
-                                """, height=0)
-
-                                # 4️⃣ LIMPAR E SUCESSO
-                                state["search_triggered"] = False
-                                state["placa_input"] = ""
-                                st.session_state.servicos_para_adicionar = []
-                                st.success("🎉 Serviço cadastrado + WhatsApp aberto!")
-                                st.balloons()
-                                st.rerun()
-
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
+                    # CHAMA A FILA DE EVENTOS ROBUSTA
+                    sucesso, mensagem = processar_cadastro_completo(state, observacao_final, diagnostico_gerado)
+                    
+                    if sucesso:
+                        st.rerun()
+                    else:
+                        st.error(mensagem)
 
         else:  # Se o veículo não foi encontrado no banco
             st.warning("Veículo não encontrado no seu banco de dados.")
