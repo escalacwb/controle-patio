@@ -66,12 +66,11 @@ def gerar_diagnostico_veiculo():
 def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     """
     Processa o cadastro de serviços de forma robusta e sequencial.
-    Garante que nenhuma funcionalidade encavale.
     """
     
     # ETAPA 1: SALVAR NO BANCO
     print("⏱️  [ETAPA 1] Salvando no banco de dados...")
-    conn = None # Inicializa variável para segurança no bloco finally/except
+    conn = None 
     try:
         conn = get_connection()
         if not conn:
@@ -138,7 +137,6 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
 #controlepatio"""
         
         print("✅ [ETAPA 2] CONCLUÍDO - Mensagem formatada")
-        print(f"📝 Mensagem length: {len(mensagem)} caracteres")
         time.sleep(0.3)
         
     except Exception as e:
@@ -147,50 +145,76 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     # ETAPA 3: EXIBIR SUCESSO
     print("⏱️  [ETAPA 3] Exibindo feedback positivo...")
     st.success("✅ ETAPA 1: Serviço cadastrado no banco com sucesso!")
-    print("✅ [ETAPA 3] CONCLUÍDO - Feedback exibido")
     time.sleep(0.5)
 
-    # ETAPA 4: COPIAR PARA CLIPBOARD ✅ CORRIGIDO
+    # ETAPA 4: COPIAR PARA CLIPBOARD (CORRIGIDO PARA ERRO DOMException e appendChild)
     print("⏱️  [ETAPA 4] Copiando mensagem para clipboard...")
     
-    # --- CORREÇÃO AQUI ---
-    # 1. json.dumps cria uma string JSON válida (ex: "Linha 1\nLinha 2")
-    # 2. .replace('\\', '\\\\') escapa as barras para o JavaScript ler literalmente (ex: "Linha 1\\nLinha 2")
-    # 3. .replace("'", "\\'") escapa aspas simples pois usaremos var m = JSON.parse('STRING AQUI');
+    # Escape seguro para JSON
     mensagem_escapada = json.dumps(mensagem).replace('\\', '\\\\').replace("'", "\\'")
     
+    # Script JavaScript aprimorado
     components.html(f"""
+    <html>
+    <body>
     <script>
+    document.addEventListener('DOMContentLoaded', function() {{
+        console.log("DOM carregado, iniciando cópia...");
+        
         try {{
-            // JSON.parse garante parsing seguro da string formatada
-            var mensagem = JSON.parse('{mensagem_escapada}');
+            var textToCopy = JSON.parse('{mensagem_escapada}');
             
-            // Copiar para clipboard
-            navigator.clipboard.writeText(mensagem).then(() => {{
-                console.log('✅ ETAPA 4: Mensagem copiada para clipboard!');
-            }}).catch(err => {{
-                console.error('❌ Erro API Clipboard:', err);
-                // Fallback
-                const textarea = document.createElement('textarea');
-                textarea.value = mensagem;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-            }});
+            // Função de fallback robusta (funciona melhor em iframes)
+            function fallbackCopyTextToClipboard(text) {{
+                var textArea = document.createElement("textarea");
+                textArea.value = text;
+                
+                // Evita scroll da página
+                textArea.style.top = "0";
+                textArea.style.left = "0";
+                textArea.style.position = "fixed";
+                
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                try {{
+                    var successful = document.execCommand('copy');
+                    var msg = successful ? 'sucesso' : 'falha';
+                    console.log('Fallback: Comando de cópia foi um ' + msg);
+                }} catch (err) {{
+                    console.error('Fallback: Ops, não foi possível copiar', err);
+                }}
+
+                document.body.removeChild(textArea);
+            }}
+
+            // Tenta API moderna primeiro, se falhar ou der erro, vai pro fallback
+            if (navigator.clipboard && navigator.clipboard.writeText) {{
+                navigator.clipboard.writeText(textToCopy).then(function() {{
+                    console.log('Async: Cópia com sucesso!');
+                }}, function(err) {{
+                    console.error('Async: Falha ao copiar, tentando fallback', err);
+                    fallbackCopyTextToClipboard(textToCopy);
+                }});
+            }} else {{
+                fallbackCopyTextToClipboard(textToCopy);
+            }}
+            
         }} catch (e) {{
-            console.error('❌ Erro JSON Parse:', e);
+            console.error("Erro geral no script:", e);
         }}
+    }});
     </script>
+    </body>
+    </html>
     """, height=0)
     
-    print("✅ [ETAPA 4] CONCLUÍDO - Clipboard pronto")
-    time.sleep(2)  # AGUARDA clipboard estar pronto
+    print("✅ [ETAPA 4] CONCLUÍDO - Clipboard acionado")
+    time.sleep(2) 
 
     # ETAPA 5: EXIBIR INSTRUÇÃO DE CÓPIA
-    print("⏱️  [ETAPA 5] Exibindo instruções...")
     st.info("✅ ETAPA 2: Mensagem COPIADA! 📋\n\n**Cole (Ctrl+V) no WhatsApp que vai abrir em alguns segundos...**")
-    print("✅ [ETAPA 5] CONCLUÍDO")
     time.sleep(0.5)
 
     # ETAPA 6: ABRIR WHATSAPP
@@ -204,22 +228,17 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     </script>
     """, height=0)
     
-    print("✅ [ETAPA 6] CONCLUÍDO - WhatsApp aberto")
     time.sleep(1)
 
-    # ETAPA 7: BALÕES E SUCESSO FINAL
-    print("⏱️  [ETAPA 7] Finalizando...")
+    # ETAPA 7: FINALIZAÇÃO
     st.balloons()
     st.success("🎉 ETAPA 3: Tudo pronto! Agora é só colar (Ctrl+V) a mensagem no WhatsApp! 📱")
-    print("✅ [ETAPA 7] CONCLUÍDO - Processo finalizado")
     time.sleep(1)
 
     # ETAPA 8: LIMPAR FORMULÁRIO
-    print("⏱️  [ETAPA 8] Limpando formulário...")
     state["search_triggered"] = False
     state["placa_input"] = ""
     st.session_state.servicos_para_adicionar = []
-    print("✅ [ETAPA 8] CONCLUÍDO - Formulário limpo")
     
     return True, "✅ Processo completo com sucesso!"
 
