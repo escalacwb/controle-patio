@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# /pages/cadastro_servico.py - VERSÃO COM WHATSAPP WEB GENÉRICO
+# /pages/cadastro_servico.py - VERSÃO COM WA.ME LINK
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -11,6 +11,7 @@ from datetime import datetime
 import pytz
 import time
 import json
+import urllib.parse
 from utils import get_catalogo_servicos, consultar_placa_comercial, formatar_telefone, formatar_placa, buscar_clientes_por_similaridade, get_cliente_details
 from pages.ui_components import render_mobile_navbar
 
@@ -145,86 +146,43 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     st.success("✅ ETAPA 1: Serviço cadastrado no banco com sucesso!")
     time.sleep(0.5)
 
-    # ETAPA 4: COPIAR PARA CLIPBOARD
-    print("⏱️  [ETAPA 4] Copiando mensagem para clipboard...")
+    # ETAPA 4: NÃO PRECISA COPIAR - MENSAGEM JÁ ESTÁ NO LINK
+    print("⏱️  [ETAPA 4] Preparando link WhatsApp com mensagem...")
     
-    mensagem_escapada = json.dumps(mensagem).replace('\\', '\\\\').replace("'", "\\'")
-    
-    components.html(f"""
-    <html>
-    <body>
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {{
-        console.log("DOM carregado, iniciando cópia...");
-        
-        try {{
-            var textToCopy = JSON.parse('{mensagem_escapada}');
-            
-            function fallbackCopyTextToClipboard(text) {{
-                var textArea = document.createElement("textarea");
-                textArea.value = text;
-                textArea.style.top = "0";
-                textArea.style.left = "0";
-                textArea.style.position = "fixed";
-                
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-
-                try {{
-                    var successful = document.execCommand('copy');
-                    console.log('Fallback: Cópia foi um ' + (successful ? 'sucesso' : 'falha'));
-                }} catch (err) {{
-                    console.error('Fallback: Erro ao copiar', err);
-                }}
-
-                document.body.removeChild(textArea);
-            }}
-
-            if (navigator.clipboard && navigator.clipboard.writeText) {{
-                navigator.clipboard.writeText(textToCopy).then(function() {{
-                    console.log('✅ Cópia com sucesso!');
-                }}, function(err) {{
-                    console.error('Falha, tentando fallback', err);
-                    fallbackCopyTextToClipboard(textToCopy);
-                }});
-            }} else {{
-                fallbackCopyTextToClipboard(textToCopy);
-            }}
-            
-        }} catch (e) {{
-            console.error("Erro:", e);
-        }}
-    }});
-    </script>
-    </body>
-    </html>
-    """, height=0)
-    
-    print("✅ [ETAPA 4] CONCLUÍDO - Clipboard acionado")
-    time.sleep(2)
-
-    # ETAPA 5: EXIBIR INSTRUÇÃO
-    st.info("✅ ETAPA 2: Mensagem COPIADA! 📋\n\n**Cole (Ctrl+V) no WhatsApp que vai abrir em alguns segundos...**")
+    st.info("✅ ETAPA 2: Preparando mensagem para envio...")
     time.sleep(0.5)
 
-    # ETAPA 6: ABRIR WHATSAPP WEB GENÉRICO
-    print("⏱️  [ETAPA 6] Abrindo WhatsApp Web...")
-    components.html("""
-    <script>
-        setTimeout(() => {
-            console.log('🚀 Abrindo WhatsApp Web...');
-            window.open('https://web.whatsapp.com/', '_blank');
-        }, 500);
-    </script>
-    """, height=0)
+    # ETAPA 5: EXIBIR INSTRUÇÃO
+    st.info("✅ ETAPA 2: Abrindo WhatsApp em alguns segundos...")
+    time.sleep(0.5)
+
+    # ETAPA 6: ABRIR WHATSAPP COM MENSAGEM NO LINK
+    print("⏱️  [ETAPA 6] Abrindo WhatsApp com mensagem no link...")
     
-    print("✅ [ETAPA 6] CONCLUÍDO - WhatsApp Web aberto")
+    try:
+        # URL encode a mensagem para usar no link wa.me
+        mensagem_encoded = urllib.parse.quote(mensagem)
+        whatsapp_link = f"https://web.whatsapp.com/send?text={mensagem_encoded}"
+        
+        components.html(f"""
+        <script>
+            setTimeout(() => {{
+                console.log('🚀 Abrindo WhatsApp com mensagem...');
+                window.open('{whatsapp_link}', '_blank');
+            }}, 500);
+        </script>
+        """, height=0)
+        
+        print("✅ [ETAPA 6] CONCLUÍDO - WhatsApp aberto com mensagem no link")
+        
+    except Exception as e:
+        print(f"❌ Erro ao preparar link WhatsApp: {str(e)}")
+    
     time.sleep(1)
 
     # ETAPA 7: FINALIZAÇÃO
     st.balloons()
-    st.success("🎉 ETAPA 3: Tudo pronto! Agora é só:\n\n1️⃣ Selecione o GRUPO no WhatsApp\n2️⃣ Cole (Ctrl+V) a mensagem\n3️⃣ Envie! 📱")
+    st.success("🎉 ETAPA 3: WhatsApp aberto! Agora é só:\n\n1️⃣ Selecione o GRUPO para envio\n2️⃣ A mensagem já está pronta\n3️⃣ Clique em Enviar! 📱")
     time.sleep(1)
 
     # ETAPA 8: LIMPAR FORMULÁRIO
