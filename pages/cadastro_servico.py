@@ -1,6 +1,7 @@
-# /pages/cadastro_servico.py - VERSÃO ATUALIZADA COM CHECKBOXES DE DIAGNÓSTICO
+# /pages/cadastro_servico.py - VERSÃO COMPLETA COM WHATSAPP AUTOMÁTICO
 
 import streamlit as st
+import streamlit.components.v1 as components
 from database import get_connection, release_connection
 import psycopg2.extras
 from datetime import datetime
@@ -133,7 +134,7 @@ def app():
                             st.session_state.busca_empresa_edit = state['veiculo_info']['empresa']
                         st.rerun()
 
-            # ============== SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE VEÍCULO (MANTIDO DO ORIGINAL) ==============
+            # ============== SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE VEÍCULO ==============
             if st.session_state.get('show_edit_form', False):
                 with st.form("form_edit_veiculo"):
                     st.info("Altere os dados específicos deste veículo.")
@@ -148,12 +149,7 @@ def app():
                         if conn:
                             try:
                                 with conn.cursor() as cursor:
-                                    query_veiculo = """
-                                    UPDATE veiculos
-                                    SET modelo = %s, ano_modelo = %s, nome_motorista = %s,
-                                    contato_motorista = %s, data_atualizacao_contato = NOW()
-                                    WHERE id = %s
-                                    """
+                                    query_veiculo = "UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s, data_atualizacao_contato = NOW() WHERE id = %s"
                                     cursor.execute(query_veiculo, (novo_modelo, novo_ano if novo_ano > 0 else None, novo_motorista, formatar_telefone(novo_contato_motorista), state['veiculo_id']))
                                     conn.commit()
                                     st.success("Dados do veículo atualizados!")
@@ -162,7 +158,7 @@ def app():
                             finally:
                                 release_connection(conn)
 
-            # ============== SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE EMPRESA (MANTIDO DO ORIGINAL) ==============
+            # ============== SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE EMPRESA ==============
             if st.session_state.get('show_edit_responsavel_form', False):
                 st.info("Altere a empresa à qual este veículo está vinculado.")
                 busca_empresa_edit = st.text_input("Digite para buscar/alterar a empresa", value=st.session_state.get("busca_empresa_edit", ""), help="Digite e pressione Enter para buscar.")
@@ -356,7 +352,7 @@ def app():
 
             st.markdown("---")
 
-            # ============== SEÇÃO DE SELEÇÃO DE SERVIÇOS (ANTES ERA AQUI) ==============
+            # ============== SEÇÃO DE SELEÇÃO DE SERVIÇOS ==============
             st.header("3️⃣ Seleção de Serviços")
 
             state["quilometragem"] = st.number_input(
@@ -429,15 +425,18 @@ def app():
             if observacao_geral.strip():
                 observacao_final += "\n\n" + observacao_geral
 
-            if st.button("Registrar todos os serviços da lista", type="primary", use_container_width=True):
+            # ========================================================
+            # 🚀 BOTÃO MÁGICO: CADASTRA + COPIA + WHATSAPP!
+            # ========================================================
+            if st.button("🚀 CADASTRAR e NOTIFICAR GRUPO WHATSAPP", type="primary", use_container_width=True):
                 if not st.session_state.servicos_para_adicionar:
                     st.warning("⚠️ Nenhum serviço foi adicionado à lista.")
                 elif not state["quilometragem"] or state["quilometragem"] <= 0:
                     st.error("❌ A quilometragem é obrigatória e deve ser maior que zero.")
                 else:
-                    conn = get_connection()
-                    if conn:
-                        try:
+                    try:
+                        conn = get_connection()
+                        if conn:
                             with conn.cursor() as cursor:
                                 table_map = {
                                     "Borracharia": "servicos_solicitados_borracharia",
@@ -445,6 +444,7 @@ def app():
                                     "Mecânica": "servicos_solicitados_manutencao"
                                 }
 
+                                # 1️⃣ SALVAR NO BANCO
                                 for s in st.session_state.servicos_para_adicionar:
                                     table_name = table_map.get(s['area'])
                                     query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
@@ -454,7 +454,7 @@ def app():
                                             state["veiculo_id"],
                                             s['tipo'],
                                             s['qtd'],
-                                            observacao_final,  # AGORA INCLUI DIAGNÓSTICO + OBSERVAÇÕES
+                                            observacao_final,
                                             state["quilometragem"],
                                             datetime.now(MS_TZ),
                                             datetime.now(MS_TZ)
@@ -467,14 +467,51 @@ def app():
                                 )
 
                                 conn.commit()
-                                st.success("✅ Serviços cadastrados com sucesso!")
+                                release_connection(conn)
+
+                                # 2️⃣ CRIAR MENSAGEM FORMATADA
+                                servicos_resumo = ", ".join([f"{s['tipo']}({s['qtd']})" for s in st.session_state.servicos_para_adicionar])
+                                mensagem = f"""🚛 *NOVO SERVIÇO CADASTRADO*
+
+*Placa:* `{state['placa_input']}`
+*KM:* `{state['quilometragem']:,}`
+*Serviços:* {servicos_resumo}
+
+📋 *DIAGNÓSTICO:*
+```
+{diagnostico_gerado}
+```
+
+⏰ *{datetime.now().strftime('%d/%m/%Y %H:%M')}*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#controlepatio"""
+
+                                # 3️⃣ JS MÁGICO: COPIAR + ABRIR WHATSAPP
+                                components.html(f"""
+                                <script>
+                                    // Copia mensagem automaticamente
+                                    navigator.clipboard.writeText(`{mensagem.replace('`', '\\`')}`);
+                                    
+                                    // Abre seu grupo WhatsApp
+                                    window.open('https://chat.whatsapp.com/JGjJfJT9G89CbxRD0UEUuB', '_blank');
+                                    
+                                    // Confirmação visual
+                                    setTimeout(() => {{
+                                        alert('✅ SERVIÇO CADASTRADO!\\n📋 Mensagem COPIADA!\\n📱 Cole no grupo (Ctrl+V)');
+                                    }}, 500);
+                                </script>
+                                """, height=0)
+
+                                # 4️⃣ LIMPAR E SUCESSO
                                 state["search_triggered"] = False
                                 state["placa_input"] = ""
                                 st.session_state.servicos_para_adicionar = []
+                                st.success("🎉 Serviço cadastrado + WhatsApp aberto!")
                                 st.balloons()
                                 st.rerun()
-                        finally:
-                            release_connection(conn)
+
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
 
         else:  # Se o veículo não foi encontrado no banco
             st.warning("Veículo não encontrado no seu banco de dados.")
