@@ -1,4 +1,7 @@
-# /pages/cadastro_servico.py - VERSÃO FINAL COM JSON CORRIGIDO
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# /pages/cadastro_servico.py - VERSÃO COM WHATSAPP WEB GENÉRICO
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -26,31 +29,26 @@ def gerar_diagnostico_veiculo():
     """
     diagnostico_texto = ""
     
-    # 1. PUXANDO PARA UM LADO
     puxando = st.session_state.get('diag_puxando', 'Não')
     if puxando == 'Não':
         diagnostico_texto += "• Caminhão NÃO está puxando para nenhum lado.\n"
     else:
         diagnostico_texto += f"• Caminhão está puxando para a {puxando}.\n"
     
-    # 2. PASSARINHANDO OU VOLANTE PESADO
     passar_pesado = st.session_state.get('diag_passarinhando', 'Não')
     if passar_pesado == 'Não':
         diagnostico_texto += "• Caminhão NÃO está passarinhando e o volante está normal.\n"
     else:
         diagnostico_texto += f"• Caminhão está com {passar_pesado.lower()}.\n"
     
-    # 3. PNEU DIANTEIRO ESQUERDO
     pneu_esq = st.session_state.get('diag_pneu_esquerdo', 'Não')
     if pneu_esq != 'Não':
         diagnostico_texto += f"• Pneu dianteiro ESQUERDO: Desgaste no {pneu_esq}.\n"
     
-    # 4. PNEU DIANTEIRO DIREITO
     pneu_dir = st.session_state.get('diag_pneu_direito', 'Não')
     if pneu_dir != 'Não':
         diagnostico_texto += f"• Pneu dianteiro DIREITO: Desgaste no {pneu_dir}.\n"
     
-    # 5. VIBRAÇÃO
     vibracao = st.session_state.get('diag_vibracao', 'Não')
     if vibracao == 'Sim':
         diagnostico_texto += "• Caminhão está VIBRANDO.\n"
@@ -147,13 +145,11 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     st.success("✅ ETAPA 1: Serviço cadastrado no banco com sucesso!")
     time.sleep(0.5)
 
-    # ETAPA 4: COPIAR PARA CLIPBOARD (CORRIGIDO PARA ERRO DOMException e appendChild)
+    # ETAPA 4: COPIAR PARA CLIPBOARD
     print("⏱️  [ETAPA 4] Copiando mensagem para clipboard...")
     
-    # Escape seguro para JSON
     mensagem_escapada = json.dumps(mensagem).replace('\\', '\\\\').replace("'", "\\'")
     
-    # Script JavaScript aprimorado
     components.html(f"""
     <html>
     <body>
@@ -164,12 +160,9 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
         try {{
             var textToCopy = JSON.parse('{mensagem_escapada}');
             
-            // Função de fallback robusta (funciona melhor em iframes)
             function fallbackCopyTextToClipboard(text) {{
                 var textArea = document.createElement("textarea");
                 textArea.value = text;
-                
-                // Evita scroll da página
                 textArea.style.top = "0";
                 textArea.style.left = "0";
                 textArea.style.position = "fixed";
@@ -180,21 +173,19 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
 
                 try {{
                     var successful = document.execCommand('copy');
-                    var msg = successful ? 'sucesso' : 'falha';
-                    console.log('Fallback: Comando de cópia foi um ' + msg);
+                    console.log('Fallback: Cópia foi um ' + (successful ? 'sucesso' : 'falha'));
                 }} catch (err) {{
-                    console.error('Fallback: Ops, não foi possível copiar', err);
+                    console.error('Fallback: Erro ao copiar', err);
                 }}
 
                 document.body.removeChild(textArea);
             }}
 
-            // Tenta API moderna primeiro, se falhar ou der erro, vai pro fallback
             if (navigator.clipboard && navigator.clipboard.writeText) {{
                 navigator.clipboard.writeText(textToCopy).then(function() {{
-                    console.log('Async: Cópia com sucesso!');
+                    console.log('✅ Cópia com sucesso!');
                 }}, function(err) {{
-                    console.error('Async: Falha ao copiar, tentando fallback', err);
+                    console.error('Falha, tentando fallback', err);
                     fallbackCopyTextToClipboard(textToCopy);
                 }});
             }} else {{
@@ -202,7 +193,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
             }}
             
         }} catch (e) {{
-            console.error("Erro geral no script:", e);
+            console.error("Erro:", e);
         }}
     }});
     </script>
@@ -211,34 +202,37 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     """, height=0)
     
     print("✅ [ETAPA 4] CONCLUÍDO - Clipboard acionado")
-    time.sleep(2) 
+    time.sleep(2)
 
-    # ETAPA 5: EXIBIR INSTRUÇÃO DE CÓPIA
+    # ETAPA 5: EXIBIR INSTRUÇÃO
     st.info("✅ ETAPA 2: Mensagem COPIADA! 📋\n\n**Cole (Ctrl+V) no WhatsApp que vai abrir em alguns segundos...**")
     time.sleep(0.5)
 
-    # ETAPA 6: ABRIR WHATSAPP
-    print("⏱️  [ETAPA 6] Abrindo WhatsApp...")
+    # ETAPA 6: ABRIR WHATSAPP WEB GENÉRICO
+    print("⏱️  [ETAPA 6] Abrindo WhatsApp Web...")
     components.html("""
     <script>
         setTimeout(() => {
-            console.log('🚀 Abrindo WhatsApp...');
-            window.open('https://chat.whatsapp.com/JGjJfJT9G89CbxRD0UEUuB', '_blank');
+            console.log('🚀 Abrindo WhatsApp Web...');
+            window.open('https://web.whatsapp.com/', '_blank');
         }, 500);
     </script>
     """, height=0)
     
+    print("✅ [ETAPA 6] CONCLUÍDO - WhatsApp Web aberto")
     time.sleep(1)
 
     # ETAPA 7: FINALIZAÇÃO
     st.balloons()
-    st.success("🎉 ETAPA 3: Tudo pronto! Agora é só colar (Ctrl+V) a mensagem no WhatsApp! 📱")
+    st.success("🎉 ETAPA 3: Tudo pronto! Agora é só:\n\n1️⃣ Selecione o GRUPO no WhatsApp\n2️⃣ Cole (Ctrl+V) a mensagem\n3️⃣ Envie! 📱")
     time.sleep(1)
 
     # ETAPA 8: LIMPAR FORMULÁRIO
+    print("⏱️  [ETAPA 8] Limpando formulário...")
     state["search_triggered"] = False
     state["placa_input"] = ""
     st.session_state.servicos_para_adicionar = []
+    print("✅ [ETAPA 8] CONCLUÍDO - Formulário limpo")
     
     return True, "✅ Processo completo com sucesso!"
 
@@ -459,9 +453,9 @@ def app():
 
             st.markdown("---")
 
-            # ============== NOVA SEÇÃO: DIAGNÓSTICO DO VEÍCULO ==============
+            # ============== SEÇÃO DE DIAGNÓSTICO ==============
             st.header("2️⃣ Diagnóstico do Veículo")
-            st.markdown("**Avalie as condições de funcionamento do caminhão. Os dados serão concatenados com as observações.**")
+            st.markdown("**Avalie as condições de funcionamento do caminhão.**")
 
             with st.container(border=True):
                 st.subheader("🚛 Puxada Lateral")
@@ -470,66 +464,48 @@ def app():
                     st.markdown("**O caminhão está puxando?**")
                 with puxando_col2:
                     st.session_state['diag_puxando'] = st.radio(
-                        "Opção",
-                        options=['Não', 'Para Esquerda', 'Para Direita'],
-                        key='radio_puxando',
-                        label_visibility='collapsed',
-                        horizontal=True
+                        "Opção", options=['Não', 'Para Esquerda', 'Para Direita'],
+                        key='radio_puxando', label_visibility='collapsed', horizontal=True
                     )
 
             with st.container(border=True):
                 st.subheader("🐦 Comportamento do Volante")
                 passar_col1, passar_col2 = st.columns(2)
                 with passar_col1:
-                    st.markdown("**O caminhão está passarinhando ou volante pesado?**")
+                    st.markdown("**Passarinhando ou volante pesado?**")
                 with passar_col2:
                     st.session_state['diag_passarinhando'] = st.radio(
-                        "Opção",
-                        options=['Não', 'Passarinhando', 'Volante Pesado'],
-                        key='radio_passarinhando',
-                        label_visibility='collapsed',
-                        horizontal=True
+                        "Opção", options=['Não', 'Passarinhando', 'Volante Pesado'],
+                        key='radio_passarinhando', label_visibility='collapsed', horizontal=True
                     )
 
             with st.container(border=True):
                 st.subheader("🛞 Desgaste de Pneus Dianteiros")
-                st.markdown("**Os pneus dianteiros estão desgastando irregularmente?**")
-                
                 col_esq, col_dir = st.columns(2)
-                
                 with col_esq:
                     st.markdown("**Pneu ESQUERDO:**")
                     st.session_state['diag_pneu_esquerdo'] = st.radio(
-                        "Pneu Esquerdo",
-                        options=['Não', 'Ombro Interno', 'Ombro Externo', 'Centro'],
-                        key='radio_pneu_esq',
-                        label_visibility='collapsed'
+                        "Esquerdo", options=['Não', 'Ombro Interno', 'Ombro Externo', 'Centro'],
+                        key='radio_pneu_esq', label_visibility='collapsed'
                     )
-                
                 with col_dir:
                     st.markdown("**Pneu DIREITO:**")
                     st.session_state['diag_pneu_direito'] = st.radio(
-                        "Pneu Direito",
-                        options=['Não', 'Ombro Interno', 'Ombro Externo', 'Centro'],
-                        key='radio_pneu_dir',
-                        label_visibility='collapsed'
+                        "Direito", options=['Não', 'Ombro Interno', 'Ombro Externo', 'Centro'],
+                        key='radio_pneu_dir', label_visibility='collapsed'
                     )
 
             with st.container(border=True):
                 st.subheader("📳 Vibração")
                 vibr_col1, vibr_col2 = st.columns(2)
                 with vibr_col1:
-                    st.markdown("**O caminhão está vibrando?**")
+                    st.markdown("**Caminhão vibrando?**")
                 with vibr_col2:
                     st.session_state['diag_vibracao'] = st.radio(
-                        "Opção",
-                        options=['Não', 'Sim'],
-                        key='radio_vibracao',
-                        label_visibility='collapsed',
-                        horizontal=True
+                        "Opção", options=['Não', 'Sim'],
+                        key='radio_vibracao', label_visibility='collapsed', horizontal=True
                     )
 
-            # Gerar e exibir diagnóstico em tempo real
             diagnostico_gerado = gerar_diagnostico_veiculo()
             with st.container(border=True):
                 st.markdown("### 📋 Diagnóstico Gerado:")
@@ -542,11 +518,9 @@ def app():
 
             state["quilometragem"] = st.number_input(
                 "Quilometragem (Obrigatório)",
-                min_value=1,
-                step=1,
+                min_value=1, step=1,
                 value=state.get("quilometragem", 0) or None,
-                key="km_servico",
-                placeholder="Digite a KM..."
+                key="km_servico", placeholder="Digite a KM..."
             )
 
             servicos_do_banco = get_catalogo_servicos()
@@ -558,20 +532,15 @@ def app():
 
                 with col1:
                     servico_selecionado = st.selectbox(
-                        f"Selecione o serviço de {nome_area}",
+                        f"Serviço de {nome_area}",
                         options=[""] + servicos_disponiveis,
-                        key=f"select_{chave_area}",
-                        label_visibility="collapsed"
+                        key=f"select_{chave_area}", label_visibility="collapsed"
                     )
 
                 with col2:
                     quantidade = st.number_input(
-                        "Qtd",
-                        min_value=1,
-                        value=1,
-                        step=1,
-                        key=f"qtd_{chave_area}",
-                        label_visibility="collapsed"
+                        "Qtd", min_value=1, value=1, step=1,
+                        key=f"qtd_{chave_area}", label_visibility="collapsed"
                     )
 
                 with col3:
@@ -582,7 +551,7 @@ def app():
                             )
                             st.rerun()
                         else:
-                            st.warning("Por favor, selecione um serviço para adicionar.")
+                            st.warning("Selecione um serviço para adicionar.")
 
             area_de_servico("Borracharia", "borracharia")
             area_de_servico("Alinhamento", "alinhamento")
@@ -591,7 +560,7 @@ def app():
             st.markdown("---")
 
             if st.session_state.servicos_para_adicionar:
-                st.subheader("Serviços na Lista para Cadastro:")
+                st.subheader("Serviços na Lista:")
                 for i, servico in enumerate(st.session_state.servicos_para_adicionar):
                     col_serv, col_qtd, col_del = st.columns([0.7, 0.15, 0.15])
                     col_serv.write(f"**{servico['area']}**: {servico['tipo']}")
@@ -600,37 +569,30 @@ def app():
                         st.session_state.servicos_para_adicionar.pop(i)
                         st.rerun()
 
-            # Observações gerais
-            observacao_geral = st.text_area("📝 Observações gerais para todos os serviços")
+            observacao_geral = st.text_area("📝 Observações gerais")
 
             st.markdown("---")
 
-            # ============== CONCATENAR DIAGNÓSTICO COM OBSERVAÇÕES ==============
             observacao_final = diagnostico_gerado
             if observacao_geral.strip():
                 observacao_final += "\n\n" + observacao_geral
 
-            # ========================================================
-            # 🚀 BOTÃO MÁGICO: CADASTRA + COPIA + WHATSAPP!
-            # ========================================================
-            if st.button("🚀 CADASTRAR e NOTIFICAR GRUPO WHATSAPP", type="primary", use_container_width=True):
+            if st.button("🚀 CADASTRAR e NOTIFICAR", type="primary", use_container_width=True):
                 if not st.session_state.servicos_para_adicionar:
                     st.warning("⚠️ Nenhum serviço foi adicionado à lista.")
                 elif not state["quilometragem"] or state["quilometragem"] <= 0:
-                    st.error("❌ A quilometragem é obrigatória e deve ser maior que zero.")
+                    st.error("❌ A quilometragem é obrigatória.")
                 else:
-                    # CHAMA A FILA DE EVENTOS ROBUSTA
                     sucesso, mensagem = processar_cadastro_completo(state, observacao_final, diagnostico_gerado)
-                    
                     if sucesso:
                         st.rerun()
                     else:
                         st.error(mensagem)
 
-        else:  # Se o veículo não foi encontrado no banco
-            st.warning("Veículo não encontrado no seu banco de dados.")
+        else:
+            st.warning("Veículo não encontrado no banco de dados.")
 
-            if st.button("🔎 Buscar Dados Externos (API)", use_container_width=True):
+            if st.button("🔎 Buscar na API", use_container_width=True):
                 with st.spinner("Consultando API..."):
                     sucesso, resultado = consultar_placa_comercial(state["placa_input"])
                     if sucesso:
@@ -642,27 +604,27 @@ def app():
             if 'api_vehicle_data' in st.session_state:
                 api_data = st.session_state.api_vehicle_data
                 with st.container(border=True):
-                    st.subheader("Dados Encontrados na API")
-                    st.markdown(f"**Marca/Modelo:** `{api_data.get('modelo', 'N/A')}`")
-                    st.markdown(f"**Ano do Modelo:** `{api_data.get('anoModelo', 'N/A')}`")
-                    confirm_col, cancel_col = st.columns(2)
+                    st.subheader("Dados da API")
+                    st.markdown(f"**Modelo:** `{api_data.get('modelo', 'N/A')}`")
+                    st.markdown(f"**Ano:** `{api_data.get('anoModelo', 'N/A')}`")
+                    c1, c2 = st.columns(2)
 
-                    with confirm_col:
-                        if st.button("✅ Aceitar Dados", use_container_width=True, type="primary"):
+                    with c1:
+                        if st.button("✅ Aceitar", use_container_width=True, type="primary"):
                             st.session_state.modelo_aceito = api_data.get('modelo')
                             st.session_state.ano_aceito = api_data.get('anoModelo')
                             del st.session_state.api_vehicle_data
                             st.rerun()
 
-                    with cancel_col:
+                    with c2:
                         if st.button("❌ Cancelar", use_container_width=True):
                             del st.session_state.api_vehicle_data
                             st.rerun()
 
             if not st.session_state.get('api_vehicle_data'):
                 with st.expander("Cadastrar Novo Veículo", expanded=True):
-                    st.subheader("Vincular a uma Empresa Cliente")
-                    busca_empresa = st.text_input("Digite para buscar a empresa", value=st.session_state.get("busca_empresa_novo", ""), help="Digite pelo menos 3 letras e pressione Enter.")
+                    st.subheader("Vincular a uma Empresa")
+                    busca_empresa = st.text_input("Digite para buscar empresa", value=st.session_state.get("busca_empresa_novo", ""))
 
                     if busca_empresa != st.session_state.get("busca_empresa_novo"):
                         st.session_state.busca_empresa_novo = busca_empresa
@@ -681,15 +643,13 @@ def app():
                                     texto_exibicao += f" (Fantasia: {nome_fantasia})"
                                 opcoes_cliente[texto_exibicao] = id_cliente
 
-                            opcoes_cliente[f"Nenhum destes. Cadastrar '{st.session_state.busca_empresa_novo}' como nova."] = None
+                            opcoes_cliente[f"Cadastrar '{st.session_state.busca_empresa_novo}'"] = None
 
-                            cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente.keys()))
+                            cliente_selecionado_str = st.selectbox("Selecione ou cadastre nova empresa:", options=list(opcoes_cliente.keys()))
                             cliente_id_selecionado = opcoes_cliente[cliente_selecionado_str]
 
                             if cliente_id_selecionado:
                                 nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_selecionado), st.session_state.busca_empresa_novo)
-                        else:
-                            st.warning("Nenhuma empresa encontrada com nome similar. O nome digitado será usado para um novo cadastro de cliente.")
 
                     with st.form("form_novo_veiculo_rapido"):
                         st.markdown("---")
@@ -711,7 +671,7 @@ def app():
 
                         if st.form_submit_button("Cadastrar e Continuar"):
                             if not all([nome_empresa_final, modelo]):
-                                st.warning("É necessário selecionar ou digitar uma Empresa e preencher o Modelo do veículo.")
+                                st.warning("Empresa e Modelo são obrigatórios.")
                             else:
                                 placa_formatada = formatar_placa(state["placa_input"])
                                 contato_formatado = formatar_telefone(contato_motorista)
@@ -724,27 +684,20 @@ def app():
                                                 cursor.execute("INSERT INTO clientes (nome_empresa) VALUES (%s) RETURNING id", (nome_empresa_final,))
                                                 cliente_id_selecionado = cursor.fetchone()['id']
 
-                                            query_insert = """
-                                            INSERT INTO veiculos (placa, empresa, modelo, ano_modelo, nome_motorista, contato_motorista, cliente_id, data_entrada, data_atualizacao_contato)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW());
-                                            """
+                                            query_insert = "INSERT INTO veiculos (placa, empresa, modelo, ano_modelo, nome_motorista, contato_motorista, cliente_id, data_entrada, data_atualizacao_contato) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW());"
 
                                             cursor.execute(
                                                 query_insert,
                                                 (
-                                                    placa_formatada,
-                                                    nome_empresa_final,
-                                                    modelo,
+                                                    placa_formatada, nome_empresa_final, modelo,
                                                     ano_modelo if ano_modelo > 1950 else None,
-                                                    nome_motorista,
-                                                    contato_formatado,
-                                                    cliente_id_selecionado,
-                                                    datetime.now(MS_TZ)
+                                                    nome_motorista, contato_formatado,
+                                                    cliente_id_selecionado, datetime.now(MS_TZ)
                                                 )
                                             )
 
                                             conn.commit()
-                                            st.success("🚚 Veículo cadastrado com sucesso! A página será recarregada.")
+                                            st.success("🚚 Veículo cadastrado com sucesso!")
                                             state['search_triggered'] = False
                                             for key in ['modelo_aceito', 'ano_aceito']:
                                                 if key in st.session_state:
