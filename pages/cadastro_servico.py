@@ -196,7 +196,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     try:
         # URL encode a mensagem para usar no link wa.me
         mensagem_encoded = urllib.parse.quote(mensagem)
-        whatsapp_link = f"https://web.whatsapp.com/send?text={mensagem_encoded}"
+        whatsapp_link = f"https://wa.me/?text={mensagem_encoded}"
         
         components.html(f"""
         <script>
