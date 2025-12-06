@@ -1,4 +1,4 @@
-# /pages/cadastro_servico.py - VERSÃO ROBUSTA COM FILA DE EVENTOS
+# /pages/cadastro_servico.py - VERSÃO CORRIGIDA COM CLIPBOARD FUNCIONANDO
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -7,6 +7,7 @@ import psycopg2.extras
 from datetime import datetime
 import pytz
 import time
+import json
 from utils import get_catalogo_servicos, consultar_placa_comercial, formatar_telefone, formatar_placa, buscar_clientes_por_similaridade, get_cliente_details
 from pages.ui_components import render_mobile_navbar
 
@@ -110,7 +111,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
         
         release_connection(conn)
         print("✅ [ETAPA 1] CONCLUÍDO - Banco de dados atualizado")
-        time.sleep(0.5)  # Aguarda confirmação do commit
+        time.sleep(0.5)
         
     except Exception as e:
         release_connection(conn)
@@ -136,6 +137,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
 #controlepatio"""
         
         print("✅ [ETAPA 2] CONCLUÍDO - Mensagem formatada")
+        print(f"📝 Mensagem length: {len(mensagem)} caracteres")
         time.sleep(0.3)
         
     except Exception as e:
@@ -147,28 +149,41 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     print("✅ [ETAPA 3] CONCLUÍDO - Feedback exibido")
     time.sleep(0.5)
 
-    # ETAPA 4: COPIAR PARA CLIPBOARD
+    # ETAPA 4: COPIAR PARA CLIPBOARD ✅ CORRIGIDO
     print("⏱️  [ETAPA 4] Copiando mensagem para clipboard...")
-    mensagem_escaped = mensagem.replace('`', '').replace('"', '\\"').replace('\n', '\\n')
+    
+    # Escapar a mensagem corretamente usando JSON
+    mensagem_json = json.dumps(mensagem)
     
     components.html(f"""
     <script>
-        const texto = `{mensagem_escaped}`;
-        navigator.clipboard.writeText(texto).then(() => {{
+        // Usar JSON.parse garante que os caracteres especiais sejam tratados corretamente
+        const mensagem = JSON.parse('{mensagem_json}');
+        
+        // Copiar para clipboard
+        navigator.clipboard.writeText(mensagem).then(() => {{
             console.log('✅ ETAPA 4: Mensagem copiada para clipboard!');
-            window.parent.postMessage({{type: 'clipboard_ready'}}, '*');
+            console.log('Texto copiado (' + mensagem.length + ' caracteres):', mensagem.substring(0, 100) + '...');
         }}).catch(err => {{
             console.error('❌ Erro ao copiar:', err);
+            // Fallback: tentar com método antigo
+            const textarea = document.createElement('textarea');
+            textarea.value = mensagem;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            console.log('✅ ETAPA 4: Copiado com fallback!');
         }});
     </script>
     """, height=0)
     
     print("✅ [ETAPA 4] CONCLUÍDO - Clipboard pronto")
-    time.sleep(1)  # AGUARDA clipboard estar pronto
+    time.sleep(2)  # AGUARDA clipboard estar pronto
 
     # ETAPA 5: EXIBIR INSTRUÇÃO DE CÓPIA
     print("⏱️  [ETAPA 5] Exibindo instruções...")
-    st.info("✅ ETAPA 2: Mensagem COPIADA! 📋")
+    st.info("✅ ETAPA 2: Mensagem COPIADA! 📋\n\n**Cole (Ctrl+V) no WhatsApp que vai abrir em alguns segundos...**")
     print("✅ [ETAPA 5] CONCLUÍDO")
     time.sleep(0.5)
 
@@ -191,7 +206,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     # ETAPA 7: BALÕES E SUCESSO FINAL
     print("⏱️  [ETAPA 7] Finalizando...")
     st.balloons()
-    st.success("🎉 ETAPA 3: Tudo pronto! Cole (Ctrl+V) a mensagem no WhatsApp! 📱")
+    st.success("🎉 ETAPA 3: Tudo pronto! Agora é só colar (Ctrl+V) a mensagem no WhatsApp! 📱")
     print("✅ [ETAPA 7] CONCLUÍDO - Processo finalizado")
     time.sleep(1)
 
