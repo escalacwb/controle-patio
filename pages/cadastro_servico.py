@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# /pages/cadastro_servico.py - VERSÃO COM WA.ME LINK
+# /pages/cadastro_servico.py - VERSÃO COM MENSAGEM COMPLETA
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -116,26 +116,60 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
         if conn: release_connection(conn)
         return False, f"❌ Erro ao salvar no banco: {str(e)}"
 
-    # ETAPA 2: FORMATAR MENSAGEM
+    # ETAPA 2: FORMATAR MENSAGEM COMPLETA
     print("⏱️  [ETAPA 2] Formatando mensagem WhatsApp...")
     try:
         servicos_resumo = ", ".join([f"{s['tipo']}({s['qtd']})" for s in st.session_state.servicos_para_adicionar])
+        
+        # Extrair dados do veículo
+        modelo = state.get('veiculo_info', {}).get('modelo', 'N/A')
+        ano = state.get('veiculo_info', {}).get('ano_modelo', 'N/A')
+        motorista = state.get('veiculo_info', {}).get('nome_motorista', 'N/A')
+        contato_motorista = state.get('veiculo_info', {}).get('contato_motorista', 'N/A')
+        empresa = state.get('veiculo_info', {}).get('empresa', 'N/A')
+        responsavel = state.get('veiculo_info', {}).get('nome_responsavel', 'N/A')
+        contato_responsavel = state.get('veiculo_info', {}).get('contato_responsavel', 'N/A')
+        
+        # Iniciar a mensagem com dados completos
         mensagem = f"""🚛 *NOVO SERVIÇO CADASTRADO*
 
+📌 *DADOS DO VEÍCULO:*
 *Placa:* `{state['placa_input']}`
+*Modelo:* {modelo}
+*Ano:* {ano}
 *KM:* `{state['quilometragem']:,}`
-*Serviços:* {servicos_resumo}
+
+👨‍💼 *DADOS DO MOTORISTA:*
+*Nome:* {motorista}
+*Contato:* {contato_motorista}
+
+🏢 *DADOS DA EMPRESA:*
+*Empresa:* {empresa}
+*Responsável:* {responsavel}
+*Contato:* {contato_responsavel}
+
+🔧 *SERVIÇOS SOLICITADOS:*
+{servicos_resumo}
 
 📋 *DIAGNÓSTICO:*
 ```
 {diagnostico_gerado}
-```
+```"""
+        
+        # Adicionar observações gerais se existirem
+        if observacao_final.strip() and observacao_final != diagnostico_gerado:
+            obs_adicionais = observacao_final.replace(diagnostico_gerado, "").strip()
+            if obs_adicionais:
+                mensagem += f"\n\n📝 *OBSERVAÇÕES ADICIONAIS:*\n{obs_adicionais}"
+        
+        # Adicionar rodapé
+        mensagem += f"""
 
 ⏰ *{datetime.now().strftime('%d/%m/%Y %H:%M')}*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #controlepatio"""
         
-        print("✅ [ETAPA 2] CONCLUÍDO - Mensagem formatada")
+        print("✅ [ETAPA 2] CONCLUÍDO - Mensagem formatada com todos os dados")
         time.sleep(0.3)
         
     except Exception as e:
@@ -146,7 +180,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     st.success("✅ ETAPA 1: Serviço cadastrado no banco com sucesso!")
     time.sleep(0.5)
 
-    # ETAPA 4: NÃO PRECISA COPIAR - MENSAGEM JÁ ESTÁ NO LINK
+    # ETAPA 4: PREPARANDO LINK
     print("⏱️  [ETAPA 4] Preparando link WhatsApp com mensagem...")
     
     st.info("✅ ETAPA 2: Preparando mensagem para envio...")
