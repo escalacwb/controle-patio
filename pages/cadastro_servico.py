@@ -71,6 +71,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     
     # ETAPA 1: SALVAR NO BANCO
     print("⏱️  [ETAPA 1] Salvando no banco de dados...")
+    conn = None # Inicializa variável para segurança no bloco finally/except
     try:
         conn = get_connection()
         if not conn:
@@ -114,7 +115,7 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
         time.sleep(0.5)
         
     except Exception as e:
-        release_connection(conn)
+        if conn: release_connection(conn)
         return False, f"❌ Erro ao salvar no banco: {str(e)}"
 
     # ETAPA 2: FORMATAR MENSAGEM
@@ -152,30 +153,34 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     # ETAPA 4: COPIAR PARA CLIPBOARD ✅ CORRIGIDO
     print("⏱️  [ETAPA 4] Copiando mensagem para clipboard...")
     
-    # Escapar CORRETAMENTE sem problemas de newlines
-    mensagem_escapada = json.dumps(mensagem)
-    # O json.dumps já escapa tudo corretamente, agora usamos como literal JavaScript
+    # --- CORREÇÃO AQUI ---
+    # 1. json.dumps cria uma string JSON válida (ex: "Linha 1\nLinha 2")
+    # 2. .replace('\\', '\\\\') escapa as barras para o JavaScript ler literalmente (ex: "Linha 1\\nLinha 2")
+    # 3. .replace("'", "\\'") escapa aspas simples pois usaremos var m = JSON.parse('STRING AQUI');
+    mensagem_escapada = json.dumps(mensagem).replace('\\', '\\\\').replace("'", "\\'")
     
     components.html(f"""
     <script>
-        // JSON.parse garante parsing seguro da string
-        var mensagem = JSON.parse('{mensagem_escapada}');
-        
-        // Copiar para clipboard
-        navigator.clipboard.writeText(mensagem).then(() => {{
-            console.log('✅ ETAPA 4: Mensagem copiada para clipboard!');
-            console.log('Texto copiado (' + mensagem.length + ' caracteres)');
-        }}).catch(err => {{
-            console.error('❌ Erro ao copiar:', err);
-            // Fallback: método antigo
-            const textarea = document.createElement('textarea');
-            textarea.value = mensagem;
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
-            console.log('✅ ETAPA 4: Copiado com fallback!');
-        }});
+        try {{
+            // JSON.parse garante parsing seguro da string formatada
+            var mensagem = JSON.parse('{mensagem_escapada}');
+            
+            // Copiar para clipboard
+            navigator.clipboard.writeText(mensagem).then(() => {{
+                console.log('✅ ETAPA 4: Mensagem copiada para clipboard!');
+            }}).catch(err => {{
+                console.error('❌ Erro API Clipboard:', err);
+                // Fallback
+                const textarea = document.createElement('textarea');
+                textarea.value = mensagem;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }});
+        }} catch (e) {{
+            console.error('❌ Erro JSON Parse:', e);
+        }}
     </script>
     """, height=0)
     
@@ -192,11 +197,9 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     print("⏱️  [ETAPA 6] Abrindo WhatsApp...")
     components.html("""
     <script>
-        // Aguarda um pouco antes de abrir (garante que clipboard foi copiado)
         setTimeout(() => {
             console.log('🚀 Abrindo WhatsApp...');
             window.open('https://chat.whatsapp.com/JGjJfJT9G89CbxRD0UEUuB', '_blank');
-            console.log('✅ ETAPA 6: WhatsApp aberto em nova aba!');
         }, 500);
     </script>
     """, height=0)
