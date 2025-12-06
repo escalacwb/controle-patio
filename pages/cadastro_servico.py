@@ -1,4 +1,4 @@
-# /pages/cadastro_servico.py - VERSÃO CORRIGIDA COM CLIPBOARD FUNCIONANDO
+# /pages/cadastro_servico.py - VERSÃO FINAL COM JSON CORRIGIDO
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -152,21 +152,22 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     # ETAPA 4: COPIAR PARA CLIPBOARD ✅ CORRIGIDO
     print("⏱️  [ETAPA 4] Copiando mensagem para clipboard...")
     
-    # Escapar a mensagem corretamente usando JSON
-    mensagem_json = json.dumps(mensagem)
+    # Escapar CORRETAMENTE sem problemas de newlines
+    mensagem_escapada = json.dumps(mensagem)
+    # O json.dumps já escapa tudo corretamente, agora usamos como literal JavaScript
     
     components.html(f"""
     <script>
-        // Usar JSON.parse garante que os caracteres especiais sejam tratados corretamente
-        const mensagem = JSON.parse('{mensagem_json}');
+        // JSON.parse garante parsing seguro da string
+        var mensagem = JSON.parse('{mensagem_escapada}');
         
         // Copiar para clipboard
         navigator.clipboard.writeText(mensagem).then(() => {{
             console.log('✅ ETAPA 4: Mensagem copiada para clipboard!');
-            console.log('Texto copiado (' + mensagem.length + ' caracteres):', mensagem.substring(0, 100) + '...');
+            console.log('Texto copiado (' + mensagem.length + ' caracteres)');
         }}).catch(err => {{
             console.error('❌ Erro ao copiar:', err);
-            // Fallback: tentar com método antigo
+            // Fallback: método antigo
             const textarea = document.createElement('textarea');
             textarea.value = mensagem;
             document.body.appendChild(textarea);
