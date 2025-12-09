@@ -164,12 +164,10 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
 
 👨‍💼 *DADOS DO MOTORISTA:*
 *Nome:* {motorista}
-*Contato:* {contato_motorista}
 
 🏢 *DADOS DA EMPRESA:*
 *Empresa:* {empresa}
 *Responsável:* {responsavel}
-*Contato:* {contato_responsavel}
 
 🔧 *SERVIÇOS SOLICITADOS:*
 {servicos_resumo}
