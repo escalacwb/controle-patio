@@ -175,7 +175,9 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
 {servicos_resumo}
 
 📋 *DIAGNÓSTICO:*
-
+```
+{diagnostico_gerado}
+```"""
         # Adicionar observações gerais se existirem
         if observacao_final.strip() and observacao_final != diagnostico_gerado:
             obs_adicionais = observacao_final.replace(diagnostico_gerado, "").strip()
