@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# /pages/cadastro_servico.py - VERSÃO COM DIAGNÓSTICO POR EIXO
-# Data: 09/12/2025
-# Status: ✅ Pronto para Produção
+
+# /pages/cadastro_servico.py - VERSÃO ATUALIZADA (EIXOS DINÂMICOS)
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -21,233 +20,82 @@ render_mobile_navbar(active_page="cadastro")
 MS_TZ = pytz.timezone('America/Campo_Grande')
 
 # =============================
-# FORMULÁRIO DE DIAGNÓSTICO POR EIXO
-# =============================
-
-def formulario_diagnostico_por_eixo():
-    """
-    Formulário dinâmico para diagnóstico de alinhamento por eixo.
-    Preenche o session_state com dados dos eixos e comportamentos globais.
-    
-    Session State criadas:
-    - num_eixos: int (1-10)
-    - alinhamento_eixo_{i}: bool (para cada eixo)
-    - desgaste_motorista_eixo_{i}: list (para cada eixo)
-    - desgaste_passageiro_eixo_{i}: list (para cada eixo)
-    - diag_puxando: str
-    - diag_passarinhando: str
-    - diag_vibracao: str
-    """
-    
-    st.markdown("## 📋 Diagnóstico do Veículo")
-    
-    # Campo para número de eixos
-    num_eixos = st.number_input(
-        "Número de eixos do conjunto",
-        min_value=1,
-        max_value=10,
-        step=1,
-        key="num_eixos",
-        help="Digite a quantidade total de eixos (ex: 2, 3, 4)"
-    )
-    
-    if num_eixos > 0:
-        st.markdown("### 🔧 Alinhamento por Eixo e Condição dos Pneus")
-        
-        # Para cada eixo, cria bloco de seleção
-        for i in range(1, int(num_eixos) + 1):
-            with st.container():
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    st.markdown(f"#### Eixo {i}")
-                
-                with col2:
-                    alinhar_key = f"alinhamento_eixo_{i}"
-                    alinhar = st.checkbox(f"Alinhar eixo {i}", key=alinhar_key)
-                
-                # Se marcado para alinhar, mostra opções de pneus
-                if alinhar:
-                    st.markdown(f"**Condição dos pneus do eixo {i}:**")
-                    
-                    col_m, col_p = st.columns(2)
-                    
-                    # Pneu lado motorista
-                    with col_m:
-                        desgaste_motorista_key = f"desgaste_motorista_eixo_{i}"
-                        st.multiselect(
-                            "Lado motorista",
-                            options=["Interno", "Centro", "Externo"],
-                            key=desgaste_motorista_key,
-                            help="Selecione tipo(s) de desgaste"
-                        )
-                    
-                    # Pneu lado passageiro
-                    with col_p:
-                        desgaste_passageiro_key = f"desgaste_passageiro_eixo_{i}"
-                        st.multiselect(
-                            "Lado passageiro",
-                            options=["Interno", "Centro", "Externo"],
-                            key=desgaste_passageiro_key,
-                            help="Selecione tipo(s) de desgaste"
-                        )
-                    
-                    st.divider()
-    
-    st.markdown("### 🏎️ Comportamento em Rodagem")
-    
-    # Estes três campos seguem exatamente como você já utiliza
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.radio(
-            "Puxando?",
-            options=["Não", "Esquerda", "Direita"],
-            key="diag_puxando",
-            horizontal=False
-        )
-    
-    with col2:
-        st.radio(
-            "Passarinhando?",
-            options=["Não", "Leve", "Pesado"],
-            key="diag_passarinhando",
-            horizontal=False
-        )
-    
-    with col3:
-        st.radio(
-            "Vibração?",
-            options=["Não", "Sim"],
-            key="diag_vibracao",
-            horizontal=False
-        )
-
-
-# =============================
-# GERAÇÃO DO DIAGNÓSTICO COM BASE NOS EIXOS
+# FUNÇÕES PARA GERAR DIAGNÓSTICO
 # =============================
 
 def gerar_diagnostico_veiculo():
     """
-    Gera um texto descritivo baseado nos eixos e comportamentos.
+    Gera um texto descritivo baseado nos inputs de eixos e diagnósticos gerais.
     Retorna uma string formatada para concatenar com observações.
-    
-    Processa:
-    1. Número de eixos informado
-    2. Quais eixos foram marcados para alinhamento
-    3. Desgastes de pneus (motorista + passageiro) por eixo
-    4. Comportamentos globais (puxando, passarinhando, vibração)
-    
-    Retorna string formatada com bullets e texto legível
     """
+    diagnostico_texto = ""
     
-    linhas = []
-    
-    num_eixos = st.session_state.get("num_eixos", 0)
-    
-    # BLOCO 1: Eixos e Alinhamento
-    if num_eixos and num_eixos > 0:
-        linhas.append(f"Conjunto com {num_eixos} eixo(s).")
-        
-        eixos_alinhamento = []
-        detalhes_eixos = []
-        
-        for i in range(1, int(num_eixos) + 1):
-            alinhar = st.session_state.get(f"alinhamento_eixo_{i}", False)
+    # --- NOVA LÓGICA DE EIXOS ---
+    num_eixos = st.session_state.get('num_eixos', 2)
+    eixos_para_alinhar = []
+    obs_pneus = []
+
+    for i in range(1, num_eixos + 1):
+        # Verifica se o eixo foi marcado para alinhar
+        if st.session_state.get(f"check_alinhar_eixo_{i}", False):
+            eixos_para_alinhar.append(str(i))
             
-            if not alinhar:
-                continue
+            # Verifica desgastes (Lado Esquerdo/Motorista)
+            desgaste_le = st.session_state.get(f"desgaste_eixo_{i}_le", [])
+            if desgaste_le:
+                desc = ", ".join(desgaste_le)
+                obs_pneus.append(f"• Eixo {i} (LE/Mot): {desc}")
             
-            # Marca que este eixo será alinhado
-            eixos_alinhamento.append(str(i))
-            
-            desgaste_motorista = st.session_state.get(f"desgaste_motorista_eixo_{i}", [])
-            desgaste_passageiro = st.session_state.get(f"desgaste_passageiro_eixo_{i}", [])
-            
-            # Montagem do texto por eixo
-            texto_eixo = f"- Eixo {i}: alinhamento recomendado"
-            
-            detalhes_pneu = []
-            
-            if desgaste_motorista:
-                tipos = ", ".join(desgaste_motorista)
-                detalhes_pneu.append(f"pneu motorista com desgaste em {tipos.lower()}")
-            
-            if desgaste_passageiro:
-                tipos = ", ".join(desgaste_passageiro)
-                detalhes_pneu.append(f"pneu passageiro com desgaste em {tipos.lower()}")
-            
-            if detalhes_pneu:
-                texto_eixo += " (" + ", ".join(detalhes_pneu) + ")."
-            else:
-                texto_eixo += "."
-            
-            detalhes_eixos.append(texto_eixo)
-        
-        # Adiciona resumo dos eixos
-        if eixos_alinhamento:
-            if len(eixos_alinhamento) == 1:
-                linhas.append(f"Eixo a alinhar: Eixo {eixos_alinhamento[0]}.")
-            else:
-                lista_eixos = ", ".join(eixos_alinhamento)
-                linhas.append(f"Eixos a alinhar: {lista_eixos}.")
-            
-            # Adiciona detalhes de cada eixo
-            linhas.extend(detalhes_eixos)
-        else:
-            linhas.append("Nenhum eixo marcado para alinhamento.")
-    
+            # Verifica desgastes (Lado Direito/Passageiro)
+            desgaste_ld = st.session_state.get(f"desgaste_eixo_{i}_ld", [])
+            if desgaste_ld:
+                desc = ", ".join(desgaste_ld)
+                obs_pneus.append(f"• Eixo {i} (LD/Pass): {desc}")
+
+    # Monta o texto dos eixos
+    if eixos_para_alinhar:
+        diagnostico_texto += f"🔧 ALINHAMENTO NECESSÁRIO NOS EIXOS: {', '.join(eixos_para_alinhar)}\n"
     else:
-        linhas.append("Número de eixos não informado.")
+        diagnostico_texto += "• Nenhum alinhamento solicitado.\n"
+
+    if obs_pneus:
+        diagnostico_texto += "⚠️ DESGASTE DE PNEUS:\n" + "\n".join(obs_pneus) + "\n"
     
-    # BLOCO 2: Puxando
-    diag_puxando = st.session_state.get("diag_puxando", "Não")
-    if diag_puxando == "Não":
-        linhas.append("- Veículo NÃO está puxando para nenhum lado.")
-    elif diag_puxando == "Esquerda":
-        linhas.append("- Veículo está puxando para a ESQUERDA.")
-    elif diag_puxando == "Direita":
-        linhas.append("- Veículo está puxando para a DIREITA.")
+    diagnostico_texto += "-" * 20 + "\n"
+
+    # --- DIAGNÓSTICOS GERAIS (MANTIDOS) ---
+    puxando = st.session_state.get('diag_puxando', 'Não')
+    if puxando == 'Não':
+        diagnostico_texto += "• Caminhão NÃO está puxando.\n"
+    else:
+        diagnostico_texto += f"• Caminhão está PUXANDO para a {puxando}.\n"
     
-    # BLOCO 3: Passarinhando
-    diag_passarinhando = st.session_state.get("diag_passarinhando", "Não")
-    if diag_passarinhando == "Não":
-        linhas.append("- Veículo NÃO está passarinhando (comportamento normal).")
-    elif diag_passarinhando == "Leve":
-        linhas.append("- Veículo apresenta leve instabilidade (passarinhando leve).")
-    elif diag_passarinhando == "Pesado":
-        linhas.append("- Veículo apresenta instabilidade acentuada (passarinhando pesado).")
+    passar_pesado = st.session_state.get('diag_passarinhando', 'Não')
+    if passar_pesado == 'Não':
+        diagnostico_texto += "• Volante normal (não está passarinhando).\n"
+    else:
+        diagnostico_texto += f"• Caminhão está com {passar_pesado.upper()}.\n"
     
-    # BLOCO 4: Vibração
-    diag_vibracao = st.session_state.get("diag_vibracao", "Não")
-    if diag_vibracao == "Não":
-        linhas.append("- Veículo NÃO apresenta vibração perceptível.")
-    elif diag_vibracao == "Sim":
-        linhas.append("- Veículo apresenta VIBRAÇÃO em rodagem.")
+    vibracao = st.session_state.get('diag_vibracao', 'Não')
+    if vibracao == 'Sim':
+        diagnostico_texto += "• Caminhão está VIBRANDO.\n"
+    else:
+        diagnostico_texto += "• Caminhão NÃO está vibrando.\n"
     
-    # Junta todas as linhas em um texto único
-    diagnostico = "\n".join(linhas)
-    return diagnostico.strip()
+    return diagnostico_texto.strip()
 
 
 # =============================
 # FILA DE EVENTOS ROBUSTA
 # =============================
-
 def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
     """
     Processa o cadastro de serviços de forma robusta e sequencial.
-    
-    ETAPA 1: Salvar no banco de dados
-    ETAPA 2: Formatar mensagem WhatsApp
-    ETAPA 3-6: Feedback visual e abertura do WhatsApp
     """
     
     # ETAPA 1: SALVAR NO BANCO
-    print("⏱️ [ETAPA 1] Salvando no banco de dados...")
-    conn = None
-    
+    print("⏱️  [ETAPA 1] Salvando no banco de dados...")
+    conn = None 
     try:
         conn = get_connection()
         if not conn:
@@ -259,14 +107,13 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
                 "Alinhamento": "servicos_solicitados_alinhamento",
                 "Mecânica": "servicos_solicitados_manutencao"
             }
-            
+
             for s in st.session_state.servicos_para_adicionar:
                 table_name = table_map.get(s['area'])
                 if not table_name:
                     return False, f"❌ Área de serviço inválida: {s['area']}"
                 
                 query = f"INSERT INTO {table_name} (veiculo_id, tipo, quantidade, observacao, quilometragem, status, data_solicitacao, data_atualizacao) VALUES (%s, %s, %s, %s, %s, 'pendente', %s, %s)"
-                
                 cursor.execute(
                     query,
                     (
@@ -279,25 +126,24 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
                         datetime.now(MS_TZ)
                     )
                 )
-                
-                cursor.execute(
-                    "UPDATE veiculos SET data_revisao_proativa = NULL WHERE id = %s",
-                    (state["veiculo_id"],)
-                )
-            
+
+            cursor.execute(
+                "UPDATE veiculos SET data_revisao_proativa = NULL WHERE id = %s",
+                (state["veiculo_id"],)
+            )
+
             conn.commit()
-            release_connection(conn)
-            print("✅ [ETAPA 1] CONCLUÍDO - Banco de dados atualizado")
-            time.sleep(0.5)
-    
+        
+        release_connection(conn)
+        print("✅ [ETAPA 1] CONCLUÍDO - Banco de dados atualizado")
+        time.sleep(0.5)
+        
     except Exception as e:
-        if conn:
-            release_connection(conn)
+        if conn: release_connection(conn)
         return False, f"❌ Erro ao salvar no banco: {str(e)}"
-    
+
     # ETAPA 2: FORMATAR MENSAGEM COMPLETA
-    print("⏱️ [ETAPA 2] Formatando mensagem WhatsApp...")
-    
+    print("⏱️  [ETAPA 2] Formatando mensagem WhatsApp...")
     try:
         servicos_resumo = ", ".join([f"{s['tipo']}({s['qtd']})" for s in st.session_state.servicos_para_adicionar])
         
@@ -314,41 +160,25 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
         mensagem = f"""🚛 *NOVO SERVIÇO CADASTRADO*
 
 📌 *DADOS DO VEÍCULO:*
-
 *Placa:* `{state['placa_input']}`
-
 *Modelo:* {modelo}
-
 *Ano:* {ano}
-
 *KM:* `{state['quilometragem']:,}`
 
-👨💼 *DADOS DO MOTORISTA:*
-
+👨‍💼 *DADOS DO MOTORISTA:*
 *Nome:* {motorista}
-
 *Contato:* {contato_motorista}
 
 🏢 *DADOS DA EMPRESA:*
-
 *Empresa:* {empresa}
-
 *Responsável:* {responsavel}
-
 *Contato:* {contato_responsavel}
 
 🔧 *SERVIÇOS SOLICITADOS:*
-
 {servicos_resumo}
 
 📋 *DIAGNÓSTICO:*
 
-```
-
-{diagnostico_gerado}
-
-```"""
-        
         # Adicionar observações gerais se existirem
         if observacao_final.strip() and observacao_final != diagnostico_gerado:
             obs_adicionais = observacao_final.replace(diagnostico_gerado, "").strip()
@@ -359,33 +189,32 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
         mensagem += f"""
 
 ⏰ *{datetime.now().strftime('%d/%m/%Y %H:%M')}*
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 #controlepatio"""
         
         print("✅ [ETAPA 2] CONCLUÍDO - Mensagem formatada com todos os dados")
         time.sleep(0.3)
-    
+        
     except Exception as e:
         return False, f"❌ Erro ao formatar mensagem: {str(e)}"
-    
+
     # ETAPA 3: EXIBIR SUCESSO
-    print("⏱️ [ETAPA 3] Exibindo feedback positivo...")
+    print("⏱️  [ETAPA 3] Exibindo feedback positivo...")
     st.success("✅ ETAPA 1: Serviço cadastrado no banco com sucesso!")
     time.sleep(0.5)
-    
+
     # ETAPA 4: PREPARANDO LINK
-    print("⏱️ [ETAPA 4] Preparando link WhatsApp com mensagem...")
+    print("⏱️  [ETAPA 4] Preparando link WhatsApp com mensagem...")
+    
     st.info("✅ ETAPA 2: Preparando mensagem para envio...")
     time.sleep(0.5)
-    
+
     # ETAPA 5: EXIBIR INSTRUÇÃO
     st.info("✅ ETAPA 2: Abrindo WhatsApp em alguns segundos...")
     time.sleep(0.5)
-    
+
     # ETAPA 6: ABRIR WHATSAPP COM MENSAGEM NO LINK
-    print("⏱️ [ETAPA 6] Abrindo WhatsApp com mensagem no link...")
+    print("⏱️  [ETAPA 6] Abrindo WhatsApp com mensagem no link...")
     
     try:
         # URL encode a mensagem para usar no link wa.me
@@ -394,187 +223,564 @@ def processar_cadastro_completo(state, observacao_final, diagnostico_gerado):
         
         components.html(f"""
         <script>
-            window.open("{whatsapp_link}", "_blank");
+            setTimeout(() => {{
+                console.log('🚀 Abrindo WhatsApp com mensagem...');
+                window.open('{whatsapp_link}', '_blank');
+            }}, 500);
         </script>
         """, height=0)
         
-        print("✅ [ETAPA 6] CONCLUÍDO - WhatsApp aberto")
-        return True, "✅ Serviço cadastrado e WhatsApp aberto!"
-    
+        print("✅ [ETAPA 6] CONCLUÍDO - WhatsApp aberto com mensagem no link")
+        
     except Exception as e:
-        return False, f"❌ Erro ao abrir WhatsApp: {str(e)}"
+        print(f"❌ Erro ao preparar link WhatsApp: {str(e)}")
+    
+    time.sleep(1)
 
+    # ETAPA 7: FINALIZAÇÃO
+    st.balloons()
+    st.success("🎉 ETAPA 3: WhatsApp aberto! Agora é só:\n\n1️⃣ Selecione o GRUPO para envio\n2️⃣ A mensagem já está pronta\n3️⃣ Clique em Enviar! 📱")
+    time.sleep(1)
 
-# =============================
-# FUNÇÃO PRINCIPAL (app)
-# =============================
+    # ETAPA 8: LIMPAR FORMULÁRIO
+    print("⏱️  [ETAPA 8] Limpando formulário...")
+    state["search_triggered"] = False
+    state["placa_input"] = ""
+    st.session_state.servicos_para_adicionar = []
+    print("✅ [ETAPA 8] CONCLUÍDO - Formulário limpo")
+    
+    return True, "✅ Processo completo com sucesso!"
+
 
 def app():
-    """
-    Fluxo principal da página de cadastro de serviço.
-    """
-    
-    st.title("🔧 Cadastro de Serviço")
-    
-    # SEÇÃO 1: BUSCA DO VEÍCULO
+    st.title("📋 Cadastro Rápido de Serviços")
+    st.markdown("Use esta página para um fluxo rápido de cadastro de serviços para um veículo.")
+
+    if "cadastro_servico_state" not in st.session_state:
+        st.session_state.cadastro_servico_state = {
+            "placa_input": "", "veiculo_id": None, "veiculo_info": None,
+            "search_triggered": False, "quilometragem": 0,
+            "busca_empresa_edit": ""
+        }
+
+    state = st.session_state.cadastro_servico_state
+
+    if 'servicos_para_adicionar' not in st.session_state:
+        st.session_state.servicos_para_adicionar = []
+
     st.markdown("---")
-    st.markdown("## 🚛 Identificação do Veículo")
-    
-    placa_input = st.text_input(
-        "Placa do veículo (ex: ABC1234)",
-        key="placa_temp"
-    )
-    
-    if placa_input:
-        placa_formatada = formatar_placa(placa_input)
-        
-        try:
-            veiculo_info = consultar_placa_comercial(placa_formatada)
-            
-            if veiculo_info:
-                st.session_state.placa_input = placa_formatada
-                st.session_state.veiculo_id = veiculo_info.get('id')
-                st.session_state.veiculo_info = veiculo_info
-                
-                st.success(f"✅ Veículo encontrado: {veiculo_info.get('modelo')} ({veiculo_info.get('ano_modelo')})")
-                
-                # Input de quilometragem
-                quilometragem = st.number_input(
-                    "Quilometragem atual",
-                    min_value=0,
-                    step=1000,
-                    key="quilometragem"
-                )
-                st.session_state.quilometragem = quilometragem
-            else:
-                st.error("❌ Veículo não encontrado. Verifique a placa.")
-                return
-        
-        except Exception as e:
-            st.error(f"❌ Erro ao buscar veículo: {str(e)}")
-            return
-    else:
-        st.info("Digite a placa do veículo para continuar.")
-        return
-    
-    # SEÇÃO 2: DIAGNÓSTICO DO VEÍCULO
-    st.markdown("---")
-    formulario_diagnostico_por_eixo()
-    
-    # SEÇÃO 3: SELEÇÃO DE SERVIÇOS
-    st.markdown("---")
-    st.markdown("## 🛠️ Serviços Solicitados")
-    
-    try:
-        catalogo = get_catalogo_servicos()
-        
-        # Inicializar session state para serviços
-        if 'servicos_para_adicionar' not in st.session_state:
-            st.session_state.servicos_para_adicionar = []
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            area = st.selectbox(
-                "Área de serviço",
-                options=[s['area'] for s in catalogo],
-                key="area_select"
-            )
-        
-        tipos_disponiveis = [s['tipos'] for s in catalogo if s['area'] == area]
-        tipos = tipos_disponiveis[0] if tipos_disponiveis else []
-        
-        with col2:
-            tipo = st.selectbox(
-                "Tipo de serviço",
-                options=tipos,
-                key="tipo_select"
-            )
-        
-        with col3:
-            qtd = st.number_input(
-                "Quantidade",
-                min_value=1,
-                step=1,
-                key="qtd_select"
-            )
-        
-        if st.button("➕ Adicionar Serviço"):
-            st.session_state.servicos_para_adicionar.append({
-                'area': area,
-                'tipo': tipo,
-                'qtd': qtd
-            })
-            st.success(f"✅ {tipo} adicionado!")
-            time.sleep(0.5)
-            st.rerun()
-        
-        # Mostrar serviços adicionados
-        if st.session_state.servicos_para_adicionar:
-            st.markdown("### Serviços selecionados:")
-            for idx, s in enumerate(st.session_state.servicos_para_adicionar, 1):
-                col1, col2 = st.columns([4, 1])
+
+    st.header("1️⃣ Identificação do Veículo")
+
+    placa_input = st.text_input("Digite a placa do veículo", value=state.get("placa_input", ""), key="placa_input_key").upper()
+
+    if st.button("Verificar Placa no Sistema", use_container_width=True, type="primary"):
+        state["placa_input"] = placa_input
+        state["search_triggered"] = True
+        state["veiculo_id"] = None
+        state["veiculo_info"] = None
+        for key in ['api_vehicle_data', 'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form', 'servicos_para_adicionar', 'busca_empresa_edit', 'last_selected_client_id_edit', 'details_responsavel_edit', 'editing_responsavel']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+
+    if state.get("search_triggered"):
+        if state.get("veiculo_info") is None and not state.get("veiculo_id"):
+            conn = get_connection()
+            if conn:
+                try:
+                    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                        query = "SELECT v.id, v.empresa, v.modelo, v.ano_modelo, v.nome_motorista, v.contato_motorista, v.cliente_id, c.nome_responsavel, c.contato_responsavel FROM veiculos v LEFT JOIN clientes c ON v.cliente_id = c.id WHERE v.placa = %s"
+                        cursor.execute(query, (formatar_placa(state["placa_input"]),))
+                        resultado = cursor.fetchone()
+                        if resultado:
+                            state["veiculo_id"] = resultado["id"]
+                            state["veiculo_info"] = resultado
+                finally:
+                    release_connection(conn)
+
+        if state.get("veiculo_id"):
+            with st.container(border=True):
+                col1, col2 = st.columns([0.7, 0.3])
                 with col1:
-                    st.write(f"{idx}. {s['tipo']} (Qtd: {s['qtd']}) - {s['area']}")
+                    st.subheader("Dados do Veículo")
+                    st.markdown(
+                        f"**Modelo:** {state['veiculo_info']['modelo']} | **Ano:** {state['veiculo_info']['ano_modelo'] or 'N/A'}\n\n"
+                        f"**Motorista:** {state['veiculo_info']['nome_motorista'] or 'N/A'} | **Contato:** {state['veiculo_info']['contato_motorista'] or 'N/A'}"
+                    )
                 with col2:
-                    if st.button("❌", key=f"remove_{idx}"):
-                        st.session_state.servicos_para_adicionar.pop(idx - 1)
+                    if st.button("✏️ Alterar Veículo", use_container_width=True):
+                        st.session_state.show_edit_form = not st.session_state.get('show_edit_form', False)
                         st.rerun()
-    
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar catálogo de serviços: {str(e)}")
-        return
-    
-    # SEÇÃO 4: OBSERVAÇÕES ADICIONAIS
-    st.markdown("---")
-    st.markdown("## 📝 Observações Adicionais")
-    
-    observacoes_digitadas = st.text_area(
-        "Digite observações que não foram capturadas no diagnóstico",
-        key="observacao_texto",
-        height=100
-    )
-    
-    # SEÇÃO 5: BOTÃO DE CADASTRO
-    st.markdown("---")
-    
-    if st.button("✅ CADASTRAR SERVIÇO", type="primary", use_container_width=True):
-        
-        # Validações
-        if 'veiculo_id' not in st.session_state or not st.session_state.veiculo_id:
-            st.error("❌ Selecione um veículo primeiro.")
-            return
-        
-        if not st.session_state.servicos_para_adicionar:
-            st.error("❌ Adicione pelo menos um serviço.")
-            return
-        
-        # Gerar diagnóstico
-        diagnostico_gerado = gerar_diagnostico_veiculo()
-        
-        # Montar observação final
-        if observacoes_digitadas and observacoes_digitadas.strip():
-            observacao_final = diagnostico_gerado + "\n\nObservações adicionais:\n" + observacoes_digitadas.strip()
-        else:
+
+            with st.container(border=True):
+                col1, col2 = st.columns([0.7, 0.3])
+                with col1:
+                    st.subheader("Dados da Empresa")
+                    st.markdown(
+                        f"**Empresa:** {state['veiculo_info']['empresa']}\n\n"
+                        f"**Responsável Frota:** {state['veiculo_info']['nome_responsavel'] or 'N/A'} | **Contato:** {state['veiculo_info']['contato_responsavel'] or 'N/A'}"
+                    )
+                with col2:
+                    if st.button("✏️ Alterar Empresa/Responsável", use_container_width=True):
+                        st.session_state.show_edit_responsavel_form = not st.session_state.get('show_edit_responsavel_form', False)
+                        if st.session_state.show_edit_responsavel_form:
+                            st.session_state.busca_empresa_edit = state['veiculo_info']['empresa']
+                        st.rerun()
+
+            # ============== SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE VEÍCULO ==============
+            if st.session_state.get('show_edit_form', False):
+                with st.form("form_edit_veiculo"):
+                    st.info("Altere os dados específicos deste veículo.")
+                    novo_modelo = st.text_input("Modelo", value=state['veiculo_info']['modelo'])
+                    novo_ano_val = state['veiculo_info']['ano_modelo'] or datetime.now().year
+                    novo_ano = st.number_input("Ano do Modelo", min_value=1950, max_value=datetime.now().year + 1, value=int(novo_ano_val), step=1)
+                    novo_motorista = st.text_input("Nome do Motorista", value=state['veiculo_info']['nome_motorista'])
+                    novo_contato_motorista = st.text_input("Contato do Motorista", value=state['veiculo_info']['contato_motorista'])
+
+                    if st.form_submit_button("✅ Salvar Dados do Veículo"):
+                        conn = get_connection()
+                        if conn:
+                            try:
+                                with conn.cursor() as cursor:
+                                    query_veiculo = "UPDATE veiculos SET modelo = %s, ano_modelo = %s, nome_motorista = %s, contato_motorista = %s, data_atualizacao_contato = NOW() WHERE id = %s"
+                                    cursor.execute(query_veiculo, (novo_modelo, novo_ano if novo_ano > 0 else None, novo_motorista, formatar_telefone(novo_contato_motorista), state['veiculo_id']))
+                                    conn.commit()
+                                    st.success("Dados do veículo atualizados!")
+                                    st.session_state.show_edit_form = False
+                                    st.rerun()
+                            finally:
+                                release_connection(conn)
+
+            # ============== SEÇÃO DE FORMULÁRIO DE EDIÇÃO DE EMPRESA ==============
+            if st.session_state.get('show_edit_responsavel_form', False):
+                st.info("Altere a empresa à qual este veículo está vinculado.")
+                busca_empresa_edit = st.text_input("Digite para buscar/alterar a empresa", value=st.session_state.get("busca_empresa_edit", ""), help="Digite e pressione Enter para buscar.")
+                
+                if busca_empresa_edit != st.session_state.get("busca_empresa_edit"):
+                    st.session_state.busca_empresa_edit = busca_empresa_edit
+                    if 'details_responsavel_edit' in st.session_state:
+                        del st.session_state['details_responsavel_edit']
+                    st.rerun()
+
+                cliente_id_final = state['veiculo_info']['cliente_id']
+                nome_empresa_final = st.session_state.busca_empresa_edit
+                cliente_id_selecionado_edit = None
+
+                if len(st.session_state.busca_empresa_edit) >= 3:
+                    resultados_busca = buscar_clientes_por_similaridade(st.session_state.busca_empresa_edit)
+                    if resultados_busca:
+                        opcoes_cliente_edit = {"": None}
+                        for id_c, nome_e, nome_f in resultados_busca:
+                            texto_exibicao = nome_e
+                            if nome_f and nome_f.strip() and nome_f.lower() != nome_e.lower():
+                                texto_exibicao += f" (Fantasia: {nome_f})"
+                            opcoes_cliente_edit[texto_exibicao] = id_c
+                        opcoes_cliente_edit[f"Nenhum destes. Usar/criar '{st.session_state.busca_empresa_edit}' como nova."] = "NOVO"
+
+                        cliente_selecionado_str = st.selectbox("Selecione a empresa ou confirme o novo cadastro:", options=list(opcoes_cliente_edit.keys()), key="select_edit_empresa")
+                        cliente_id_selecionado_edit = opcoes_cliente_edit[cliente_selecionado_str]
+
+                        if cliente_id_selecionado_edit and cliente_id_selecionado_edit != "NOVO":
+                            cliente_id_final = cliente_id_selecionado_edit
+                            nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_final), st.session_state.busca_empresa_edit)
+                        elif cliente_id_selecionado_edit == "NOVO":
+                            cliente_id_final = None
+                        else:
+                            cliente_id_final = state['veiculo_info']['cliente_id']
+
+                        if cliente_id_selecionado_edit != st.session_state.get('last_selected_client_id_edit'):
+                            st.session_state.last_selected_client_id_edit = cliente_id_selecionado_edit
+                            if isinstance(cliente_id_selecionado_edit, int):
+                                st.session_state.details_responsavel_edit = get_cliente_details(cliente_id_selecionado_edit)
+                            else:
+                                st.session_state.details_responsavel_edit = {}
+                            st.session_state.editing_responsavel = False
+                            st.rerun()
+
+                st.markdown("---")
+                st.subheader("Dados do Responsável pela Frota")
+                details = st.session_state.get('details_responsavel_edit', {})
+                nome_resp = details.get('nome_responsavel', "") if details else ""
+                contato_resp = details.get('contato_responsavel', "") if details else ""
+
+                if st.session_state.get('editing_responsavel', False):
+                    with st.form("form_edit_responsavel_inplace"):
+                        st.info("Você está editando os dados deste responsável para TODOS os veículos da empresa.")
+                        novo_nome_resp = st.text_input("Nome do Responsável", value=nome_resp)
+                        novo_contato_resp = st.text_input("Contato do Responsável", value=contato_resp)
+                        if st.form_submit_button("✅ Salvar Responsável"):
+                            id_cliente_para_salvar = cliente_id_final if cliente_id_final else state['veiculo_info']['cliente_id']
+                            if id_cliente_para_salvar:
+                                conn = get_connection()
+                                if conn:
+                                    try:
+                                        with conn.cursor() as cursor:
+                                            cursor.execute(
+                                                "UPDATE clientes SET nome_responsavel = %s, contato_responsavel = %s, data_atualizacao_contato = NOW() WHERE id = %s",
+                                                (novo_nome_resp, formatar_telefone(novo_contato_resp), int(id_cliente_para_salvar))
+                                            )
+                                            conn.commit()
+                                            st.success("Responsável atualizado com sucesso!")
+                                            st.session_state.editing_responsavel = False
+                                            st.session_state.last_selected_client_id_edit = None
+                                            st.rerun()
+                                    finally:
+                                        release_connection(conn)
+                            else:
+                                st.warning("Selecione um cliente existente para poder editar o responsável.")
+                else:
+                    col_nome, col_contato, col_btn = st.columns([0.4, 0.4, 0.2])
+                    col_nome.text_input("Nome do Responsável", value=nome_resp, disabled=True)
+                    col_contato.text_input("Contato do Responsável", value=contato_resp, disabled=True)
+                    with col_btn:
+                        st.write("")
+                        st.write("")
+                        if st.button("✏️ Alterar", use_container_width=True, help="Alterar dados do responsável"):
+                            id_cliente_para_editar = st.session_state.get('last_selected_client_id_edit')
+                            if isinstance(id_cliente_para_editar, int):
+                                st.session_state.editing_responsavel = True
+                                st.rerun()
+                            else:
+                                st.toast("Selecione um cliente da lista para editar.", icon="⚠️")
+
+                st.markdown("---")
+                if st.button("✅ Salvar Vinculação da Empresa", type="primary"):
+                    conn = get_connection()
+                    if conn:
+                        try:
+                            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                                if cliente_id_final is None and nome_empresa_final:
+                                    st.info(f"Criando novo cliente: {nome_empresa_final}")
+                                    cursor.execute("INSERT INTO clientes (nome_empresa) VALUES (%s) RETURNING id", (nome_empresa_final,))
+                                    cliente_id_final = cursor.fetchone()['id']
+                                query_veiculo = "UPDATE veiculos SET empresa = %s, cliente_id = %s WHERE id = %s"
+                                cursor.execute(query_veiculo, (nome_empresa_final, cliente_id_final, state['veiculo_id']))
+                                conn.commit()
+                                st.success("Vinculação da empresa atualizada com sucesso!")
+                                st.session_state.show_edit_responsavel_form = False
+                                st.session_state.last_selected_client_id_edit = None
+                                if 'details_responsavel_edit' in st.session_state:
+                                    del st.session_state['details_responsavel_edit']
+                                st.rerun()
+                        finally:
+                            release_connection(conn)
+
+            st.markdown("---")
+
+            # ============== SEÇÃO DE DIAGNÓSTICO ATUALIZADA ==============
+            st.header("2️⃣ Diagnóstico do Veículo")
+            st.markdown("**Avalie as condições de funcionamento do caminhão.**")
+
+            # --- INPUT DE EIXOS ---
+            with st.container(border=True):
+                st.subheader("🚛 Configuração de Eixos e Pneus")
+                
+                # Input para número de eixos
+                st.session_state['num_eixos'] = st.number_input(
+                    "Número de Eixos do Conjunto:", 
+                    min_value=2, max_value=9, value=st.session_state.get('num_eixos', 2), step=1
+                )
+                
+                st.markdown("---")
+                st.markdown("Selececione os eixos que precisam de **Alinhamento** e detalhe os pneus se houver desgaste.")
+
+                # Loop para criar os controles de cada eixo
+                num_eixos = st.session_state['num_eixos']
+                
+                for i in range(1, num_eixos + 1):
+                    # Checkbox principal do eixo
+                    check_key = f"check_alinhar_eixo_{i}"
+                    
+                    # Cria uma coluna com cor de fundo ou destaque se selecionado
+                    col_check, col_details = st.columns([0.25, 0.75])
+                    
+                    with col_check:
+                        st.write("") # Espaçamento vertical para alinhar
+                        alinhar = st.checkbox(f"✅ Alinhar Eixo {i}", key=check_key)
+                    
+                    with col_details:
+                        if alinhar:
+                            c1, c2 = st.columns(2)
+                            opcoes_desgaste = ["Ombro Interno", "Ombro Externo", "Centro", "Escamado/Irregular"]
+                            
+                            with c1:
+                                st.multiselect(
+                                    f"Pneu LE (Motorista) - Eixo {i}",
+                                    options=opcoes_desgaste,
+                                    key=f"desgaste_eixo_{i}_le",
+                                    placeholder="Selecione desgastes..."
+                                )
+                            with c2:
+                                st.multiselect(
+                                    f"Pneu LD (Passageiro) - Eixo {i}",
+                                    options=opcoes_desgaste,
+                                    key=f"desgaste_eixo_{i}_ld",
+                                    placeholder="Selecione desgastes..."
+                                )
+                    
+                    if i < num_eixos:
+                        st.divider()
+
+            # --- DIAGNÓSTICOS GERAIS (Mantidos) ---
+            with st.container(border=True):
+                st.subheader("🔍 Comportamento Geral")
+                
+                # Puxando
+                puxando_col1, puxando_col2 = st.columns(2)
+                with puxando_col1:
+                    st.markdown("**O caminhão está puxando?**")
+                with puxando_col2:
+                    st.session_state['diag_puxando'] = st.radio(
+                        "Puxando", options=['Não', 'Esquerda', 'Direita'],
+                        key='radio_puxando', label_visibility='collapsed', horizontal=True
+                    )
+                
+                st.write("") # Espaçador
+
+                # Passarinhando
+                passar_col1, passar_col2 = st.columns(2)
+                with passar_col1:
+                    st.markdown("**Passarinhando ou volante pesado?**")
+                with passar_col2:
+                    st.session_state['diag_passarinhando'] = st.radio(
+                        "Passarinhando", options=['Não', 'Passarinhando', 'Volante Pesado'],
+                        key='radio_passarinhando', label_visibility='collapsed', horizontal=True
+                    )
+
+                st.write("") # Espaçador
+
+                # Vibração
+                vibr_col1, vibr_col2 = st.columns(2)
+                with vibr_col1:
+                    st.markdown("**Caminhão vibrando?**")
+                with vibr_col2:
+                    st.session_state['diag_vibracao'] = st.radio(
+                        "Vibracao", options=['Não', 'Sim'],
+                        key='radio_vibracao', label_visibility='collapsed', horizontal=True
+                    )
+
+            diagnostico_gerado = gerar_diagnostico_veiculo()
+            with st.container(border=True):
+                st.markdown("### 📋 Prévia do Diagnóstico:")
+                st.info(diagnostico_gerado)
+
+            st.markdown("---")
+
+            # ============== SEÇÃO DE SELEÇÃO DE SERVIÇOS ==============
+            st.header("3️⃣ Seleção de Serviços")
+
+            state["quilometragem"] = st.number_input(
+                "Quilometragem (Obrigatório)",
+                min_value=1, step=1,
+                value=state.get("quilometragem", 0) or None,
+                key="km_servico", placeholder="Digite a KM..."
+            )
+
+            servicos_do_banco = get_catalogo_servicos()
+
+            def area_de_servico(nome_area, chave_area):
+                st.subheader(nome_area)
+                servicos_disponiveis = servicos_do_banco.get(chave_area, [])
+                col1, col2, col3 = st.columns([0.7, 0.15, 0.15])
+
+                with col1:
+                    servico_selecionado = st.selectbox(
+                        f"Serviço de {nome_area}",
+                        options=[""] + servicos_disponiveis,
+                        key=f"select_{chave_area}", label_visibility="collapsed"
+                    )
+
+                with col2:
+                    quantidade = st.number_input(
+                        "Qtd", min_value=1, value=1, step=1,
+                        key=f"qtd_{chave_area}", label_visibility="collapsed"
+                    )
+
+                with col3:
+                    if st.button("➕ Adicionar", key=f"add_{chave_area}", use_container_width=True):
+                        if servico_selecionado:
+                            st.session_state.servicos_para_adicionar.append(
+                                {"area": nome_area, "tipo": servico_selecionado, "qtd": quantidade}
+                            )
+                            st.rerun()
+                        else:
+                            st.warning("Selecione um serviço para adicionar.")
+
+            area_de_servico("Borracharia", "borracharia")
+            area_de_servico("Alinhamento", "alinhamento")
+            area_de_servico("Mecânica", "manutencao")
+
+            st.markdown("---")
+
+            if st.session_state.servicos_para_adicionar:
+                st.subheader("Serviços na Lista:")
+                for i, servico in enumerate(st.session_state.servicos_para_adicionar):
+                    col_serv, col_qtd, col_del = st.columns([0.7, 0.15, 0.15])
+                    col_serv.write(f"**{servico['area']}**: {servico['tipo']}")
+                    col_qtd.write(f"Qtd: {servico['qtd']}")
+                    if col_del.button("❌ Remover", key=f"del_{i}", use_container_width=True):
+                        st.session_state.servicos_para_adicionar.pop(i)
+                        st.rerun()
+
+            observacao_geral = st.text_area("📝 Observações gerais")
+
+            st.markdown("---")
+
             observacao_final = diagnostico_gerado
-        
-        # Processar cadastro
-        sucesso, msg = processar_cadastro_completo(
-            st.session_state,
-            observacao_final=observacao_final,
-            diagnostico_gerado=diagnostico_gerado
-        )
-        
-        if not sucesso:
-            st.error(msg)
+            if observacao_geral.strip():
+                observacao_final += "\n\n" + observacao_geral
+
+            if st.button("🚀 CADASTRAR e NOTIFICAR", type="primary", use_container_width=True):
+                if not st.session_state.servicos_para_adicionar:
+                    st.warning("⚠️ Nenhum serviço foi adicionado à lista.")
+                elif not state["quilometragem"] or state["quilometragem"] <= 0:
+                    st.error("❌ A quilometragem é obrigatória.")
+                else:
+                    sucesso, mensagem = processar_cadastro_completo(state, observacao_final, diagnostico_gerado)
+                    if sucesso:
+                        st.rerun()
+                    else:
+                        st.error(mensagem)
+
         else:
-            st.success(msg)
-            # Limpar formulário
-            if st.button("🔄 Novo Cadastro"):
-                st.session_state.clear()
+            st.warning("Veículo não encontrado no banco de dados.")
+
+            if st.button("🔎 Buscar na API", use_container_width=True):
+                with st.spinner("Consultando API..."):
+                    sucesso, resultado = consultar_placa_comercial(state["placa_input"])
+                    if sucesso:
+                        st.session_state.api_vehicle_data = resultado
+                    else:
+                        st.error(resultado)
+                    st.rerun()
+
+            if 'api_vehicle_data' in st.session_state:
+                api_data = st.session_state.api_vehicle_data
+                with st.container(border=True):
+                    st.subheader("Dados da API")
+                    st.markdown(f"**Modelo:** `{api_data.get('modelo', 'N/A')}`")
+                    st.markdown(f"**Ano:** `{api_data.get('anoModelo', 'N/A')}`")
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        if st.button("✅ Aceitar", use_container_width=True, type="primary"):
+                            st.session_state.modelo_aceito = api_data.get('modelo')
+                            st.session_state.ano_aceito = api_data.get('anoModelo')
+                            del st.session_state.api_vehicle_data
+                            st.rerun()
+
+                    with c2:
+                        if st.button("❌ Cancelar", use_container_width=True):
+                            del st.session_state.api_vehicle_data
+                            st.rerun()
+
+            if not st.session_state.get('api_vehicle_data'):
+                with st.expander("Cadastrar Novo Veículo", expanded=True):
+                    st.subheader("Vincular a uma Empresa")
+                    busca_empresa = st.text_input("Digite para buscar empresa", value=st.session_state.get("busca_empresa_novo", ""))
+
+                    if busca_empresa != st.session_state.get("busca_empresa_novo"):
+                        st.session_state.busca_empresa_novo = busca_empresa
+                        st.rerun()
+
+                    cliente_id_selecionado = None
+                    nome_empresa_final = st.session_state.busca_empresa_novo
+
+                    if len(st.session_state.busca_empresa_novo) >= 3:
+                        resultados_busca = buscar_clientes_por_similaridade(st.session_state.busca_empresa_novo)
+                        if resultados_busca:
+                            opcoes_cliente = {}
+                            for id_cliente, nome_empresa, nome_fantasia in resultados_busca:
+                                texto_exibicao = nome_empresa
+                                if nome_fantasia and nome_fantasia.strip() and nome_fantasia.lower() != nome_empresa.lower():
+                                    texto_exibicao += f" (Fantasia: {nome_fantasia})"
+                                opcoes_cliente[texto_exibicao] = id_cliente
+
+                            opcoes_cliente[f"Cadastrar '{st.session_state.busca_empresa_novo}'"] = None
+
+                            cliente_selecionado_str = st.selectbox("Selecione ou cadastre nova empresa:", options=list(opcoes_cliente.keys()))
+                            cliente_id_selecionado = opcoes_cliente[cliente_selecionado_str]
+
+                            if cliente_id_selecionado:
+                                nome_empresa_final = next((item[1] for item in resultados_busca if item[0] == cliente_id_selecionado), st.session_state.busca_empresa_novo)
+
+                    with st.form("form_novo_veiculo_rapido"):
+                        st.markdown("---")
+                        st.subheader("Dados do Veículo")
+
+                        modelo_aceito = st.session_state.get('modelo_aceito', '')
+                        ano_aceito_str = st.session_state.get('ano_aceito', '')
+
+                        modelo = st.text_input("Modelo do Veículo *", value=modelo_aceito)
+
+                        try:
+                            default_year = int(ano_aceito_str) if ano_aceito_str else datetime.now().year
+                        except (ValueError, TypeError):
+                            default_year = datetime.now().year
+
+                        ano_modelo = st.number_input("Ano do Modelo", min_value=1950, max_value=datetime.now().year + 2, value=default_year, step=1)
+                        nome_motorista = st.text_input("Nome do Motorista")
+                        contato_motorista = st.text_input("Contato do Motorista")
+
+                        if st.form_submit_button("Cadastrar e Continuar"):
+                            if not all([nome_empresa_final, modelo]):
+                                st.warning("Empresa e Modelo são obrigatórios.")
+                            else:
+                                placa_formatada = formatar_placa(state["placa_input"])
+                                contato_formatado = formatar_telefone(contato_motorista)
+
+                                conn = get_connection()
+                                if conn:
+                                    try:
+                                        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                                            if not cliente_id_selecionado and nome_empresa_final:
+                                                cursor.execute("INSERT INTO clientes (nome_empresa) VALUES (%s) RETURNING id", (nome_empresa_final,))
+                                                cliente_id_selecionado = cursor.fetchone()['id']
+
+                                            query_insert = "INSERT INTO veiculos (placa, empresa, modelo, ano_modelo, nome_motorista, contato_motorista, cliente_id, data_entrada, data_atualizacao_contato) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW());"
+
+                                            cursor.execute(
+                                                query_insert,
+                                                (
+                                                    placa_formatada, nome_empresa_final, modelo,
+                                                    ano_modelo if ano_modelo > 1950 else None,
+                                                    nome_motorista, contato_formatado,
+                                                    cliente_id_selecionado, datetime.now(MS_TZ)
+                                                )
+                                            )
+
+                                            conn.commit()
+                                            st.success("🚚 Veículo cadastrado com sucesso!")
+                                            state['search_triggered'] = False
+                                            for key in ['modelo_aceito', 'ano_aceito']:
+                                                if key in st.session_state:
+                                                    del st.session_state[key]
+                                            st.rerun()
+                                    finally:
+                                        release_connection(conn)
+
+        if state.get("placa_input"):
+            if st.button("Limpar e Iniciar Nova Busca"):
+                keys_to_delete = [
+                    'cadastro_servico_state', 'servicos_para_adicionar', 'api_vehicle_data',
+                    'modelo_aceito', 'ano_aceito', 'show_edit_form', 'show_edit_responsavel_form',
+                    'busca_empresa_edit', 'busca_empresa_novo', 'last_selected_client_id_edit',
+                    'details_responsavel_edit', 'editing_responsavel',
+                    'diag_puxando', 'diag_passarinhando', 'diag_pneu_esquerdo',
+                    'diag_pneu_direito', 'diag_vibracao',
+                    'num_eixos'
+                ]
+                # Adiciona chaves de eixos dinâmicos para limpeza
+                for k in list(st.session_state.keys()):
+                    if k.startswith("check_alinhar_eixo_") or k.startswith("desgaste_eixo_"):
+                        keys_to_delete.append(k)
+
+                for key in keys_to_delete:
+                    if key in st.session_state:
+                        del st.session_state[key]
                 st.rerun()
 
 
-# Executa a aplicação
 if __name__ == "__main__":
     app()
