@@ -1,7 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
-# /pages/cadastro_servico.py - VERSÃO ATUALIZADA (EIXOS DINÂMICOS)
 
 import streamlit as st
 import streamlit.components.v1 as components
