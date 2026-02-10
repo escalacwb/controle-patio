@@ -10,3 +10,6 @@ requests
 streamlit-autorefresh
 streamlit-js-eval
 openai>=1.0.0
+fastapi
+uvicorn
+python-jose[cryptography]
